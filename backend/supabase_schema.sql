@@ -1,0 +1,17 @@
+create extension if not exists pgcrypto;
+
+create table if not exists public.recipe_imports (
+  id uuid primary key default gen_random_uuid(),
+  submitted_url text not null,
+  final_url text not null,
+  page_title text,
+  recipe_count integer not null default 0,
+  recipes_json jsonb not null,
+  created_at timestamptz not null default timezone('utc', now())
+);
+
+create index if not exists recipe_imports_created_at_idx
+  on public.recipe_imports (created_at desc);
+
+create index if not exists recipe_imports_submitted_url_idx
+  on public.recipe_imports (submitted_url);

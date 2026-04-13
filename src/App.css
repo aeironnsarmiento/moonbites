@@ -1,0 +1,144 @@
+.app-shell {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+.url-card {
+  width: min(100%, 720px);
+  padding: 40px;
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  text-align: left;
+  backdrop-filter: blur(14px);
+}
+
+.eyebrow {
+  margin-bottom: 14px;
+  color: var(--accent);
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.subtitle {
+  max-width: 44ch;
+  margin-bottom: 28px;
+  font-size: 1rem;
+}
+
+.url-form {
+  display: grid;
+  gap: 12px;
+}
+
+.input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+}
+
+.url-label {
+  color: var(--text-h);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.url-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--input-border);
+  border-radius: 18px;
+  background: var(--input-bg);
+  color: var(--text-h);
+  padding: 18px 20px;
+  font: inherit;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.url-input::placeholder {
+  color: var(--text-soft);
+}
+
+.url-input:hover {
+  border-color: var(--accent-border);
+}
+
+.url-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-glow);
+  transform: translateY(-1px);
+}
+
+.submit-button {
+  border: none;
+  border-radius: 18px;
+  padding: 0 20px;
+  min-height: 60px;
+  font: inherit;
+  font-weight: 700;
+  color: white;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  box-shadow: 0 16px 32px var(--accent-shadow);
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.submit-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 36px var(--accent-shadow);
+}
+
+.submit-button:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+.status-message {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-size: 0.95rem;
+}
+
+.success-message {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.error-message,
+.parse-error {
+  color: var(--error-text);
+  background: var(--error-bg);
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    padding: 20px;
+  }
+
+  .url-card {
+    padding: 28px 22px;
+    border-radius: 22px;
+  }
+
+  .input-row {
+    grid-template-columns: 1fr;
+  }
+
+  .submit-button {
+    min-height: 52px;
+  }
+}

@@ -1,0 +1,16 @@
+.urlPasteForm {
+  width: 100%;
+
+  &__eyebrow {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #7c9446;
+  }
+
+  &__form {
+    display: grid;
+    gap: 1rem;
+  }
+}

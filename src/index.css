@@ -1,0 +1,19 @@
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    radial-gradient(circle at top, rgba(156, 177, 96, 0.18), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
+    #f5f7fb;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
