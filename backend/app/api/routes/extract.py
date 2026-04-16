@@ -25,7 +25,9 @@ async def extract_ld_json(payload: ExtractRequest) -> ExtractResponse:
         )
     else:
         database_saved = False
-        database_message = "Nothing was saved because no Recipe objects were found on that page."
+        database_message = (
+            "Nothing was saved because no Recipe objects were found on that page."
+        )
 
     return ExtractResponse(
         source_url=result.source_url,
