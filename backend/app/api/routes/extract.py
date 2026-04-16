@@ -16,12 +16,16 @@ async def health_check() -> dict[str, str]:
 @router.post("/extract", response_model=ExtractResponse)
 async def extract_ld_json(payload: ExtractRequest) -> ExtractResponse:
     result = await extract_recipes_from_url(payload.url)
-    database_saved, database_message = save_recipe_import(
-        submitted_url=result.source_url,
-        final_url=result.final_url,
-        title=result.title,
-        recipes=result.recipes,
-    )
+    if result.recipes:
+        database_saved, database_message = save_recipe_import(
+            submitted_url=result.source_url,
+            final_url=result.final_url,
+            title=result.title,
+            recipes=result.recipes,
+        )
+    else:
+        database_saved = False
+        database_message = "Nothing was saved because no Recipe objects were found on that page."
 
     return ExtractResponse(
         source_url=result.source_url,

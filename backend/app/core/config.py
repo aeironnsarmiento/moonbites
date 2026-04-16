@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -16,8 +17,8 @@ DEFAULT_SUPABASE_TABLE = "recipe_imports"
 @dataclass(frozen=True)
 class Settings:
     request_timeout_seconds: float
-    supabase_url: str | None
-    supabase_service_role_key: str | None
+    supabase_url: Optional[str]
+    supabase_service_role_key: Optional[str]
     supabase_table_name: str
     cors_origins: tuple[str, ...]
     user_agent: str
@@ -28,9 +29,12 @@ class Settings:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     cors_origins_value = os.getenv("BACKEND_CORS_ORIGINS", "")
-    cors_origins = tuple(
-        origin.strip() for origin in cors_origins_value.split(",") if origin.strip()
-    ) or DEFAULT_CORS_ORIGINS
+    cors_origins = (
+        tuple(
+            origin.strip() for origin in cors_origins_value.split(",") if origin.strip()
+        )
+        or DEFAULT_CORS_ORIGINS
+    )
 
     return Settings(
         request_timeout_seconds=float(os.getenv("REQUEST_TIMEOUT_SECONDS", "15.0")),

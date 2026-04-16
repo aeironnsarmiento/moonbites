@@ -1,10 +1,10 @@
 import re
-from typing import Any
+from typing import Any, Optional
 
 from bs4 import BeautifulSoup
 
 
-def clean_text(value: Any) -> str | None:
+def clean_text(value: Any) -> Optional[str]:
     if value is None:
         return None
 

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -10,10 +10,10 @@ class ExtractRequest(BaseModel):
 
 class NormalizedRecipe(BaseModel):
     name: str
-    recipeYield: str | None
-    cookTime: str | None
-    recipeCuisine: list[str] | None
-    nutrition: dict[str, str] | None
+    recipeYield: Optional[str] = None
+    cookTime: Optional[str] = None
+    recipeCuisine: Optional[list[str]] = None
+    nutrition: Optional[dict[str, str]] = None
     ingredients: list[str]
     instructions: list[str]
 
@@ -21,18 +21,18 @@ class NormalizedRecipe(BaseModel):
 class ExtractResponse(BaseModel):
     source_url: str
     final_url: str
-    title: str | None
+    title: Optional[str] = None
     recipe_count: int
     recipes: list[NormalizedRecipe]
     database_saved: bool
-    database_message: str | None
+    database_message: Optional[str] = None
 
 
 class RecipeImportRecord(BaseModel):
     id: str
     submitted_url: str
     final_url: str
-    page_title: str | None
+    page_title: Optional[str] = None
     recipe_count: int
     recipes_json: list[NormalizedRecipe]
     created_at: datetime
@@ -49,5 +49,5 @@ class PaginatedRecipeImportsResponse(BaseModel):
 class JsonLdBlock(BaseModel):
     index: int
     raw: str
-    parsed: Any | None
-    parse_error: str | None
+    parsed: Optional[Any] = None
+    parse_error: Optional[str] = None

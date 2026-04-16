@@ -1,5 +1,7 @@
 import re
-from typing import Any
+from hashlib import sha256
+from json import dumps
+from typing import Any, Optional
 
 from backend.app.schemas.extract import NormalizedRecipe
 from backend.app.utils.text import clean_text, unique_strings
@@ -53,7 +55,7 @@ def collect_recipe_nodes(payload: Any) -> list[Any]:
     return recipes
 
 
-def normalize_recipe_yield(value: Any) -> str | None:
+def normalize_recipe_yield(value: Any) -> Optional[str]:
     if isinstance(value, list):
         candidates = unique_strings(
             [cleaned for item in value if (cleaned := clean_text(item))]
@@ -65,11 +67,13 @@ def normalize_recipe_yield(value: Any) -> str | None:
     if not candidates:
         return None
 
-    descriptive = [candidate for candidate in candidates if re.search(r"[A-Za-z]", candidate)]
+    descriptive = [
+        candidate for candidate in candidates if re.search(r"[A-Za-z]", candidate)
+    ]
     return descriptive[0] if descriptive else candidates[0]
 
 
-def parse_iso_duration(value: str) -> str | None:
+def parse_iso_duration(value: str) -> Optional[str]:
     pattern = re.compile(
         r"^P(?:(?P<days>\d+)D)?(?:T(?:(?P<hours>\d+)H)?(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+)S)?)?$"
     )
@@ -96,7 +100,7 @@ def parse_iso_duration(value: str) -> str | None:
     return ", ".join(parts) if parts else None
 
 
-def normalize_cook_time(value: Any) -> str | None:
+def normalize_cook_time(value: Any) -> Optional[str]:
     if isinstance(value, list):
         for item in value:
             normalized = normalize_cook_time(item)
@@ -111,7 +115,7 @@ def normalize_cook_time(value: Any) -> str | None:
     return parse_iso_duration(cleaned) or cleaned
 
 
-def normalize_nutrition(value: Any) -> dict[str, str] | None:
+def normalize_nutrition(value: Any) -> Optional[dict[str, str]]:
     if not isinstance(value, dict):
         return None
 
@@ -170,7 +174,7 @@ def extract_instruction_lines(value: Any) -> list[str]:
     return unique_strings(instructions)
 
 
-def normalize_recipe(recipe: Any) -> NormalizedRecipe | None:
+def normalize_recipe(recipe: Any) -> Optional[NormalizedRecipe]:
     if not isinstance(recipe, dict):
         return None
 
@@ -192,3 +196,35 @@ def normalize_recipe(recipe: Any) -> NormalizedRecipe | None:
         ingredients=ingredients,
         instructions=instructions,
     )
+
+
+def build_recipe_fingerprint(recipe: NormalizedRecipe) -> str:
+    normalized_payload = {
+        "cookTime": recipe.cookTime,
+        "ingredients": recipe.ingredients,
+        "instructions": recipe.instructions,
+        "name": recipe.name.casefold(),
+        "nutrition": recipe.nutrition,
+        "recipeCuisine": recipe.recipeCuisine,
+        "recipeYield": recipe.recipeYield,
+    }
+
+    serialized = dumps(normalized_payload, ensure_ascii=False, sort_keys=True)
+    return sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def dedupe_normalized_recipes(
+    recipes: list[NormalizedRecipe],
+) -> list[NormalizedRecipe]:
+    seen: set[str] = set()
+    unique_recipes: list[NormalizedRecipe] = []
+
+    for recipe in recipes:
+        fingerprint = build_recipe_fingerprint(recipe)
+        if fingerprint in seen:
+            continue
+
+        seen.add(fingerprint)
+        unique_recipes.append(recipe)
+
+    return unique_recipes

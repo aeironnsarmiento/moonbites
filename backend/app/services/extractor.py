@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from typing import Optional
 
 import httpx
 from bs4 import BeautifulSoup
@@ -7,14 +8,18 @@ from fastapi import HTTPException
 
 from backend.app.core.config import get_settings
 from backend.app.schemas.extract import JsonLdBlock, NormalizedRecipe
-from backend.app.services.normalizer import collect_recipe_nodes, normalize_recipe
+from backend.app.services.normalizer import (
+    collect_recipe_nodes,
+    dedupe_normalized_recipes,
+    normalize_recipe,
+)
 
 
-@dataclass(slots=True)
+@dataclass
 class ExtractionResult:
     source_url: str
     final_url: str
-    title: str | None
+    title: Optional[str]
     recipes: list[NormalizedRecipe]
 
 
@@ -33,7 +38,7 @@ def normalize_url(value: str) -> str:
     return normalized
 
 
-def extract_json_ld_blocks(html: str) -> tuple[str | None, list[JsonLdBlock]]:
+def extract_json_ld_blocks(html: str) -> tuple[Optional[str], list[JsonLdBlock]]:
     soup = BeautifulSoup(html, "html.parser")
     title = soup.title.string.strip() if soup.title and soup.title.string else None
     blocks: list[JsonLdBlock] = []
@@ -52,7 +57,9 @@ def extract_json_ld_blocks(html: str) -> tuple[str | None, list[JsonLdBlock]]:
 
         if not content:
             blocks.append(
-                JsonLdBlock(index=index, raw="", parsed=None, parse_error="Empty script block")
+                JsonLdBlock(
+                    index=index, raw="", parsed=None, parse_error="Empty script block"
+                )
             )
             continue
 
@@ -91,7 +98,9 @@ async def extract_recipes_from_url(url: str) -> ExtractionResult:
             response = await client.get(target_url)
             response.raise_for_status()
     except httpx.TimeoutException as error:
-        raise HTTPException(status_code=504, detail="Request to target URL timed out") from error
+        raise HTTPException(
+            status_code=504, detail="Request to target URL timed out"
+        ) from error
     except httpx.HTTPStatusError as error:
         status_code = error.response.status_code
         raise HTTPException(
@@ -113,6 +122,8 @@ async def extract_recipes_from_url(url: str) -> ExtractionResult:
                 normalized = normalize_recipe(recipe)
                 if normalized is not None:
                     recipes.append(normalized)
+
+    recipes = dedupe_normalized_recipes(recipes)
 
     return ExtractionResult(
         source_url=target_url,
