@@ -33,6 +33,10 @@ function mapRecipeImportToCard(record: RecipeImportRecord): RecipeCardItem {
 
 export async function getRecipeListPage(page: number, pageSize: number) {
   const response = await fetchRecipeImports(page, pageSize);
+  if (!response || !Array.isArray(response.items)) {
+    throw new Error("Recipes API returned an invalid list response.");
+  }
+
   const items = dedupeRecipeImports(response.items);
 
   return {
@@ -43,6 +47,11 @@ export async function getRecipeListPage(page: number, pageSize: number) {
 
 export async function getRecipeImportDetail(recipeImportId: string) {
   const record = await fetchRecipeImportById(recipeImportId);
+
+  if (!record || !Array.isArray(record.recipes_json)) {
+    throw new Error("Recipes API returned an invalid detail response.");
+  }
+
   return dedupeRecipeImportRecord(record);
 }
 
