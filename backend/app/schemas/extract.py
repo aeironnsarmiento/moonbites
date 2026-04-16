@@ -8,6 +8,10 @@ class ExtractRequest(BaseModel):
     url: str = Field(..., min_length=1, max_length=2048)
 
 
+class UpdateTimesCookedRequest(BaseModel):
+    delta: int = Field(...)
+
+
 class NormalizedRecipe(BaseModel):
     name: str
     recipeYield: Optional[str] = None
@@ -34,6 +38,7 @@ class RecipeImportRecord(BaseModel):
     final_url: str
     page_title: Optional[str] = None
     recipe_count: int
+    times_cooked: int = 0
     recipes_json: list[NormalizedRecipe]
     created_at: datetime
 

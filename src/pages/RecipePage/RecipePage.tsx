@@ -15,7 +15,8 @@ import "./RecipePage.scss";
 
 export function RecipePage() {
   const { recipeImportId } = useParams();
-  const { error, isLoading, recipeImport } = useRecipeDetail(recipeImportId);
+  const { error, isLoading, isUpdatingTimesCooked, recipeImport, updateTimesCooked } =
+    useRecipeDetail(recipeImportId);
 
   return (
     <Stack spacing={8} className="recipePage">
@@ -56,6 +57,10 @@ export function RecipePage() {
               key={`${recipeImport.id}-${index}`}
               recipe={recipe}
               index={index + 1}
+              timesCooked={recipeImport.times_cooked}
+              isUpdatingTimesCooked={isUpdatingTimesCooked}
+              onAdjustTimesCooked={updateTimesCooked}
+              showTimesCookedControls={index === 0}
             />
           ))}
         </Stack>

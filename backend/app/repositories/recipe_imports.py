@@ -11,9 +11,7 @@ from ..services.normalizer import dedupe_normalized_recipes
 from ..utils.urls import canonicalize_url
 
 
-RECIPE_IMPORT_SELECT = (
-    "id, submitted_url, final_url, page_title, recipe_count, recipes_json, created_at"
-)
+RECIPE_IMPORT_SELECT = "id, submitted_url, final_url, page_title, recipe_count, times_cooked, recipes_json, created_at"
 
 
 def _sanitize_record(record: dict) -> RecipeImportRecord:
@@ -26,6 +24,7 @@ def _sanitize_record(record: dict) -> RecipeImportRecord:
     normalized_record = {
         **record,
         "recipe_count": len(unique_recipes),
+        "times_cooked": record.get("times_cooked", 0),
         "recipes_json": [recipe.model_dump() for recipe in unique_recipes],
     }
 
@@ -108,6 +107,7 @@ def save_recipe_import(
         "final_url": final_url,
         "page_title": title,
         "recipe_count": len(unique_recipes),
+        "times_cooked": 0,
         "recipes_json": [recipe.model_dump() for recipe in unique_recipes],
     }
 
@@ -173,3 +173,32 @@ def get_recipe_import(recipe_import_id: str) -> Optional[RecipeImportRecord]:
         return None
 
     return _sanitize_record(records[0])
+
+
+def update_times_cooked(
+    recipe_import_id: str, delta: int
+) -> Optional[RecipeImportRecord]:
+    settings = get_settings()
+    client = get_supabase_client(settings)
+    if client is None:
+        raise RuntimeError(
+            "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
+        )
+
+    existing_record = get_recipe_import(recipe_import_id)
+    if existing_record is None:
+        return None
+
+    next_times_cooked = max(0, existing_record.times_cooked + delta)
+
+    try:
+        (
+            client.table(settings.supabase_table_name)
+            .update({"times_cooked": next_times_cooked})
+            .eq("id", recipe_import_id)
+            .execute()
+        )
+    except Exception as error:
+        raise RuntimeError(f"Supabase update failed: {error}") from error
+
+    return get_recipe_import(recipe_import_id)

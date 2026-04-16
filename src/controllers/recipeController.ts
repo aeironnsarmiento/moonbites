@@ -1,6 +1,7 @@
 import {
   fetchRecipeImportById,
   fetchRecipeImports,
+  updateRecipeImportTimesCooked,
 } from "../services/recipeService";
 import type { PaginatedRecipeImportsResponse } from "../types/api";
 import type { RecipeCardItem, RecipeImportRecord } from "../types/recipe";
@@ -27,6 +28,7 @@ function mapRecipeImportToCard(record: RecipeImportRecord): RecipeCardItem {
     submittedUrl: record.submitted_url,
     createdAtLabel: formatDate(record.created_at),
     recipeCount: record.recipe_count,
+    timesCooked: record.times_cooked,
     primaryRecipe,
   };
 }
@@ -50,6 +52,19 @@ export async function getRecipeImportDetail(recipeImportId: string) {
 
   if (!record || !Array.isArray(record.recipes_json)) {
     throw new Error("Recipes API returned an invalid detail response.");
+  }
+
+  return dedupeRecipeImportRecord(record);
+}
+
+export async function adjustRecipeImportTimesCooked(
+  recipeImportId: string,
+  delta: -1 | 1,
+) {
+  const record = await updateRecipeImportTimesCooked(recipeImportId, delta);
+
+  if (!record || !Array.isArray(record.recipes_json)) {
+    throw new Error("Recipes API returned an invalid update response.");
   }
 
   return dedupeRecipeImportRecord(record);

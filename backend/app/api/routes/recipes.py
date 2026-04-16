@@ -1,7 +1,15 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from ...repositories.recipe_imports import get_recipe_import, list_recipe_imports
-from ...schemas.extract import PaginatedRecipeImportsResponse, RecipeImportRecord
+from ...repositories.recipe_imports import (
+    get_recipe_import,
+    list_recipe_imports,
+    update_times_cooked,
+)
+from ...schemas.extract import (
+    PaginatedRecipeImportsResponse,
+    RecipeImportRecord,
+    UpdateTimesCookedRequest,
+)
 
 
 router = APIRouter(prefix="/api", tags=["recipes"])
@@ -24,6 +32,28 @@ async def get_saved_recipes(
 async def get_saved_recipe(recipe_import_id: str) -> RecipeImportRecord:
     try:
         record = get_recipe_import(recipe_import_id)
+    except RuntimeError as error:
+        message = str(error)
+        status_code = 503 if "not configured" in message else 502
+        raise HTTPException(status_code=status_code, detail=message) from error
+
+    if record is None:
+        raise HTTPException(status_code=404, detail="Recipe import not found")
+
+    return record
+
+
+@router.patch(
+    "/recipes/{recipe_import_id}/times-cooked", response_model=RecipeImportRecord
+)
+async def patch_times_cooked(
+    recipe_import_id: str, payload: UpdateTimesCookedRequest
+) -> RecipeImportRecord:
+    if payload.delta not in {-1, 1}:
+        raise HTTPException(status_code=400, detail="delta must be -1 or 1")
+
+    try:
+        record = update_times_cooked(recipe_import_id, payload.delta)
     except RuntimeError as error:
         message = str(error)
         status_code = 503 if "not configured" in message else 502

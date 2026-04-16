@@ -25,7 +25,11 @@ export function RecipeCard({ item }: RecipeCardProps) {
         <CardBody>
           <Stack spacing={4}>
             <HStack justify="space-between" align="start">
-              <Badge colorScheme="brand">{item.recipeCount} saved</Badge>
+              {item.timesCooked > 0 ? (
+                <Badge colorScheme="brand">Cooked {item.timesCooked}x</Badge>
+              ) : (
+                <span />
+              )}
               <Text fontSize="sm" color="gray.500">
                 {item.createdAtLabel}
               </Text>

@@ -14,6 +14,7 @@ export type RecipeImportRecord = {
   final_url: string;
   page_title: string | null;
   recipe_count: number;
+  times_cooked: number;
   recipes_json: NormalizedRecipe[];
   created_at: string;
 };
@@ -25,5 +26,6 @@ export type RecipeCardItem = {
   submittedUrl: string;
   createdAtLabel: string;
   recipeCount: number;
+  timesCooked: number;
   primaryRecipe: NormalizedRecipe | null;
 };

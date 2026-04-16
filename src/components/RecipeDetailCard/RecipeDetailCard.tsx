@@ -1,8 +1,12 @@
 import {
+  Badge,
+  Button,
+  ButtonGroup,
   Card,
   CardBody,
   Divider,
   Heading,
+  HStack,
   ListItem,
   OrderedList,
   SimpleGrid,
@@ -17,9 +21,20 @@ import "./RecipeDetailCard.scss";
 type RecipeDetailCardProps = {
   recipe: NormalizedRecipe;
   index: number;
+  timesCooked: number;
+  isUpdatingTimesCooked?: boolean;
+  onAdjustTimesCooked?: (delta: -1 | 1) => Promise<void>;
+  showTimesCookedControls?: boolean;
 };
 
-export function RecipeDetailCard({ recipe, index }: RecipeDetailCardProps) {
+export function RecipeDetailCard({
+  recipe,
+  index,
+  timesCooked,
+  isUpdatingTimesCooked = false,
+  onAdjustTimesCooked,
+  showTimesCookedControls = false,
+}: RecipeDetailCardProps) {
   const metadataItems = [
     recipe.recipeYield ? { label: "Yield", value: recipe.recipeYield } : null,
     recipe.cookTime ? { label: "Cook time", value: recipe.cookTime } : null,
@@ -28,14 +43,44 @@ export function RecipeDetailCard({ recipe, index }: RecipeDetailCardProps) {
       : null,
   ].filter((item): item is { label: string; value: string } => item !== null);
 
+  const handleAdjustTimesCooked =
+    (delta: -1 | 1) => async () => {
+      await onAdjustTimesCooked?.(delta);
+    };
+
   return (
     <Card className="recipeDetailCard">
       <CardBody>
         <Stack spacing={6}>
           <Stack spacing={2}>
-            <Text color="brand.600" fontWeight="700" fontSize="sm">
-              Recipe {index}
-            </Text>
+            <HStack justify="space-between" align="start" wrap="wrap">
+              <Text color="brand.600" fontWeight="700" fontSize="sm">
+                Recipe {index}
+              </Text>
+              {showTimesCookedControls ? (
+                <HStack spacing={2}>
+                  {timesCooked > 0 ? (
+                    <Badge colorScheme="brand">Cooked {timesCooked}x</Badge>
+                  ) : null}
+                  <ButtonGroup isAttached size="sm" variant="outline">
+                    <Button
+                      aria-label={`Decrease cooked count for ${recipe.name}`}
+                      onClick={handleAdjustTimesCooked(-1)}
+                      isDisabled={isUpdatingTimesCooked || timesCooked <= 0}
+                    >
+                      -
+                    </Button>
+                    <Button
+                      aria-label={`Increase cooked count for ${recipe.name}`}
+                      onClick={handleAdjustTimesCooked(1)}
+                      isLoading={isUpdatingTimesCooked}
+                    >
+                      +
+                    </Button>
+                  </ButtonGroup>
+                </HStack>
+              ) : null}
+            </HStack>
             <Heading size="lg">{recipe.name}</Heading>
             {metadataItems.length > 0 ? (
               <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
