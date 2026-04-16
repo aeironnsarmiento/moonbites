@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:backend": "py -m uvicorn backend.main:app --reload",
+    "dev:backend:mac": "python3 -m uvicorn backend.main:app --reload",
+    "dev:backend:win": "py -m uvicorn backend.main:app --reload",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"

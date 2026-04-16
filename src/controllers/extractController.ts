@@ -38,8 +38,8 @@ import type { ExtractResponse } from "../types/api";
 export function buildExtractStatus(response: ExtractResponse) {
   const importMessage =
     response.recipe_count > 0
-      ? `Saved ${response.recipe_count} recipe${response.recipe_count === 1 ? "" : "s"}.`
-      : "Save complete. No Recipe objects were found on that page.";
+      ? `Found ${response.recipe_count} unique recipe${response.recipe_count === 1 ? "" : "s"}.`
+      : "No Recipe objects were found on that page, so nothing was saved.";
 
   const databaseMessage = response.database_message
     ? ` ${response.database_message}`

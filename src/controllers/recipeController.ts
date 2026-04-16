@@ -4,6 +4,10 @@ import {
 } from "../services/recipeService";
 import type { PaginatedRecipeImportsResponse } from "../types/api";
 import type { RecipeCardItem, RecipeImportRecord } from "../types/recipe";
+import {
+  dedupeRecipeImportRecord,
+  dedupeRecipeImports,
+} from "../utils/recipeDedup";
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
@@ -29,15 +33,17 @@ function mapRecipeImportToCard(record: RecipeImportRecord): RecipeCardItem {
 
 export async function getRecipeListPage(page: number, pageSize: number) {
   const response = await fetchRecipeImports(page, pageSize);
+  const items = dedupeRecipeImports(response.items);
 
   return {
     ...response,
-    items: response.items.map(mapRecipeImportToCard),
+    items: items.map(mapRecipeImportToCard),
   };
 }
 
 export async function getRecipeImportDetail(recipeImportId: string) {
-  return fetchRecipeImportById(recipeImportId);
+  const record = await fetchRecipeImportById(recipeImportId);
+  return dedupeRecipeImportRecord(record);
 }
 
 export type RecipeListPageData = Omit<
