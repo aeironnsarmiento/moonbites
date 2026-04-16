@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from backend.app.repositories.recipe_imports import get_recipe_import, list_recipe_imports
-from backend.app.schemas.extract import PaginatedRecipeImportsResponse, RecipeImportRecord
+from ...repositories.recipe_imports import get_recipe_import, list_recipe_imports
+from ...schemas.extract import PaginatedRecipeImportsResponse, RecipeImportRecord
 
 
 router = APIRouter(prefix="/api", tags=["recipes"])

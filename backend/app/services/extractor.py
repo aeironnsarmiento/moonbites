@@ -6,9 +6,9 @@ import httpx
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
-from backend.app.core.config import get_settings
-from backend.app.schemas.extract import JsonLdBlock, NormalizedRecipe
-from backend.app.services.normalizer import (
+from ..core.config import get_settings
+from ..schemas.extract import JsonLdBlock, NormalizedRecipe
+from .normalizer import (
     collect_recipe_nodes,
     dedupe_normalized_recipes,
     normalize_recipe,

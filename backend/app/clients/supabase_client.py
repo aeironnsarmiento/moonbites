@@ -3,7 +3,7 @@ from typing import Optional
 
 from supabase import Client, create_client
 
-from backend.app.core.config import Settings
+from ..core.config import Settings
 
 
 @lru_cache(maxsize=1)

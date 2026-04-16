@@ -1,8 +1,8 @@
 from fastapi import APIRouter
 
-from backend.app.repositories.recipe_imports import save_recipe_import
-from backend.app.schemas.extract import ExtractRequest, ExtractResponse
-from backend.app.services.extractor import extract_recipes_from_url
+from ...repositories.recipe_imports import save_recipe_import
+from ...schemas.extract import ExtractRequest, ExtractResponse
+from ...services.extractor import extract_recipes_from_url
 
 
 router = APIRouter(prefix="/api", tags=["extract"])

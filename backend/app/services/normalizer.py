@@ -3,8 +3,8 @@ from hashlib import sha256
 from json import dumps
 from typing import Any, Optional
 
-from backend.app.schemas.extract import NormalizedRecipe
-from backend.app.utils.text import clean_text, unique_strings
+from ..schemas.extract import NormalizedRecipe
+from ..utils.text import clean_text, unique_strings
 
 
 NUTRITION_KEY_MAP = {

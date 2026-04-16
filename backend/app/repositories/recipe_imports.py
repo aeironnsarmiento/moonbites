@@ -1,14 +1,14 @@
 from typing import Optional
 
-from backend.app.clients.supabase_client import get_supabase_client
-from backend.app.core.config import get_settings
-from backend.app.schemas.extract import (
+from ..clients.supabase_client import get_supabase_client
+from ..core.config import get_settings
+from ..schemas.extract import (
     NormalizedRecipe,
     PaginatedRecipeImportsResponse,
     RecipeImportRecord,
 )
-from backend.app.services.normalizer import dedupe_normalized_recipes
-from backend.app.utils.urls import canonicalize_url
+from ..services.normalizer import dedupe_normalized_recipes
+from ..utils.urls import canonicalize_url
 
 
 RECIPE_IMPORT_SELECT = (
