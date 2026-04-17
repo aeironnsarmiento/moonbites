@@ -8,6 +8,20 @@ export type NormalizedRecipe = {
   instructions: string[];
 };
 
+export type RecipeRowOverrides = Record<string, string>;
+
+export type RecipeTextOverrides = {
+  ingredients: RecipeRowOverrides;
+  instructions: RecipeRowOverrides;
+};
+
+export type RecipeOverridesMap = Record<string, RecipeTextOverrides>;
+
+export type UpdateRecipeOverridesPayload = {
+  recipeIndex: number;
+  overrides: RecipeTextOverrides;
+};
+
 export type RecipeImportRecord = {
   id: string;
   submitted_url: string;
@@ -16,6 +30,7 @@ export type RecipeImportRecord = {
   recipe_count: number;
   times_cooked: number;
   recipes_json: NormalizedRecipe[];
+  recipe_overrides_json: RecipeOverridesMap;
   created_at: string;
 };
 

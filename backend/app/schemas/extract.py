@@ -12,6 +12,16 @@ class UpdateTimesCookedRequest(BaseModel):
     delta: int = Field(...)
 
 
+class RecipeTextOverrides(BaseModel):
+    ingredients: dict[str, str] = Field(default_factory=dict)
+    instructions: dict[str, str] = Field(default_factory=dict)
+
+
+class UpdateRecipeOverridesRequest(BaseModel):
+    recipe_index: int = Field(..., ge=0)
+    overrides: RecipeTextOverrides
+
+
 class NormalizedRecipe(BaseModel):
     name: str
     recipeYield: Optional[str] = None
@@ -40,6 +50,7 @@ class RecipeImportRecord(BaseModel):
     recipe_count: int
     times_cooked: int = 0
     recipes_json: list[NormalizedRecipe]
+    recipe_overrides_json: dict[str, RecipeTextOverrides] = Field(default_factory=dict)
     created_at: datetime
 
 

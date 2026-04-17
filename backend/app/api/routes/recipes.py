@@ -3,11 +3,13 @@ from fastapi import APIRouter, HTTPException, Query
 from ...repositories.recipe_imports import (
     get_recipe_import,
     list_recipe_imports,
+    update_recipe_overrides,
     update_times_cooked,
 )
 from ...schemas.extract import (
     PaginatedRecipeImportsResponse,
     RecipeImportRecord,
+    UpdateRecipeOverridesRequest,
     UpdateTimesCookedRequest,
 )
 
@@ -54,6 +56,29 @@ async def patch_times_cooked(
 
     try:
         record = update_times_cooked(recipe_import_id, payload.delta)
+    except RuntimeError as error:
+        message = str(error)
+        status_code = 503 if "not configured" in message else 502
+        raise HTTPException(status_code=status_code, detail=message) from error
+
+    if record is None:
+        raise HTTPException(status_code=404, detail="Recipe import not found")
+
+    return record
+
+
+@router.patch("/recipes/{recipe_import_id}/overrides", response_model=RecipeImportRecord)
+async def patch_recipe_overrides(
+    recipe_import_id: str, payload: UpdateRecipeOverridesRequest
+) -> RecipeImportRecord:
+    try:
+        record = update_recipe_overrides(
+            recipe_import_id,
+            payload.recipe_index,
+            payload.overrides,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except RuntimeError as error:
         message = str(error)
         status_code = 503 if "not configured" in message else 502

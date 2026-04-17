@@ -6,12 +6,60 @@ from ..schemas.extract import (
     NormalizedRecipe,
     PaginatedRecipeImportsResponse,
     RecipeImportRecord,
+    RecipeTextOverrides,
 )
 from ..services.normalizer import dedupe_normalized_recipes
 from ..utils.urls import canonicalize_url
 
 
-RECIPE_IMPORT_SELECT = "id, submitted_url, final_url, page_title, recipe_count, times_cooked, recipes_json, created_at"
+RECIPE_IMPORT_SELECT = "id, submitted_url, final_url, page_title, recipe_count, times_cooked, recipes_json, recipe_overrides_json, created_at"
+
+
+def _sanitize_override_rows(rows: object) -> dict[str, str]:
+    if not isinstance(rows, dict):
+        return {}
+
+    sanitized_rows: dict[str, str] = {}
+    for row_index, value in rows.items():
+        try:
+            normalized_index = str(int(str(row_index)))
+        except (TypeError, ValueError):
+            continue
+
+        if value is None:
+            continue
+
+        sanitized_rows[normalized_index] = str(value)
+
+    return sanitized_rows
+
+
+def _sanitize_recipe_overrides(overrides: object) -> dict[str, dict[str, dict[str, str]]]:
+    if not isinstance(overrides, dict):
+        return {}
+
+    sanitized_overrides: dict[str, dict[str, dict[str, str]]] = {}
+    for recipe_index, sections in overrides.items():
+        try:
+            normalized_recipe_index = str(int(str(recipe_index)))
+        except (TypeError, ValueError):
+            continue
+
+        if not isinstance(sections, dict):
+            sections = {}
+
+        validated_sections = RecipeTextOverrides.model_validate(
+            {
+                "ingredients": _sanitize_override_rows(sections.get("ingredients")),
+                "instructions": _sanitize_override_rows(sections.get("instructions")),
+            }
+        )
+        normalized_sections = validated_sections.model_dump()
+
+        if normalized_sections["ingredients"] or normalized_sections["instructions"]:
+            sanitized_overrides[normalized_recipe_index] = normalized_sections
+
+    return sanitized_overrides
 
 
 def _sanitize_record(record: dict) -> RecipeImportRecord:
@@ -26,6 +74,9 @@ def _sanitize_record(record: dict) -> RecipeImportRecord:
         "recipe_count": len(unique_recipes),
         "times_cooked": record.get("times_cooked", 0),
         "recipes_json": [recipe.model_dump() for recipe in unique_recipes],
+        "recipe_overrides_json": _sanitize_recipe_overrides(
+            record.get("recipe_overrides_json") or {}
+        ),
     }
 
     return RecipeImportRecord.model_validate(normalized_record)
@@ -109,6 +160,7 @@ def save_recipe_import(
         "recipe_count": len(unique_recipes),
         "times_cooked": 0,
         "recipes_json": [recipe.model_dump() for recipe in unique_recipes],
+        "recipe_overrides_json": {},
     }
 
     try:
@@ -195,6 +247,52 @@ def update_times_cooked(
         (
             client.table(settings.supabase_table_name)
             .update({"times_cooked": next_times_cooked})
+            .eq("id", recipe_import_id)
+            .execute()
+        )
+    except Exception as error:
+        raise RuntimeError(f"Supabase update failed: {error}") from error
+
+    return get_recipe_import(recipe_import_id)
+
+
+def update_recipe_overrides(
+    recipe_import_id: str,
+    recipe_index: int,
+    overrides: RecipeTextOverrides,
+) -> Optional[RecipeImportRecord]:
+    settings = get_settings()
+    client = get_supabase_client(settings)
+    if client is None:
+        raise RuntimeError(
+            "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
+        )
+
+    existing_record = get_recipe_import(recipe_import_id)
+    if existing_record is None:
+        return None
+
+    if recipe_index >= len(existing_record.recipes_json):
+        raise ValueError("recipe_index is out of range")
+
+    next_overrides = _sanitize_recipe_overrides(existing_record.recipe_overrides_json)
+    recipe_key = str(recipe_index)
+    sanitized_override_entry = RecipeTextOverrides.model_validate(
+        {
+            "ingredients": _sanitize_override_rows(overrides.ingredients),
+            "instructions": _sanitize_override_rows(overrides.instructions),
+        }
+    ).model_dump()
+
+    if sanitized_override_entry["ingredients"] or sanitized_override_entry["instructions"]:
+        next_overrides[recipe_key] = sanitized_override_entry
+    else:
+        next_overrides.pop(recipe_key, None)
+
+    try:
+        (
+            client.table(settings.supabase_table_name)
+            .update({"recipe_overrides_json": next_overrides})
             .eq("id", recipe_import_id)
             .execute()
         )

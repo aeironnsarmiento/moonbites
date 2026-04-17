@@ -6,17 +6,42 @@ import {
   Stack,
   Text,
 } from "@chakra-ui/react";
+import { useState } from "react";
 import { Link as RouterLink, useParams } from "react-router-dom";
 
 import { RecipeDetailCard } from "../../components/RecipeDetailCard/RecipeDetailCard";
 import { StatusBanner } from "../../components/StatusBanner/StatusBanner";
 import { useRecipeDetail } from "../../hooks/useRecipeDetail";
+import type { RecipeTextOverrides } from "../../types/recipe";
 import "./RecipePage.scss";
 
 export function RecipePage() {
   const { recipeImportId } = useParams();
-  const { error, isLoading, isUpdatingTimesCooked, recipeImport, updateTimesCooked } =
-    useRecipeDetail(recipeImportId);
+  const [savingRecipeIndex, setSavingRecipeIndex] = useState<number | null>(
+    null,
+  );
+  const {
+    error,
+    isLoading,
+    isSavingOverrides,
+    isUpdatingTimesCooked,
+    recipeImport,
+    saveOverrides,
+    updateTimesCooked,
+  } = useRecipeDetail(recipeImportId);
+
+  const handleSaveOverrides = async (
+    recipeIndex: number,
+    overrides: RecipeTextOverrides,
+  ) => {
+    setSavingRecipeIndex(recipeIndex);
+
+    try {
+      await saveOverrides({ recipeIndex, overrides });
+    } finally {
+      setSavingRecipeIndex(null);
+    }
+  };
 
   return (
     <Stack spacing={8} className="recipePage">
@@ -56,10 +81,16 @@ export function RecipePage() {
             <RecipeDetailCard
               key={`${recipeImport.id}-${index}`}
               recipe={recipe}
+              recipeIndex={index}
               index={index + 1}
               timesCooked={recipeImport.times_cooked}
+              overrides={recipeImport.recipe_overrides_json[String(index)]}
               isUpdatingTimesCooked={isUpdatingTimesCooked}
+              isSavingOverrides={
+                isSavingOverrides && savingRecipeIndex === index
+              }
               onAdjustTimesCooked={updateTimesCooked}
+              onSaveOverrides={handleSaveOverrides}
               showTimesCookedControls={index === 0}
             />
           ))}

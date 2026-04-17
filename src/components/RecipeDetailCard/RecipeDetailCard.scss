@@ -4,4 +4,42 @@
   &__list {
     margin-left: 1.25rem;
   }
+
+  &__diff {
+    white-space: pre-wrap;
+
+    &--changed {
+      background: var(--chakra-colors-green-100);
+      border-radius: 0.25rem;
+      color: var(--chakra-colors-green-800);
+      cursor: help;
+      padding: 0 0.15rem;
+    }
+  }
+
+  &__editorRow {
+    background: var(--chakra-colors-gray-50);
+    border: 1px solid var(--chakra-colors-gray-200);
+    border-radius: 0.75rem;
+    padding: 0.75rem;
+    transition:
+      background-color 0.2s ease,
+      border-color 0.2s ease;
+
+    &--changed {
+      background: var(--chakra-colors-orange-50);
+      border-color: var(--chakra-colors-orange-300);
+    }
+  }
+
+  &__editor {
+    background: transparent;
+    border: none;
+    padding: 0;
+
+    &:focus-visible {
+      border: none;
+      box-shadow: none;
+    }
+  }
 }

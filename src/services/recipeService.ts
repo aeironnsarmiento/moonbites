@@ -1,6 +1,9 @@
 import { apiRequest } from "./apiClient";
 import type { PaginatedRecipeImportsResponse } from "../types/api";
-import type { RecipeImportRecord } from "../types/recipe";
+import type {
+  RecipeImportRecord,
+  UpdateRecipeOverridesPayload,
+} from "../types/recipe";
 
 export function fetchRecipeImports(
   page: number,
@@ -34,6 +37,25 @@ export function updateRecipeImportTimesCooked(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ delta }),
+    },
+  );
+}
+
+export function patchRecipeImportOverrides(
+  recipeImportId: string,
+  payload: UpdateRecipeOverridesPayload,
+): Promise<RecipeImportRecord> {
+  return apiRequest<RecipeImportRecord>(
+    `/api/recipes/${recipeImportId}/overrides`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        recipe_index: payload.recipeIndex,
+        overrides: payload.overrides,
+      }),
     },
   );
 }

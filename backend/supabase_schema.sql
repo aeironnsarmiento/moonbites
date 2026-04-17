@@ -8,11 +8,15 @@ create table if not exists public.recipe_imports (
   recipe_count integer not null default 0,
   times_cooked integer not null default 0,
   recipes_json jsonb not null,
+  recipe_overrides_json jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default timezone('utc', now())
 );
 
 alter table public.recipe_imports
   add column if not exists times_cooked integer not null default 0;
+
+alter table public.recipe_imports
+  add column if not exists recipe_overrides_json jsonb not null default '{}'::jsonb;
 
 create index if not exists recipe_imports_created_at_idx
   on public.recipe_imports (created_at desc);
