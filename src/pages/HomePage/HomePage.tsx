@@ -34,9 +34,14 @@ export function HomePage() {
           Imported recipes are saved to Supabase and can be browsed from the
           recipe list page.
         </Text>
-        <Button as={RouterLink} to="/recipes" variant="outline">
-          Browse recipe list
-        </Button>
+        <HStack wrap="wrap" spacing={3}>
+          <Button as={RouterLink} to="/recipes/create" colorScheme="brand">
+            Create recipe manually
+          </Button>
+          <Button as={RouterLink} to="/recipes" variant="outline">
+            Browse recipe list
+          </Button>
+        </HStack>
       </HStack>
     </Stack>
   );

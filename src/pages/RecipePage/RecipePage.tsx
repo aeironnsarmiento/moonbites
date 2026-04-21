@@ -15,6 +15,12 @@ import { useRecipeDetail } from "../../hooks/useRecipeDetail";
 import type { RecipeTextOverrides } from "../../types/recipe";
 import "./RecipePage.scss";
 
+function getSourceLabel(value: string) {
+  return value.trim().toLowerCase().startsWith("manual://")
+    ? "Manual recipe"
+    : value;
+}
+
 export function RecipePage() {
   const { recipeImportId } = useParams();
   const [savingRecipeIndex, setSavingRecipeIndex] = useState<number | null>(
@@ -62,7 +68,7 @@ export function RecipePage() {
         </HStack>
 
         {recipeImport ? (
-          <Text color="gray.500">Source: {recipeImport.submitted_url}</Text>
+          <Text color="gray.500">Source: {getSourceLabel(recipeImport.submitted_url)}</Text>
         ) : null}
       </Stack>
 

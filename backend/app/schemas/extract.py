@@ -17,6 +17,11 @@ class ExtractRequest(BaseModel):
     url: str = Field(..., min_length=1, max_length=2048)
 
 
+class CreateManualRecipeRequest(BaseModel):
+    recipe: "NormalizedRecipe"
+    title: Optional[str] = None
+
+
 class UpdateTimesCookedRequest(BaseModel):
     delta: int = Field(...)
 

@@ -3,10 +3,12 @@ from fastapi import APIRouter, HTTPException, Query
 from ...repositories.recipe_imports import (
     get_recipe_import,
     list_recipe_imports,
+    save_manual_recipe,
     update_recipe_overrides,
     update_times_cooked,
 )
 from ...schemas.extract import (
+    CreateManualRecipeRequest,
     PaginatedRecipeImportsResponse,
     RecipeImportRecord,
     UpdateRecipeOverridesRequest,
@@ -15,6 +17,16 @@ from ...schemas.extract import (
 
 
 router = APIRouter(prefix="/api", tags=["recipes"])
+
+
+@router.post("/recipes/manual", response_model=RecipeImportRecord)
+async def create_manual_recipe(payload: CreateManualRecipeRequest) -> RecipeImportRecord:
+    try:
+        return save_manual_recipe(payload.recipe, title=payload.title)
+    except RuntimeError as error:
+        message = str(error)
+        status_code = 503 if "not configured" in message else 502
+        raise HTTPException(status_code=status_code, detail=message) from error
 
 
 @router.get("/recipes", response_model=PaginatedRecipeImportsResponse)

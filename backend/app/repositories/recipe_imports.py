@@ -1,4 +1,5 @@
 from typing import Optional
+from uuid import uuid4
 
 from ..clients.supabase_client import get_supabase_client
 from ..core.config import get_settings
@@ -103,6 +104,14 @@ def _record_url_keys(record: RecipeImportRecord) -> set[str]:
     }
 
 
+def is_manual_recipe_url(value: str) -> bool:
+    return value.strip().lower().startswith("manual://")
+
+
+def _build_manual_recipe_url(manual_id: str) -> str:
+    return f"manual://{manual_id}"
+
+
 def _dedupe_recipe_import_records(
     records: list[RecipeImportRecord],
 ) -> list[RecipeImportRecord]:
@@ -169,6 +178,44 @@ def save_recipe_import(
         return False, f"Supabase save failed: {error}"
 
     return True, f"Saved to Supabase table '{settings.supabase_table_name}'."
+
+
+def save_manual_recipe(
+    recipe: NormalizedRecipe,
+    title: Optional[str] = None,
+) -> RecipeImportRecord:
+    settings = get_settings()
+    client = get_supabase_client(settings)
+    if client is None:
+        raise RuntimeError(
+            "Supabase is not configured yet. Add backend env vars to enable saving recipes."
+        )
+
+    manual_id = str(uuid4())
+    manual_url = _build_manual_recipe_url(manual_id)
+    page_title = title or f"Manual recipe: {recipe.name}"
+
+    payload = {
+        "id": manual_id,
+        "submitted_url": manual_url,
+        "final_url": manual_url,
+        "page_title": page_title,
+        "recipe_count": 1,
+        "times_cooked": 0,
+        "recipes_json": [recipe.model_dump()],
+        "recipe_overrides_json": {},
+    }
+
+    try:
+        client.table(settings.supabase_table_name).insert(payload).execute()
+    except Exception as error:
+        raise RuntimeError(f"Supabase save failed: {error}") from error
+
+    created_record = get_recipe_import(manual_id)
+    if created_record is None:
+        raise RuntimeError("Manual recipe was saved but could not be read back.")
+
+    return created_record
 
 
 def list_recipe_imports(page: int, page_size: int) -> PaginatedRecipeImportsResponse:

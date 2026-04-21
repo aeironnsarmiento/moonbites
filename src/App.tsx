@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { MainLayout } from "./layouts/MainLayout/MainLayout";
 import { HomePage } from "./pages/HomePage/HomePage";
+import { RecipeCreatePage } from "./pages/RecipeCreatePage/RecipeCreatePage";
 import { RecipeListPage } from "./pages/RecipeListPage/RecipeListPage";
 import { RecipePage } from "./pages/RecipePage/RecipePage";
 import "./App.scss";
@@ -12,6 +13,7 @@ function App() {
       <Routes>
         <Route element={<MainLayout />}>
           <Route path="/" element={<HomePage />} />
+          <Route path="/recipes/create" element={<RecipeCreatePage />} />
           <Route path="/recipes" element={<RecipeListPage />} />
           <Route path="/recipes/:recipeImportId" element={<RecipePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

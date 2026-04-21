@@ -1,4 +1,5 @@
 import {
+  createManualRecipeImport,
   fetchRecipeImportById,
   fetchRecipeImports,
   patchRecipeImportOverrides,
@@ -6,6 +7,7 @@ import {
 } from "../services/recipeService";
 import type { PaginatedRecipeImportsResponse } from "../types/api";
 import type {
+  NormalizedRecipe,
   RecipeCardItem,
   RecipeImportRecord,
   UpdateRecipeOverridesPayload,
@@ -14,6 +16,10 @@ import {
   dedupeRecipeImportRecord,
   dedupeRecipeImports,
 } from "../utils/recipeDedup";
+
+function isManualRecipeUrl(value: string) {
+  return value.trim().toLowerCase().startsWith("manual://");
+}
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
@@ -25,12 +31,13 @@ function formatDate(value: string) {
 
 function mapRecipeImportToCard(record: RecipeImportRecord): RecipeCardItem {
   const primaryRecipe = record.recipes_json[0] ?? null;
+  const manualRecord = isManualRecipeUrl(record.submitted_url);
 
   return {
     id: record.id,
     title: primaryRecipe?.name ?? record.page_title ?? "Untitled recipe import",
-    pageTitle: record.page_title,
-    submittedUrl: record.submitted_url,
+    pageTitle: manualRecord ? record.page_title ?? "Manual recipe" : record.page_title,
+    submittedUrl: manualRecord ? "Manual recipe" : record.submitted_url,
     createdAtLabel: formatDate(record.created_at),
     recipeCount: record.recipe_count,
     timesCooked: record.times_cooked,
@@ -57,6 +64,19 @@ export async function getRecipeImportDetail(recipeImportId: string) {
 
   if (!record || !Array.isArray(record.recipes_json)) {
     throw new Error("Recipes API returned an invalid detail response.");
+  }
+
+  return dedupeRecipeImportRecord(record);
+}
+
+export async function createManualRecipe(
+  recipe: NormalizedRecipe,
+  title?: string,
+) {
+  const record = await createManualRecipeImport(recipe, title);
+
+  if (!record || !Array.isArray(record.recipes_json)) {
+    throw new Error("Recipes API returned an invalid create response.");
   }
 
   return dedupeRecipeImportRecord(record);

@@ -1,6 +1,7 @@
 import { apiRequest } from "./apiClient";
 import type { PaginatedRecipeImportsResponse } from "../types/api";
 import type {
+  NormalizedRecipe,
   RecipeImportRecord,
   UpdateRecipeOverridesPayload,
 } from "../types/recipe";
@@ -23,6 +24,22 @@ export function fetchRecipeImportById(
   recipeImportId: string,
 ): Promise<RecipeImportRecord> {
   return apiRequest<RecipeImportRecord>(`/api/recipes/${recipeImportId}`);
+}
+
+export function createManualRecipeImport(
+  recipe: NormalizedRecipe,
+  title?: string,
+): Promise<RecipeImportRecord> {
+  return apiRequest<RecipeImportRecord>("/api/recipes/manual", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      recipe,
+      title: title?.trim() || null,
+    }),
+  });
 }
 
 export function updateRecipeImportTimesCooked(
