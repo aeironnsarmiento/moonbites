@@ -35,7 +35,9 @@ def _sanitize_override_rows(rows: object) -> dict[str, str]:
     return sanitized_rows
 
 
-def _sanitize_recipe_overrides(overrides: object) -> dict[str, dict[str, dict[str, str]]]:
+def _sanitize_recipe_overrides(
+    overrides: object,
+) -> dict[str, dict[str, dict[str, str]]]:
     if not isinstance(overrides, dict):
         return {}
 
@@ -331,7 +333,10 @@ def update_recipe_overrides(
         }
     ).model_dump()
 
-    if sanitized_override_entry["ingredients"] or sanitized_override_entry["instructions"]:
+    if (
+        sanitized_override_entry["ingredients"]
+        or sanitized_override_entry["instructions"]
+    ):
         next_overrides[recipe_key] = sanitized_override_entry
     else:
         next_overrides.pop(recipe_key, None)

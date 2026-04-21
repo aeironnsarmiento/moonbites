@@ -20,7 +20,9 @@ router = APIRouter(prefix="/api", tags=["recipes"])
 
 
 @router.post("/recipes/manual", response_model=RecipeImportRecord)
-async def create_manual_recipe(payload: CreateManualRecipeRequest) -> RecipeImportRecord:
+async def create_manual_recipe(
+    payload: CreateManualRecipeRequest,
+) -> RecipeImportRecord:
     try:
         return save_manual_recipe(payload.recipe, title=payload.title)
     except RuntimeError as error:
@@ -79,7 +81,9 @@ async def patch_times_cooked(
     return record
 
 
-@router.patch("/recipes/{recipe_import_id}/overrides", response_model=RecipeImportRecord)
+@router.patch(
+    "/recipes/{recipe_import_id}/overrides", response_model=RecipeImportRecord
+)
 async def patch_recipe_overrides(
     recipe_import_id: str, payload: UpdateRecipeOverridesRequest
 ) -> RecipeImportRecord:
