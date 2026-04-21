@@ -20,7 +20,11 @@ import {
 } from "@chakra-ui/react";
 import { useState } from "react";
 
-import type { NormalizedRecipe, RecipeTextOverrides } from "../../types/recipe";
+import type {
+  IngredientSection,
+  NormalizedRecipe,
+  RecipeTextOverrides,
+} from "../../types/recipe";
 import {
   applyRowOverrides,
   areRowsEqual,
@@ -109,6 +113,28 @@ function renderDiffText(
   });
 }
 
+
+function buildVisibleIngredientSections(
+  recipe: NormalizedRecipe,
+  visibleIngredients: string[],
+): IngredientSection[] | null {
+  if (!recipe.ingredientSections || recipe.ingredientSections.length === 0) {
+    return null;
+  }
+
+  let offset = 0;
+
+  return recipe.ingredientSections.map((section) => {
+    const items = visibleIngredients.slice(offset, offset + section.items.length);
+    offset += section.items.length;
+
+    return {
+      title: section.title,
+      items,
+    };
+  });
+}
+
 export function RecipeDetailCard({
   recipe,
   recipeIndex,
@@ -125,6 +151,10 @@ export function RecipeDetailCard({
   const visibleIngredients = applyRowOverrides(
     recipe.ingredients,
     savedOverrides.ingredients,
+  );
+  const visibleIngredientSections = buildVisibleIngredientSections(
+    recipe,
+    visibleIngredients,
   );
   const visibleInstructions = applyRowOverrides(
     recipe.instructions,
@@ -328,17 +358,58 @@ export function RecipeDetailCard({
                 setDraftIngredients,
               )
             ) : (
-              <UnorderedList spacing={2} className="recipeDetailCard__list">
-                {visibleIngredients.map((ingredient, rowIndex) => (
-                  <ListItem key={`ingredient-${rowIndex}`}>
-                    {renderDiffText(
-                      recipe.ingredients[rowIndex] ?? "",
-                      ingredient,
-                      `ingredient-${rowIndex}`,
-                    )}
-                  </ListItem>
-                ))}
-              </UnorderedList>
+              <>
+                {visibleIngredientSections ? (
+                  <Stack spacing={4}>
+                    {visibleIngredientSections.map((section, sectionIndex) => {
+                      const sectionStart = recipe.ingredientSections
+                        ?.slice(0, sectionIndex)
+                        .reduce((count, item) => count + item.items.length, 0) ?? 0;
+
+                      return (
+                        <Stack
+                          key={`${section.title ?? "ingredients"}-${sectionIndex}`}
+                          spacing={2}
+                        >
+                          {section.title ? (
+                            <Text fontWeight="700">{section.title}</Text>
+                          ) : null}
+                          <UnorderedList
+                            spacing={2}
+                            className="recipeDetailCard__list"
+                          >
+                            {section.items.map((ingredient, itemIndex) => {
+                              const rowIndex = sectionStart + itemIndex;
+
+                              return (
+                                <ListItem key={`ingredient-${rowIndex}`}>
+                                  {renderDiffText(
+                                    recipe.ingredients[rowIndex] ?? "",
+                                    ingredient,
+                                    `ingredient-${rowIndex}`,
+                                  )}
+                                </ListItem>
+                              );
+                            })}
+                          </UnorderedList>
+                        </Stack>
+                      );
+                    })}
+                  </Stack>
+                ) : (
+                  <UnorderedList spacing={2} className="recipeDetailCard__list">
+                    {visibleIngredients.map((ingredient, rowIndex) => (
+                      <ListItem key={`ingredient-${rowIndex}`}>
+                        {renderDiffText(
+                          recipe.ingredients[rowIndex] ?? "",
+                          ingredient,
+                          `ingredient-${rowIndex}`,
+                        )}
+                      </ListItem>
+                    ))}
+                  </UnorderedList>
+                )}
+              </>
             )}
           </Stack>
 

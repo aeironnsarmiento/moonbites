@@ -1,7 +1,16 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def _strip_ingredient_markers(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+
+    import re
+
+    return re.sub(r"^[\s•◦▪▫●○■□▢▣▤▥▦▧▨▩☐☑✓✔✗✘*-]+", "", value).strip()
 
 
 class ExtractRequest(BaseModel):
@@ -22,6 +31,18 @@ class UpdateRecipeOverridesRequest(BaseModel):
     overrides: RecipeTextOverrides
 
 
+class IngredientSection(BaseModel):
+    title: Optional[str] = None
+    items: list[str]
+
+    @field_validator("items", mode="before")
+    @classmethod
+    def sanitize_items(cls, value: Any) -> Any:
+        if isinstance(value, list):
+            return [_strip_ingredient_markers(item) for item in value]
+        return value
+
+
 class NormalizedRecipe(BaseModel):
     name: str
     recipeYield: Optional[str] = None
@@ -29,7 +50,15 @@ class NormalizedRecipe(BaseModel):
     recipeCuisine: Optional[list[str]] = None
     nutrition: Optional[dict[str, str]] = None
     ingredients: list[str]
+    ingredientSections: Optional[list[IngredientSection]] = None
     instructions: list[str]
+
+    @field_validator("ingredients", mode="before")
+    @classmethod
+    def sanitize_ingredients(cls, value: Any) -> Any:
+        if isinstance(value, list):
+            return [_strip_ingredient_markers(item) for item in value]
+        return value
 
 
 class ExtractResponse(BaseModel):

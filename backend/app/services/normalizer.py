@@ -3,7 +3,7 @@ from hashlib import sha256
 from json import dumps
 from typing import Any, Optional
 
-from ..schemas.extract import NormalizedRecipe
+from ..schemas.extract import IngredientSection, NormalizedRecipe
 from ..utils.text import clean_text, unique_strings
 
 
@@ -142,7 +142,143 @@ def normalize_string_list(value: Any) -> list[str]:
 
 
 def normalize_ingredients(value: Any) -> list[str]:
-    return normalize_string_list(value)
+    return unique_strings(_extract_ingredient_lines(value))
+
+
+def _clean_ingredient_text(value: Any) -> Optional[str]:
+    cleaned = clean_text(value)
+    if not cleaned:
+        return None
+
+    normalized = re.sub(r"^[\s•◦▪▫●○■□▢▣▤▥▦▧▨▩☐☑✓✔✗✘*-]+", "", cleaned)
+    return normalized.strip() or None
+
+
+def _format_property_value_ingredient(value: dict[str, Any]) -> Optional[str]:
+    quantity = _clean_ingredient_text(value.get("value"))
+    unit = _clean_ingredient_text(value.get("unitText") or value.get("unitCode"))
+    name = _clean_ingredient_text(value.get("name"))
+
+    if not any((quantity, unit, name)):
+        return None
+
+    if quantity or unit:
+        return _clean_ingredient_text(
+            " ".join(part for part in (quantity, unit, name) if part)
+        )
+
+    return name
+
+
+def _extract_ingredient_lines(value: Any) -> list[str]:
+    ingredients: list[str] = []
+
+    def visit(node: Any) -> None:
+        if isinstance(node, (str, int, float)):
+            cleaned = _clean_ingredient_text(node)
+            if cleaned:
+                ingredients.append(cleaned)
+            return
+
+        if isinstance(node, list):
+            for item in node:
+                visit(item)
+            return
+
+        if not isinstance(node, dict):
+            return
+
+        item_list = node.get("itemListElement")
+        if item_list is not None:
+            visit(item_list)
+            return
+
+        text = _clean_ingredient_text(node.get("text"))
+        if text:
+            ingredients.append(text)
+            return
+
+        property_value_text = _format_property_value_ingredient(node)
+        if property_value_text:
+            ingredients.append(property_value_text)
+            return
+
+        name = _clean_ingredient_text(node.get("name"))
+        if name:
+            ingredients.append(name)
+
+    visit(value)
+    return ingredients
+
+
+def _normalize_ingredient_section(value: Any) -> Optional[IngredientSection]:
+    if not isinstance(value, dict):
+        return None
+
+    title = clean_text(value.get("name") or value.get("headline") or value.get("title"))
+    items = normalize_ingredients(
+        value.get("recipeIngredient")
+        or value.get("ingredients")
+        or value.get("itemListElement")
+    )
+
+    if not items:
+        return None
+
+    return IngredientSection(title=title, items=items)
+
+
+def normalize_ingredient_sections(recipe: Any) -> list[IngredientSection]:
+    if not isinstance(recipe, dict):
+        return []
+
+    sections: list[IngredientSection] = []
+    candidates = [
+        recipe.get("ingredientSections"),
+        recipe.get("recipeIngredientSections"),
+        recipe.get("hasPart"),
+    ]
+
+    for candidate in candidates:
+        if isinstance(candidate, list):
+            for item in candidate:
+                normalized = _normalize_ingredient_section(item)
+                if normalized is not None:
+                    sections.append(normalized)
+        elif isinstance(candidate, dict):
+            normalized = _normalize_ingredient_section(candidate)
+            if normalized is not None:
+                sections.append(normalized)
+
+    recipe_ingredient = recipe.get("recipeIngredient")
+    if isinstance(recipe_ingredient, dict):
+        normalized = _normalize_ingredient_section(recipe_ingredient)
+        if normalized is not None:
+            sections.append(normalized)
+    elif isinstance(recipe_ingredient, list):
+        for item in recipe_ingredient:
+            normalized = _normalize_ingredient_section(item)
+            if normalized is not None:
+                sections.append(normalized)
+
+    unique_sections: list[IngredientSection] = []
+    seen: set[tuple[Optional[str], tuple[str, ...]]] = set()
+
+    for section in sections:
+        key = (section.title, tuple(section.items))
+        if key in seen:
+            continue
+
+        seen.add(key)
+        unique_sections.append(section)
+
+    return unique_sections
+
+
+def flatten_ingredient_sections(sections: list[IngredientSection]) -> list[str]:
+    return unique_strings(
+        [item for section in sections for item in section.items if item]
+    )
 
 
 def extract_instruction_lines(value: Any) -> list[str]:
@@ -174,12 +310,24 @@ def extract_instruction_lines(value: Any) -> list[str]:
     return unique_strings(instructions)
 
 
-def normalize_recipe(recipe: Any) -> Optional[NormalizedRecipe]:
+def normalize_recipe(
+    recipe: Any,
+    *,
+    fallback_ingredient_sections: Optional[list[IngredientSection]] = None,
+) -> Optional[NormalizedRecipe]:
     if not isinstance(recipe, dict):
         return None
 
     name = clean_text(recipe.get("name"))
-    ingredients = normalize_ingredients(recipe.get("recipeIngredient"))
+    ingredient_sections = normalize_ingredient_sections(recipe)
+    if not ingredient_sections and fallback_ingredient_sections:
+        ingredient_sections = fallback_ingredient_sections
+
+    ingredients = (
+        flatten_ingredient_sections(ingredient_sections)
+        if ingredient_sections
+        else normalize_ingredients(recipe.get("recipeIngredient"))
+    )
     instructions = extract_instruction_lines(recipe.get("recipeInstructions"))
 
     if not name or not ingredients or not instructions:
@@ -194,6 +342,7 @@ def normalize_recipe(recipe: Any) -> Optional[NormalizedRecipe]:
         recipeCuisine=recipe_cuisine or None,
         nutrition=normalize_nutrition(recipe.get("nutrition")),
         ingredients=ingredients,
+        ingredientSections=ingredient_sections or None,
         instructions=instructions,
     )
 

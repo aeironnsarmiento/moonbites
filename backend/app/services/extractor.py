@@ -7,7 +7,8 @@ from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
 from ..core.config import Settings, get_settings
-from ..schemas.extract import JsonLdBlock, NormalizedRecipe
+from ..schemas.extract import IngredientSection, JsonLdBlock, NormalizedRecipe
+from ..utils.text import clean_text
 from .normalizer import (
     collect_recipe_nodes,
     dedupe_normalized_recipes,
@@ -21,6 +22,33 @@ class ExtractionResult:
     final_url: str
     title: Optional[str]
     recipes: list[NormalizedRecipe]
+
+
+INGREDIENT_HEADING_KEYWORDS = {"ingredient", "ingredients"}
+INGREDIENT_STOP_KEYWORDS = {
+    "direction",
+    "directions",
+    "instruction",
+    "instructions",
+    "method",
+    "methods",
+    "note",
+    "notes",
+    "prep",
+    "preparation",
+    "step",
+    "steps",
+}
+CONTAINER_SELECTORS = (
+    "article",
+    "main",
+    ".entry-content",
+    ".post-content",
+    ".the-content",
+    ".content",
+    "[class*='recipe']",
+    "[id*='recipe']",
+)
 
 
 def normalize_url(value: str) -> str:
@@ -79,6 +107,127 @@ def extract_json_ld_blocks(html: str) -> tuple[Optional[str], list[JsonLdBlock]]
             )
 
     return title, blocks
+
+
+def _normalize_heading(text: str) -> Optional[str]:
+    cleaned = clean_text(text)
+    if not cleaned:
+        return None
+
+    return cleaned.casefold().rstrip(":")
+
+
+def _is_ingredient_start_heading(text: str) -> bool:
+    normalized = _normalize_heading(text)
+    if not normalized:
+        return False
+
+    return normalized in INGREDIENT_HEADING_KEYWORDS
+
+
+def _is_stop_heading(text: str) -> bool:
+    normalized = _normalize_heading(text)
+    if not normalized:
+        return False
+
+    words = {part for part in normalized.replace("&", " ").split() if part}
+    return bool(words.intersection(INGREDIENT_STOP_KEYWORDS))
+
+
+def _extract_list_items(node) -> list[str]:
+    return [
+        cleaned
+        for item in node.find_all("li")
+        if (cleaned := clean_text(item.get_text(" ", strip=True)))
+    ]
+
+
+def _score_container_sections(
+    sections: list[IngredientSection], found_stop: bool
+) -> int:
+    item_count = sum(len(section.items) for section in sections)
+    titled_sections = sum(1 for section in sections if section.title)
+    return item_count + titled_sections * 2 + (5 if found_stop else 0)
+
+
+def _extract_ingredient_sections_from_container(
+    container,
+) -> tuple[list[IngredientSection], bool]:
+    sections: list[IngredientSection] = []
+    current_title: Optional[str] = None
+    current_items: list[str] = []
+    in_ingredients = False
+    found_stop_heading = False
+
+    def flush_section() -> None:
+        nonlocal current_items, current_title
+
+        items = [item for item in current_items if item]
+        if items:
+            sections.append(IngredientSection(title=current_title, items=items))
+
+        current_title = None
+        current_items = []
+
+    for node in container.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol"]):
+        if node.name in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            heading_text = node.get_text(" ", strip=True)
+
+            if _is_ingredient_start_heading(heading_text):
+                flush_section()
+                in_ingredients = True
+                current_title = None
+                continue
+
+            if not in_ingredients:
+                continue
+
+            if _is_stop_heading(heading_text):
+                found_stop_heading = True
+                flush_section()
+                break
+
+            flush_section()
+            current_title = clean_text(heading_text.rstrip(":"))
+            continue
+
+        if not in_ingredients:
+            continue
+
+        items = _extract_list_items(node)
+        if items:
+            current_items.extend(items)
+
+    flush_section()
+    return sections, found_stop_heading
+
+
+def extract_html_ingredient_sections(html: str) -> list[IngredientSection]:
+    soup = BeautifulSoup(html, "html.parser")
+    containers = []
+
+    for selector in CONTAINER_SELECTORS:
+        containers.extend(soup.select(selector))
+
+    if not containers:
+        containers = [soup.body or soup]
+
+    best_sections: list[IngredientSection] = []
+    best_score = 0
+
+    for container in containers:
+        sections, found_stop_heading = _extract_ingredient_sections_from_container(
+            container
+        )
+        if not sections:
+            continue
+
+        score = _score_container_sections(sections, found_stop_heading)
+        if score > best_score:
+            best_score = score
+            best_sections = sections
+
+    return best_sections
 
 
 def _build_request_headers(settings: Settings) -> dict[str, str]:
@@ -144,14 +293,23 @@ async def extract_recipes_from_url(url: str) -> ExtractionResult:
         ) from error
 
     title, blocks = extract_json_ld_blocks(response.text)
+    html_ingredient_sections = extract_html_ingredient_sections(response.text)
     recipes: list[NormalizedRecipe] = []
+    recipe_nodes: list[dict] = []
 
     for block in blocks:
         if block.parsed is not None:
-            for recipe in collect_recipe_nodes(block.parsed):
-                normalized = normalize_recipe(recipe)
-                if normalized is not None:
-                    recipes.append(normalized)
+            recipe_nodes.extend(collect_recipe_nodes(block.parsed))
+
+    fallback_sections = html_ingredient_sections if len(recipe_nodes) == 1 else None
+
+    for recipe in recipe_nodes:
+        normalized = normalize_recipe(
+            recipe,
+            fallback_ingredient_sections=fallback_sections,
+        )
+        if normalized is not None:
+            recipes.append(normalized)
 
     recipes = dedupe_normalized_recipes(recipes)
 

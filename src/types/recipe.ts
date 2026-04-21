@@ -1,3 +1,8 @@
+export type IngredientSection = {
+  title: string | null;
+  items: string[];
+};
+
 export type NormalizedRecipe = {
   name: string;
   recipeYield: string | null;
@@ -5,6 +10,7 @@ export type NormalizedRecipe = {
   recipeCuisine: string[] | null;
   nutrition: Record<string, string> | null;
   ingredients: string[];
+  ingredientSections: IngredientSection[] | null;
   instructions: string[];
 };
 
