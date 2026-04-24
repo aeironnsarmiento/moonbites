@@ -9,12 +9,32 @@ import {
   getRecipeListPage,
   type RecipeListPageData,
 } from "../controllers/recipeController";
+import type { RecipeSortOption } from "../types/api";
 
-export function useRecipeList(page: number, pageSize: number) {
+type UseRecipeListParams = {
+  page: number;
+  pageSize: number;
+  sort: RecipeSortOption;
+  cuisine: string | null;
+};
+
+export function useRecipeList({
+  page,
+  pageSize,
+  sort,
+  cuisine,
+}: UseRecipeListParams) {
   const queryClient = useQueryClient();
+  const normalizedCuisine = cuisine && cuisine.length > 0 ? cuisine : null;
   const query = useQuery<RecipeListPageData>({
-    queryKey: ["recipe-list", page, pageSize],
-    queryFn: () => getRecipeListPage(page, pageSize),
+    queryKey: ["recipe-list", page, pageSize, sort, normalizedCuisine],
+    queryFn: () =>
+      getRecipeListPage({
+        page,
+        pageSize,
+        sort,
+        cuisine: normalizedCuisine,
+      }),
     placeholderData: keepPreviousData,
   });
 
@@ -27,11 +47,17 @@ export function useRecipeList(page: number, pageSize: number) {
     }
 
     void queryClient.prefetchQuery({
-      queryKey: ["recipe-list", nextPage, pageSize],
-      queryFn: () => getRecipeListPage(nextPage, pageSize),
+      queryKey: ["recipe-list", nextPage, pageSize, sort, normalizedCuisine],
+      queryFn: () =>
+        getRecipeListPage({
+          page: nextPage,
+          pageSize,
+          sort,
+          cuisine: normalizedCuisine,
+        }),
       staleTime: 1000 * 60 * 5,
     });
-  }, [nextPage, pageSize, queryClient, totalPages]);
+  }, [nextPage, pageSize, queryClient, sort, normalizedCuisine, totalPages]);
 
   let error = "";
   if (query.error) {

@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -34,6 +35,22 @@ class RecipeTextOverrides(BaseModel):
 class UpdateRecipeOverridesRequest(BaseModel):
     recipe_index: int = Field(..., ge=0)
     overrides: RecipeTextOverrides
+
+
+class RecipeSortOption(str, Enum):
+    recent = "recent"
+    az = "az"
+    za = "za"
+    times_cooked = "times_cooked"
+
+
+class CuisineFacet(BaseModel):
+    label: str
+    count: int
+
+
+class CuisineFacetsResponse(BaseModel):
+    facets: list[CuisineFacet]
 
 
 class IngredientSection(BaseModel):

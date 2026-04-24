@@ -4,7 +4,10 @@ import { Heading, Stack, Text } from "@chakra-ui/react";
 
 import { PaginationControls } from "../../components/PaginationControls/PaginationControls";
 import { RecipeList } from "../../components/RecipeList/RecipeList";
+import { useCuisineFacets } from "../../hooks/useCuisineFacets";
 import { useRecipeList } from "../../hooks/useRecipeList";
+import { useRecipeListPreferences } from "../../hooks/useRecipeListPreferences";
+import type { RecipeSortOption } from "../../types/api";
 import "./RecipeListPage.scss";
 
 const PAGE_SIZE = 10;
@@ -12,7 +15,24 @@ const PAGE_SIZE = 10;
 export function RecipeListPage() {
   const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
-  const { data, error, isLoading } = useRecipeList(page, PAGE_SIZE);
+  const { sort, cuisine, setSort, setCuisine } = useRecipeListPreferences();
+  const { data, error, isLoading } = useRecipeList({
+    page,
+    pageSize: PAGE_SIZE,
+    sort,
+    cuisine: cuisine || null,
+  });
+  const { facets: cuisineFacets } = useCuisineFacets();
+
+  const handleSortChange = (nextSort: RecipeSortOption) => {
+    setSort(nextSort);
+    setPage(1);
+  };
+
+  const handleCuisineChange = (nextCuisine: string) => {
+    setCuisine(nextCuisine);
+    setPage(1);
+  };
 
   const filteredItems = useMemo(() => {
     if (!data) {
@@ -47,8 +67,8 @@ export function RecipeListPage() {
         </Text>
         <Heading size="xl">Recipe list</Heading>
         <Text color="gray.600">
-          Browse saved recipe imports, filter them on the client, and open a
-          recipe page for the full normalized JSON.
+          Browse saved recipe imports, sort and filter them, and open a recipe
+          page for the full normalized JSON.
         </Text>
       </Stack>
 
@@ -56,6 +76,11 @@ export function RecipeListPage() {
         items={filteredItems}
         searchTerm={searchTerm}
         onSearchTermChange={setSearchTerm}
+        sort={sort}
+        onSortChange={handleSortChange}
+        cuisine={cuisine}
+        onCuisineChange={handleCuisineChange}
+        cuisineFacets={cuisineFacets}
         isLoading={isLoading}
         error={error}
       />
