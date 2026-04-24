@@ -14,9 +14,7 @@ Backend (FastAPI + Supabase):
 - `npm run dev:backend:mac` / `dev:backend:win` — runs `uvicorn backend.main:app --reload` on port 8000. Requires `python-dotenv`, `fastapi`, `uvicorn`, `httpx`, `beautifulsoup4`, `supabase` (see `backend/requirements.txt`).
 - Backend env vars live in `backend/.env` (loaded by `backend/app/core/config.py`): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, optional `SUPABASE_TABLE_NAME` (default `recipe_imports`), `BACKEND_CORS_ORIGINS`, `REQUEST_TIMEOUT_SECONDS`, and request header overrides.
 - Schema for the Supabase table is in `backend/supabase_schema.sql`.
-
-No test suite is configured in this repo.
-
+- `python -m pytest` — run the backend test suite.
 ## Architecture
 
 The app is a recipe extractor: user pastes a URL, the backend fetches the page, pulls JSON-LD `@type: Recipe` blocks (with an HTML-ingredient-section fallback), normalizes them, dedupes by content fingerprint, and persists to Supabase. The frontend browses, edits overrides, and tracks "times cooked."
