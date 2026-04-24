@@ -41,7 +41,7 @@ async def get_saved_recipes(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=50),
     sort: RecipeSortOption = Query(default=RecipeSortOption.recent),
-    cuisine: Optional[str] = Query(default=None, min_length=1),
+    cuisine: Optional[str] = Query(default=None),
 ) -> PaginatedRecipeImportsResponse:
     try:
         return list_recipe_imports(
