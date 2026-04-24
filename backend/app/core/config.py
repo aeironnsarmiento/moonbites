@@ -26,15 +26,19 @@ class Settings:
     accept_language_header: str
 
 
+def normalize_cors_origins(value: str) -> tuple[str, ...]:
+    origins = tuple(
+        normalized_origin
+        for origin in value.split(",")
+        if (normalized_origin := origin.strip().rstrip("/"))
+    )
+    return origins or DEFAULT_CORS_ORIGINS
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     cors_origins_value = os.getenv("BACKEND_CORS_ORIGINS", "")
-    cors_origins = (
-        tuple(
-            origin.strip() for origin in cors_origins_value.split(",") if origin.strip()
-        )
-        or DEFAULT_CORS_ORIGINS
-    )
+    cors_origins = normalize_cors_origins(cors_origins_value)
 
     return Settings(
         request_timeout_seconds=float(os.getenv("REQUEST_TIMEOUT_SECONDS", "15.0")),

@@ -4,10 +4,18 @@ from uuid import uuid4
 from ..clients.supabase_client import get_supabase_client
 from ..core.config import get_settings
 from ..schemas.extract import (
+    CuisineFacet,
+    CuisineFacetsResponse,
     NormalizedRecipe,
     PaginatedRecipeImportsResponse,
     RecipeImportRecord,
+    RecipeSortOption,
     RecipeTextOverrides,
+)
+from ..services.cuisine_catalog import (
+    OTHER_CUISINE_LABEL,
+    canonical_cuisine,
+    collect_canonical_cuisines,
 )
 from ..services.normalizer import dedupe_normalized_recipes
 from ..utils.urls import canonicalize_url
@@ -131,6 +139,103 @@ def _dedupe_recipe_import_records(
     return unique_records
 
 
+def _record_cuisines(record: RecipeImportRecord) -> set[str]:
+    return collect_canonical_cuisines(
+        recipe.recipeCuisine for recipe in record.recipes_json
+    )
+
+
+def _normalize_cuisine_filter(cuisine: Optional[str]) -> Optional[str]:
+    if cuisine is None:
+        return None
+
+    stripped_cuisine = cuisine.strip()
+    if not stripped_cuisine:
+        return None
+
+    if stripped_cuisine.casefold() == OTHER_CUISINE_LABEL.casefold():
+        return OTHER_CUISINE_LABEL
+
+    return canonical_cuisine(stripped_cuisine) or stripped_cuisine
+
+
+def _filter_recipe_import_records(
+    records: list[RecipeImportRecord], cuisine: Optional[str]
+) -> list[RecipeImportRecord]:
+    normalized_cuisine = _normalize_cuisine_filter(cuisine)
+    if normalized_cuisine is None:
+        return records
+
+    return [
+        record
+        for record in records
+        if normalized_cuisine in _record_cuisines(record)
+    ]
+
+
+def _primary_recipe_name(record: RecipeImportRecord) -> str:
+    primary_recipe = record.recipes_json[0] if record.recipes_json else None
+    name = primary_recipe.name if primary_recipe else record.page_title or ""
+    return name.casefold()
+
+
+def _sort_recipe_import_records(
+    records: list[RecipeImportRecord], sort: RecipeSortOption
+) -> list[RecipeImportRecord]:
+    if sort == RecipeSortOption.az:
+        return sorted(
+            records,
+            key=lambda record: (
+                _primary_recipe_name(record),
+                -record.created_at.timestamp(),
+            ),
+        )
+
+    if sort == RecipeSortOption.za:
+        return sorted(
+            records,
+            key=lambda record: (
+                _primary_recipe_name(record),
+                record.created_at.timestamp(),
+            ),
+            reverse=True,
+        )
+
+    if sort == RecipeSortOption.times_cooked:
+        return sorted(
+            records,
+            key=lambda record: (record.times_cooked, record.created_at.timestamp()),
+            reverse=True,
+        )
+
+    return sorted(records, key=lambda record: record.created_at, reverse=True)
+
+
+def _prepare_recipe_import_records(
+    records: list[RecipeImportRecord],
+    sort: RecipeSortOption,
+    cuisine: Optional[str],
+) -> list[RecipeImportRecord]:
+    unique_records = _dedupe_recipe_import_records(records)
+    filtered_records = _filter_recipe_import_records(unique_records, cuisine)
+    return _sort_recipe_import_records(filtered_records, sort)
+
+
+def _build_cuisine_facets(
+    records: list[RecipeImportRecord],
+) -> list[CuisineFacet]:
+    cuisine_counts: dict[str, int] = {}
+
+    for record in records:
+        for cuisine in _record_cuisines(record):
+            cuisine_counts[cuisine] = cuisine_counts.get(cuisine, 0) + 1
+
+    return [
+        CuisineFacet(label=label, count=count)
+        for label, count in sorted(cuisine_counts.items())
+    ]
+
+
 def save_recipe_import(
     submitted_url: str,
     final_url: str,
@@ -220,7 +325,12 @@ def save_manual_recipe(
     return created_record
 
 
-def list_recipe_imports(page: int, page_size: int) -> PaginatedRecipeImportsResponse:
+def list_recipe_imports(
+    page: int,
+    page_size: int,
+    sort: RecipeSortOption = RecipeSortOption.recent,
+    cuisine: Optional[str] = None,
+) -> PaginatedRecipeImportsResponse:
     settings = get_settings()
     client = get_supabase_client(settings)
     if client is None:
@@ -229,17 +339,19 @@ def list_recipe_imports(page: int, page_size: int) -> PaginatedRecipeImportsResp
         )
 
     try:
-        records = _fetch_all_recipe_import_records(client, settings.supabase_table_name)
+        records = _fetch_all_recipe_import_records(
+            client, settings.supabase_table_name
+        )
     except Exception as error:
         raise RuntimeError(f"Supabase read failed: {error}") from error
 
-    unique_records = _dedupe_recipe_import_records(records)
-    total_count = len(unique_records)
+    prepared_records = _prepare_recipe_import_records(records, sort, cuisine)
+    total_count = len(prepared_records)
     total_pages = (
         max(1, (total_count + page_size - 1) // page_size) if total_count else 1
     )
     offset = (page - 1) * page_size
-    paginated_records = unique_records[offset : offset + page_size]
+    paginated_records = prepared_records[offset : offset + page_size]
 
     return PaginatedRecipeImportsResponse(
         items=paginated_records,
@@ -248,6 +360,25 @@ def list_recipe_imports(page: int, page_size: int) -> PaginatedRecipeImportsResp
         total_count=total_count,
         total_pages=total_pages,
     )
+
+
+def list_cuisine_facets() -> CuisineFacetsResponse:
+    settings = get_settings()
+    client = get_supabase_client(settings)
+    if client is None:
+        raise RuntimeError(
+            "Supabase is not configured yet. Add backend env vars to enable reading saved recipes."
+        )
+
+    try:
+        records = _fetch_all_recipe_import_records(
+            client, settings.supabase_table_name
+        )
+    except Exception as error:
+        raise RuntimeError(f"Supabase read failed: {error}") from error
+
+    unique_records = _dedupe_recipe_import_records(records)
+    return CuisineFacetsResponse(facets=_build_cuisine_facets(unique_records))
 
 
 def get_recipe_import(recipe_import_id: str) -> Optional[RecipeImportRecord]:

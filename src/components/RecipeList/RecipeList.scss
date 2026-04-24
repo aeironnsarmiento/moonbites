@@ -1,11 +1,72 @@
 .recipeList {
   width: 100%;
 
+  &__controls {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    width: 100%;
+  }
+
+  &__search {
+    flex: 1 1 auto;
+    min-width: 14rem;
+  }
+
+  &__filterButton {
+    flex: 0 0 auto;
+    width: 2.5rem;
+    height: 2.5rem;
+    min-width: 2.5rem;
+    border-color: rgba(148, 163, 184, 0.35);
+    color: #475569;
+    background: rgba(255, 255, 255, 0.75);
+
+    &:hover,
+    &[data-hover] {
+      border-color: rgba(124, 148, 70, 0.5);
+      color: #7c9446;
+      background: rgba(255, 255, 255, 0.95);
+    }
+  }
+
+  &__popover {
+    width: min(20rem, calc(100vw - 2rem));
+    border-radius: 18px;
+    border-color: rgba(148, 163, 184, 0.35);
+    box-shadow: 0 24px 50px rgba(15, 23, 42, 0.12);
+  }
+
+  &__popoverBody {
+    display: grid;
+    gap: 0.9rem;
+    padding: 1rem;
+  }
+
+  &__controlLabel {
+    margin-bottom: 0.35rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #475569;
+  }
+
   &__empty {
     padding: 2rem;
     border-radius: 20px;
     border: 1px dashed rgba(148, 163, 184, 0.35);
     background: rgba(255, 255, 255, 0.65);
     text-align: center;
+  }
+}
+
+@media (max-width: 720px) {
+  .recipeList {
+    &__controls {
+      gap: 0.5rem;
+    }
+
+    &__search {
+      min-width: 0;
+    }
   }
 }

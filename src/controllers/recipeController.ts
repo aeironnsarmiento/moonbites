@@ -1,11 +1,16 @@
 import {
   createManualRecipeImport,
+  fetchCuisineFacets,
   fetchRecipeImportById,
   fetchRecipeImports,
   patchRecipeImportOverrides,
   updateRecipeImportTimesCooked,
 } from "../services/recipeService";
-import type { PaginatedRecipeImportsResponse } from "../types/api";
+import type {
+  CuisineFacet,
+  PaginatedRecipeImportsResponse,
+  RecipeListQuery,
+} from "../types/api";
 import type {
   NormalizedRecipe,
   RecipeCardItem,
@@ -45,8 +50,8 @@ function mapRecipeImportToCard(record: RecipeImportRecord): RecipeCardItem {
   };
 }
 
-export async function getRecipeListPage(page: number, pageSize: number) {
-  const response = await fetchRecipeImports(page, pageSize);
+export async function getRecipeListPage(query: RecipeListQuery) {
+  const response = await fetchRecipeImports(query);
   if (!response || !Array.isArray(response.items)) {
     throw new Error("Recipes API returned an invalid list response.");
   }
@@ -57,6 +62,15 @@ export async function getRecipeListPage(page: number, pageSize: number) {
     ...response,
     items: items.map(mapRecipeImportToCard),
   };
+}
+
+export async function getCuisineFacets(): Promise<CuisineFacet[]> {
+  const response = await fetchCuisineFacets();
+  if (!response || !Array.isArray(response.facets)) {
+    throw new Error("Recipes API returned invalid cuisine filters.");
+  }
+
+  return response.facets;
 }
 
 export async function getRecipeImportDetail(recipeImportId: string) {

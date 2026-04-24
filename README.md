@@ -14,3 +14,14 @@ Paste a recipe URL, extract and normalize the recipe, save to Supabase, and brow
 - FastAPI backend with clean service/repository structure
 - React Query for fast, cached recipe browsing
 - Fully component-based frontend with per-component SCSS
+
+## Backend CORS
+
+Set the production backend CORS origin to the deployed frontend domain:
+
+```env
+BACKEND_CORS_ORIGINS=https://moonbites-blue.vercel.app
+```
+
+When `BACKEND_CORS_ORIGINS` is not set, the backend allows only the local Vite
+development origins.

@@ -18,6 +18,24 @@ export type PaginatedRecipeImportsResponse = {
   total_pages: number;
 };
 
+export type RecipeSortOption = "recent" | "az" | "za" | "times_cooked";
+
+export type RecipeListQuery = {
+  page: number;
+  pageSize: number;
+  sort: RecipeSortOption;
+  cuisine: string | null;
+};
+
+export type CuisineFacet = {
+  label: string;
+  count: number;
+};
+
+export type CuisineFacetsResponse = {
+  facets: CuisineFacet[];
+};
+
 export type ApiErrorResponse = {
   detail?: string;
 };

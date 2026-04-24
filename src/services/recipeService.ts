@@ -1,23 +1,38 @@
 import { apiRequest } from "./apiClient";
-import type { PaginatedRecipeImportsResponse } from "../types/api";
+import type {
+  CuisineFacetsResponse,
+  PaginatedRecipeImportsResponse,
+  RecipeListQuery,
+} from "../types/api";
 import type {
   NormalizedRecipe,
   RecipeImportRecord,
   UpdateRecipeOverridesPayload,
 } from "../types/recipe";
 
-export function fetchRecipeImports(
-  page: number,
-  pageSize: number,
-): Promise<PaginatedRecipeImportsResponse> {
+export function fetchRecipeImports({
+  page,
+  pageSize,
+  sort,
+  cuisine,
+}: RecipeListQuery): Promise<PaginatedRecipeImportsResponse> {
   const searchParams = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
+    sort,
   });
+
+  if (cuisine) {
+    searchParams.set("cuisine", cuisine);
+  }
 
   return apiRequest<PaginatedRecipeImportsResponse>(
     `/api/recipes?${searchParams.toString()}`,
   );
+}
+
+export function fetchCuisineFacets(): Promise<CuisineFacetsResponse> {
+  return apiRequest<CuisineFacetsResponse>("/api/recipes/cuisines");
 }
 
 export function fetchRecipeImportById(
