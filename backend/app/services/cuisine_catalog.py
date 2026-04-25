@@ -97,6 +97,7 @@ def collect_canonical_cuisines(
 
     for cuisine_values in recipe_cuisines:
         if not cuisine_values:
+            has_unknown = True
             continue
 
         for cuisine_value in cuisine_values:
