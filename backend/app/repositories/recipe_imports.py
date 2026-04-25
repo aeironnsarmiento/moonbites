@@ -10,6 +10,7 @@ from ..schemas.extract import (
     PaginatedRecipeImportsResponse,
     RecipeImportRecord,
     RecipeSortOption,
+    UpdateRecipeMetadataRequest,
     RecipeTextOverrides,
 )
 from ..services.cuisine_catalog import (
@@ -19,9 +20,10 @@ from ..services.cuisine_catalog import (
 )
 from ..services.normalizer import dedupe_normalized_recipes
 from ..utils.urls import canonicalize_url
+from ..utils.yield_parser import parse_yield
 
 
-RECIPE_IMPORT_SELECT = "id, submitted_url, final_url, page_title, recipe_count, times_cooked, recipes_json, recipe_overrides_json, created_at"
+RECIPE_IMPORT_SELECT = "id, submitted_url, final_url, page_title, recipe_count, times_cooked, recipes_json, recipe_overrides_json, image_url, is_favorite, servings, created_at"
 
 
 def _sanitize_override_rows(rows: object) -> dict[str, str]:
@@ -84,6 +86,9 @@ def _sanitize_record(record: dict) -> RecipeImportRecord:
         **record,
         "recipe_count": len(unique_recipes),
         "times_cooked": record.get("times_cooked", 0),
+        "image_url": record.get("image_url"),
+        "is_favorite": bool(record.get("is_favorite", False)),
+        "servings": record.get("servings"),
         "recipes_json": [recipe.model_dump() for recipe in unique_recipes],
         "recipe_overrides_json": _sanitize_recipe_overrides(
             record.get("recipe_overrides_json") or {}
@@ -215,9 +220,14 @@ def _prepare_recipe_import_records(
     records: list[RecipeImportRecord],
     sort: RecipeSortOption,
     cuisine: Optional[str],
+    favorite: Optional[bool] = None,
 ) -> list[RecipeImportRecord]:
     unique_records = _dedupe_recipe_import_records(records)
     filtered_records = _filter_recipe_import_records(unique_records, cuisine)
+    if favorite is True:
+        filtered_records = [
+            record for record in filtered_records if record.is_favorite
+        ]
     return _sort_recipe_import_records(filtered_records, sort)
 
 
@@ -241,6 +251,7 @@ def save_recipe_import(
     final_url: str,
     title: Optional[str],
     recipes: list[NormalizedRecipe],
+    image_url: Optional[str] = None,
 ) -> tuple[bool, Optional[str]]:
     settings = get_settings()
     client = get_supabase_client(settings)
@@ -251,6 +262,14 @@ def save_recipe_import(
         )
 
     unique_recipes = dedupe_normalized_recipes(recipes)
+    servings = next(
+        (
+            parsed
+            for recipe in unique_recipes
+            if (parsed := parse_yield(recipe.recipeYield)) is not None
+        ),
+        None,
+    )
     submitted_url_key = canonicalize_url(submitted_url)
     final_url_key = canonicalize_url(final_url)
 
@@ -277,6 +296,9 @@ def save_recipe_import(
         "times_cooked": 0,
         "recipes_json": [recipe.model_dump() for recipe in unique_recipes],
         "recipe_overrides_json": {},
+        "image_url": image_url,
+        "is_favorite": False,
+        "servings": servings,
     }
 
     try:
@@ -301,6 +323,7 @@ def save_manual_recipe(
     manual_id = str(uuid4())
     manual_url = _build_manual_recipe_url(manual_id)
     page_title = title or f"Manual recipe: {recipe.name}"
+    servings = parse_yield(recipe.recipeYield)
 
     payload = {
         "id": manual_id,
@@ -311,6 +334,9 @@ def save_manual_recipe(
         "times_cooked": 0,
         "recipes_json": [recipe.model_dump()],
         "recipe_overrides_json": {},
+        "image_url": None,
+        "is_favorite": False,
+        "servings": servings,
     }
 
     try:
@@ -330,6 +356,7 @@ def list_recipe_imports(
     page_size: int,
     sort: RecipeSortOption = RecipeSortOption.recent,
     cuisine: Optional[str] = None,
+    favorite: Optional[bool] = None,
 ) -> PaginatedRecipeImportsResponse:
     settings = get_settings()
     client = get_supabase_client(settings)
@@ -345,7 +372,12 @@ def list_recipe_imports(
     except Exception as error:
         raise RuntimeError(f"Supabase read failed: {error}") from error
 
-    prepared_records = _prepare_recipe_import_records(records, sort, cuisine)
+    prepared_records = _prepare_recipe_import_records(
+        records,
+        sort,
+        cuisine,
+        favorite=favorite,
+    )
     total_count = len(prepared_records)
     total_pages = (
         max(1, (total_count + page_size - 1) // page_size) if total_count else 1
@@ -427,6 +459,130 @@ def update_times_cooked(
         (
             client.table(settings.supabase_table_name)
             .update({"times_cooked": next_times_cooked})
+            .eq("id", recipe_import_id)
+            .execute()
+        )
+    except Exception as error:
+        raise RuntimeError(f"Supabase update failed: {error}") from error
+
+    return get_recipe_import(recipe_import_id)
+
+
+def toggle_favorite(recipe_import_id: str) -> Optional[RecipeImportRecord]:
+    settings = get_settings()
+    client = get_supabase_client(settings)
+    if client is None:
+        raise RuntimeError(
+            "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
+        )
+
+    existing_record = get_recipe_import(recipe_import_id)
+    if existing_record is None:
+        return None
+
+    try:
+        (
+            client.table(settings.supabase_table_name)
+            .update({"is_favorite": not existing_record.is_favorite})
+            .eq("id", recipe_import_id)
+            .execute()
+        )
+    except Exception as error:
+        raise RuntimeError(f"Supabase update failed: {error}") from error
+
+    return get_recipe_import(recipe_import_id)
+
+
+def update_servings(
+    recipe_import_id: str, servings: int
+) -> Optional[RecipeImportRecord]:
+    settings = get_settings()
+    client = get_supabase_client(settings)
+    if client is None:
+        raise RuntimeError(
+            "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
+        )
+
+    try:
+        (
+            client.table(settings.supabase_table_name)
+            .update({"servings": servings})
+            .eq("id", recipe_import_id)
+            .execute()
+        )
+    except Exception as error:
+        raise RuntimeError(f"Supabase update failed: {error}") from error
+
+    return get_recipe_import(recipe_import_id)
+
+
+def update_image_url(
+    recipe_import_id: str, image_url: str
+) -> Optional[RecipeImportRecord]:
+    settings = get_settings()
+    client = get_supabase_client(settings)
+    if client is None:
+        raise RuntimeError(
+            "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
+        )
+
+    try:
+        (
+            client.table(settings.supabase_table_name)
+            .update({"image_url": image_url})
+            .eq("id", recipe_import_id)
+            .execute()
+        )
+    except Exception as error:
+        raise RuntimeError(f"Supabase update failed: {error}") from error
+
+    return get_recipe_import(recipe_import_id)
+
+
+def _build_metadata_update_payload(
+    existing_record: RecipeImportRecord,
+    metadata: UpdateRecipeMetadataRequest,
+) -> dict:
+    recipes = [recipe.model_copy(deep=True) for recipe in existing_record.recipes_json]
+    if recipes:
+        recipes[0] = recipes[0].model_copy(
+            update={
+                "name": metadata.title,
+                "recipeYield": metadata.recipe_yield,
+            }
+        )
+
+    return {
+        "page_title": metadata.title,
+        "submitted_url": metadata.source_url,
+        "final_url": metadata.source_url,
+        "recipes_json": [recipe.model_dump() for recipe in recipes],
+        "image_url": metadata.image_url,
+        "servings": parse_yield(metadata.recipe_yield),
+    }
+
+
+def update_recipe_metadata(
+    recipe_import_id: str,
+    metadata: UpdateRecipeMetadataRequest,
+) -> Optional[RecipeImportRecord]:
+    settings = get_settings()
+    client = get_supabase_client(settings)
+    if client is None:
+        raise RuntimeError(
+            "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
+        )
+
+    existing_record = get_recipe_import(recipe_import_id)
+    if existing_record is None:
+        return None
+
+    payload = _build_metadata_update_payload(existing_record, metadata)
+
+    try:
+        (
+            client.table(settings.supabase_table_name)
+            .update(payload)
             .eq("id", recipe_import_id)
             .execute()
         )

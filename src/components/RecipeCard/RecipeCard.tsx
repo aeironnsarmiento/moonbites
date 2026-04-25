@@ -4,14 +4,15 @@ import {
   CardBody,
   Heading,
   HStack,
-  LinkBox,
-  LinkOverlay,
   Stack,
   Text,
 } from "@chakra-ui/react";
-import { Link as RouterLink } from "react-router-dom";
+import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 
+import { useToggleFavorite } from "../../hooks/useToggleFavorite";
 import type { RecipeCardItem } from "../../types/recipe";
+import { CardImage } from "./CardImage";
 import "./RecipeCard.scss";
 
 type RecipeCardProps = {
@@ -19,36 +20,60 @@ type RecipeCardProps = {
 };
 
 export function RecipeCard({ item }: RecipeCardProps) {
+  const navigate = useNavigate();
+  const toggleFavorite = useToggleFavorite(item.id);
+  const recipeUrl = `/recipes/${item.id}`;
+
+  const openRecipe = () => {
+    navigate(recipeUrl);
+  };
+
   return (
-    <LinkBox as="article" className="recipeCard">
-      <Card h="100%">
+    <motion.article
+      whileHover={{ y: -4 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
+      className="recipeCard"
+      role="link"
+      tabIndex={0}
+      onClick={openRecipe}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openRecipe();
+        }
+      }}
+    >
+      <Card h="100%" overflow="hidden" className="recipeCard__card">
+        <CardImage
+          imageUrl={item.imageUrl}
+          title={item.title}
+          isFavorite={item.isFavorite}
+          isTogglingFavorite={toggleFavorite.isPending}
+          onToggleFavorite={() => {
+            void toggleFavorite.mutateAsync();
+          }}
+        />
         <CardBody>
           <Stack spacing={4}>
-            <HStack justify="space-between" align="start">
+            <Stack spacing={2}>
+              <Heading size="md" noOfLines={2}>
+                {item.title}
+              </Heading>
+            </Stack>
+
+            <HStack justify="space-between" align="center" minH="1.5rem">
               {item.timesCooked > 0 ? (
                 <Badge colorScheme="brand">Cooked {item.timesCooked}x</Badge>
               ) : (
                 <span />
               )}
-              <Text fontSize="sm" color="gray.500">
+              <Text fontSize="sm" color="gray.600">
                 {item.createdAtLabel}
               </Text>
             </HStack>
-
-            <Stack spacing={2}>
-              <Heading size="md">
-                <LinkOverlay as={RouterLink} to={`/recipes/${item.id}`}>
-                  {item.title}
-                </LinkOverlay>
-              </Heading>
-            </Stack>
-
-            <Text noOfLines={2} color="gray.500" fontSize="sm">
-              {item.pageTitle ?? item.submittedUrl}
-            </Text>
           </Stack>
         </CardBody>
       </Card>
-    </LinkBox>
+    </motion.article>
   );
 }

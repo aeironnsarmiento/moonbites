@@ -37,6 +37,47 @@ class UpdateRecipeOverridesRequest(BaseModel):
     overrides: RecipeTextOverrides
 
 
+class UpdateServingsRequest(BaseModel):
+    servings: int = Field(..., ge=1)
+
+
+class UpdateImageRequest(BaseModel):
+    image_url: str = Field(..., min_length=1, max_length=2048)
+
+
+class UpdateRecipeMetadataRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    recipe_yield: Optional[str] = Field(default=None, max_length=200)
+    image_url: Optional[str] = Field(default=None, max_length=2048)
+    source_url: str = Field(..., min_length=1, max_length=2048)
+
+    @field_validator("source_url")
+    @classmethod
+    def validate_source_url(cls, value: str) -> str:
+        from urllib.parse import urlparse
+
+        normalized = value.strip()
+        parsed = urlparse(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("source_url must start with http:// or https://")
+
+        return normalized
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("recipe_yield", "image_url")
+    @classmethod
+    def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+
+        stripped = value.strip()
+        return stripped or None
+
+
 class RecipeSortOption(str, Enum):
     recent = "recent"
     az = "az"
@@ -102,6 +143,9 @@ class RecipeImportRecord(BaseModel):
     times_cooked: int = 0
     recipes_json: list[NormalizedRecipe]
     recipe_overrides_json: dict[str, RecipeTextOverrides] = Field(default_factory=dict)
+    image_url: Optional[str] = None
+    is_favorite: bool = False
+    servings: Optional[int] = None
     created_at: datetime
 
 

@@ -5,10 +5,13 @@ import {
   Card,
   CardBody,
   Divider,
+  FormControl,
+  FormLabel,
   Heading,
   HStack,
   Icon,
   IconButton,
+  Input,
   ListItem,
   OrderedList,
   SimpleGrid,
@@ -20,11 +23,17 @@ import {
 } from "@chakra-ui/react";
 import { useState } from "react";
 
+import { ServingsStepper } from "../../components/ServingsStepper/ServingsStepper";
+import { useServingsScale } from "../../hooks/useServingsScale";
+import { useToggleFavorite } from "../../hooks/useToggleFavorite";
 import type {
   IngredientSection,
   NormalizedRecipe,
+  UpdateRecipeMetadataPayload,
   RecipeTextOverrides,
 } from "../../types/recipe";
+import { scaleIngredients } from "../../utils/scaleIngredients";
+import { CardImage } from "../RecipeCard/CardImage";
 import {
   applyRowOverrides,
   areRowsEqual,
@@ -35,14 +44,24 @@ import {
 import "./RecipeDetailCard.scss";
 
 type RecipeDetailCardProps = {
+  recipeImportId: string;
   recipe: NormalizedRecipe;
   recipeIndex: number;
   index: number;
+  recordTitle: string | null;
   timesCooked: number;
+  imageUrl: string | null;
+  isFavorite: boolean;
+  servings: number | null;
+  sourceUrl: string;
   overrides?: RecipeTextOverrides;
   isUpdatingTimesCooked?: boolean;
   isSavingOverrides?: boolean;
+  isSavingServings?: boolean;
+  isSavingMetadata?: boolean;
   onAdjustTimesCooked?: (delta: -1 | 1) => Promise<void>;
+  onSaveServings?: (servings: number) => Promise<void>;
+  onSaveMetadata?: (metadata: UpdateRecipeMetadataPayload) => Promise<void>;
   onSaveOverrides?: (
     recipeIndex: number,
     overrides: RecipeTextOverrides,
@@ -136,25 +155,41 @@ function buildVisibleIngredientSections(
 }
 
 export function RecipeDetailCard({
+  recipeImportId,
   recipe,
   recipeIndex,
   index,
+  recordTitle,
   timesCooked,
+  imageUrl,
+  isFavorite,
+  servings,
+  sourceUrl,
   overrides,
   isUpdatingTimesCooked = false,
   isSavingOverrides = false,
+  isSavingServings = false,
+  isSavingMetadata = false,
   onAdjustTimesCooked,
+  onSaveServings,
+  onSaveMetadata,
   onSaveOverrides,
   showTimesCookedControls = false,
 }: RecipeDetailCardProps) {
+  const toggleFavorite = useToggleFavorite(recipeImportId);
+  const servingsScale = useServingsScale(recipeImportId, servings);
   const savedOverrides = getRecipeTextOverrides(overrides);
   const visibleIngredients = applyRowOverrides(
     recipe.ingredients,
     savedOverrides.ingredients,
   );
+  const scaledVisibleIngredients = scaleIngredients(
+    visibleIngredients,
+    servingsScale.scaleFactor,
+  );
   const visibleIngredientSections = buildVisibleIngredientSections(
     recipe,
-    visibleIngredients,
+    scaledVisibleIngredients,
   );
   const visibleInstructions = applyRowOverrides(
     recipe.instructions,
@@ -165,6 +200,10 @@ export function RecipeDetailCard({
     useState<string[]>(visibleIngredients);
   const [draftInstructions, setDraftInstructions] =
     useState<string[]>(visibleInstructions);
+  const [draftTitle, setDraftTitle] = useState(recordTitle ?? recipe.name);
+  const [draftYield, setDraftYield] = useState(recipe.recipeYield ?? "");
+  const [draftImageUrl, setDraftImageUrl] = useState(imageUrl ?? "");
+  const [draftSourceUrl, setDraftSourceUrl] = useState(sourceUrl);
   const [saveError, setSaveError] = useState("");
 
   const metadataItems = [
@@ -179,13 +218,34 @@ export function RecipeDetailCard({
     await onAdjustTimesCooked?.(delta);
   };
 
+  const renderIngredientText = (
+    originalValue: string,
+    editedValue: string,
+    keyPrefix: string,
+  ) => {
+    if (Math.abs(servingsScale.scaleFactor - 1) > 0.001) {
+      return editedValue;
+    }
+
+    return renderDiffText(originalValue, editedValue, keyPrefix);
+  };
+
   const hasUnsavedChanges =
     !areRowsEqual(draftIngredients, visibleIngredients) ||
-    !areRowsEqual(draftInstructions, visibleInstructions);
+    !areRowsEqual(draftInstructions, visibleInstructions) ||
+    (showTimesCookedControls &&
+      (draftTitle.trim() !== (recordTitle ?? recipe.name) ||
+        (draftYield.trim() || null) !== (recipe.recipeYield ?? null) ||
+        (draftImageUrl.trim() || null) !== (imageUrl ?? null) ||
+        draftSourceUrl.trim() !== sourceUrl));
 
   const startEditing = () => {
     setDraftIngredients([...visibleIngredients]);
     setDraftInstructions([...visibleInstructions]);
+    setDraftTitle(recordTitle ?? recipe.name);
+    setDraftYield(recipe.recipeYield ?? "");
+    setDraftImageUrl(imageUrl ?? "");
+    setDraftSourceUrl(sourceUrl);
     setSaveError("");
     setIsEditing(true);
   };
@@ -193,22 +253,37 @@ export function RecipeDetailCard({
   const cancelEditing = () => {
     setDraftIngredients([...visibleIngredients]);
     setDraftInstructions([...visibleInstructions]);
+    setDraftTitle(recordTitle ?? recipe.name);
+    setDraftYield(recipe.recipeYield ?? "");
+    setDraftImageUrl(imageUrl ?? "");
+    setDraftSourceUrl(sourceUrl);
     setSaveError("");
     setIsEditing(false);
   };
 
   const handleSaveOverrides = async () => {
-    if (!onSaveOverrides) {
+    if (!onSaveOverrides && !onSaveMetadata) {
       return;
     }
 
     setSaveError("");
 
     try {
-      await onSaveOverrides(recipeIndex, {
-        ingredients: buildRowOverrides(recipe.ingredients, draftIngredients),
-        instructions: buildRowOverrides(recipe.instructions, draftInstructions),
-      });
+      if (showTimesCookedControls && onSaveMetadata) {
+        await onSaveMetadata({
+          title: draftTitle.trim(),
+          recipeYield: draftYield.trim() || null,
+          imageUrl: draftImageUrl.trim() || null,
+          sourceUrl: draftSourceUrl.trim(),
+        });
+      }
+
+      if (onSaveOverrides) {
+        await onSaveOverrides(recipeIndex, {
+          ingredients: buildRowOverrides(recipe.ingredients, draftIngredients),
+          instructions: buildRowOverrides(recipe.instructions, draftInstructions),
+        });
+      }
       setIsEditing(false);
     } catch (error) {
       setSaveError(
@@ -259,6 +334,17 @@ export function RecipeDetailCard({
 
   return (
     <Card className="recipeDetailCard">
+      <div className="recipeDetailCard__hero">
+        <CardImage
+          imageUrl={imageUrl}
+          title={recipe.name}
+          isFavorite={isFavorite}
+          isTogglingFavorite={toggleFavorite.isPending}
+          onToggleFavorite={() => {
+            void toggleFavorite.mutateAsync();
+          }}
+        />
+      </div>
       <CardBody>
         <Stack spacing={6}>
           <Stack spacing={2}>
@@ -301,7 +387,7 @@ export function RecipeDetailCard({
                       icon={<EditRecipeIcon />}
                       variant="outline"
                       onClick={startEditing}
-                      isDisabled={isSavingOverrides}
+                      isDisabled={isSavingOverrides || isSavingMetadata}
                     />
                   </Tooltip>
                 ) : (
@@ -309,7 +395,7 @@ export function RecipeDetailCard({
                     <Button
                       variant="ghost"
                       onClick={cancelEditing}
-                      isDisabled={isSavingOverrides}
+                      isDisabled={isSavingOverrides || isSavingMetadata}
                     >
                       Cancel
                     </Button>
@@ -318,7 +404,7 @@ export function RecipeDetailCard({
                       color="white"
                       _hover={{ bg: "brand.700" }}
                       onClick={handleSaveOverrides}
-                      isLoading={isSavingOverrides}
+                      isLoading={isSavingOverrides || isSavingMetadata}
                       isDisabled={!hasUnsavedChanges}
                     >
                       Save edits
@@ -341,7 +427,66 @@ export function RecipeDetailCard({
 
           {metadataItems.length > 0 ? <Divider /> : null}
 
-          <Stack spacing={3}>
+          {isEditing && showTimesCookedControls ? (
+            <Stack spacing={4} className="recipeDetailCard__section">
+              <Heading size="sm">Recipe details</Heading>
+              <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+                <FormControl isRequired>
+                  <FormLabel htmlFor={`recipe-title-${recipeImportId}`}>
+                    Title
+                  </FormLabel>
+                  <Input
+                    id={`recipe-title-${recipeImportId}`}
+                    value={draftTitle}
+                    onChange={(event) => setDraftTitle(event.target.value)}
+                  />
+                </FormControl>
+                <FormControl>
+                  <FormLabel htmlFor={`recipe-yield-${recipeImportId}`}>
+                    Yield
+                  </FormLabel>
+                  <Input
+                    id={`recipe-yield-${recipeImportId}`}
+                    value={draftYield}
+                    onChange={(event) => setDraftYield(event.target.value)}
+                    placeholder="4 servings"
+                  />
+                </FormControl>
+                <FormControl>
+                  <FormLabel htmlFor={`recipe-image-${recipeImportId}`}>
+                    Image URL
+                  </FormLabel>
+                  <Input
+                    id={`recipe-image-${recipeImportId}`}
+                    value={draftImageUrl}
+                    onChange={(event) => setDraftImageUrl(event.target.value)}
+                    placeholder="https://example.com/image.jpg"
+                  />
+                </FormControl>
+                <FormControl isRequired>
+                  <FormLabel htmlFor={`recipe-source-${recipeImportId}`}>
+                    Source link
+                  </FormLabel>
+                  <Input
+                    id={`recipe-source-${recipeImportId}`}
+                    value={draftSourceUrl}
+                    onChange={(event) => setDraftSourceUrl(event.target.value)}
+                    placeholder="https://example.com/recipe"
+                  />
+                </FormControl>
+              </SimpleGrid>
+            </Stack>
+          ) : null}
+
+          <Stack spacing={3} className="recipeDetailCard__section">
+            <ServingsStepper
+              currentServings={servingsScale.currentServings}
+              originalServings={servingsScale.originalServings}
+              isSaving={isSavingServings}
+              onDecrement={servingsScale.decrement}
+              onIncrement={servingsScale.increment}
+              onSaveDefault={onSaveServings}
+            />
             <HStack justify="space-between" wrap="wrap" spacing={3}>
               <Heading size="sm">Ingredients</Heading>
               {isEditing ? (
@@ -383,7 +528,7 @@ export function RecipeDetailCard({
 
                               return (
                                 <ListItem key={`ingredient-${rowIndex}`}>
-                                  {renderDiffText(
+                                  {renderIngredientText(
                                     recipe.ingredients[rowIndex] ?? "",
                                     ingredient,
                                     `ingredient-${rowIndex}`,
@@ -398,9 +543,9 @@ export function RecipeDetailCard({
                   </Stack>
                 ) : (
                   <UnorderedList spacing={2} className="recipeDetailCard__list">
-                    {visibleIngredients.map((ingredient, rowIndex) => (
+                    {scaledVisibleIngredients.map((ingredient, rowIndex) => (
                       <ListItem key={`ingredient-${rowIndex}`}>
-                        {renderDiffText(
+                        {renderIngredientText(
                           recipe.ingredients[rowIndex] ?? "",
                           ingredient,
                           `ingredient-${rowIndex}`,
@@ -413,7 +558,7 @@ export function RecipeDetailCard({
             )}
           </Stack>
 
-          <Stack spacing={3}>
+          <Stack spacing={3} className="recipeDetailCard__section">
             <Heading size="sm">Instructions</Heading>
             {isEditing ? (
               renderEditorRows(
@@ -442,7 +587,7 @@ export function RecipeDetailCard({
           ) : null}
 
           {recipe.nutrition ? (
-            <Stack spacing={3}>
+            <Stack spacing={3} className="recipeDetailCard__section">
               <Heading size="sm">Nutrition</Heading>
               <SimpleGrid columns={{ base: 1, md: 2 }} spacing={3}>
                 {Object.entries(recipe.nutrition).map(([key, value]) => (

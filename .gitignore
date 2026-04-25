@@ -26,3 +26,7 @@ dist-ssr
 backend/.env
 __pycache__/
 *.pyc
+.claude
+docs/superpowers
+CLAUDE.md
+AGENTS.md

@@ -31,7 +31,11 @@ export function RecipePage() {
     isLoading,
     isSavingOverrides,
     isUpdatingTimesCooked,
+    isSavingServings,
+    isSavingMetadata,
     recipeImport,
+    saveServings,
+    saveMetadata,
     saveOverrides,
     updateTimesCooked,
   } = useRecipeDetail(recipeImportId);
@@ -86,16 +90,26 @@ export function RecipePage() {
           {recipeImport.recipes_json.map((recipe, index) => (
             <RecipeDetailCard
               key={`${recipeImport.id}-${index}`}
+              recipeImportId={recipeImport.id}
               recipe={recipe}
               recipeIndex={index}
               index={index + 1}
+              recordTitle={recipeImport.page_title}
               timesCooked={recipeImport.times_cooked}
+              imageUrl={recipeImport.image_url}
+              isFavorite={recipeImport.is_favorite}
+              servings={recipeImport.servings}
+              sourceUrl={recipeImport.submitted_url}
               overrides={recipeImport.recipe_overrides_json[String(index)]}
               isUpdatingTimesCooked={isUpdatingTimesCooked}
+              isSavingServings={isSavingServings}
+              isSavingMetadata={isSavingMetadata}
               isSavingOverrides={
                 isSavingOverrides && savingRecipeIndex === index
               }
               onAdjustTimesCooked={updateTimesCooked}
+              onSaveServings={saveServings}
+              onSaveMetadata={saveMetadata}
               onSaveOverrides={handleSaveOverrides}
               showTimesCookedControls={index === 0}
             />
