@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Ignore Python cache files
+__pycache__/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -24,9 +27,3 @@ dist-ssr
 *.sw?
 .env
 backend/.env
-__pycache__/
-*.pyc
-.claude
-docs/superpowers
-CLAUDE.md
-AGENTS.md
