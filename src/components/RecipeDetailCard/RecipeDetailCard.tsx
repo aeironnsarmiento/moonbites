@@ -230,14 +230,17 @@ export function RecipeDetailCard({
     return renderDiffText(originalValue, editedValue, keyPrefix);
   };
 
+  const hasMetadataChanges =
+    showTimesCookedControls &&
+    (draftTitle.trim() !== (recordTitle ?? recipe.name) ||
+      (draftYield.trim() || null) !== (recipe.recipeYield ?? null) ||
+      (draftImageUrl.trim() || null) !== (imageUrl ?? null) ||
+      draftSourceUrl.trim() !== sourceUrl);
+
   const hasUnsavedChanges =
     !areRowsEqual(draftIngredients, visibleIngredients) ||
     !areRowsEqual(draftInstructions, visibleInstructions) ||
-    (showTimesCookedControls &&
-      (draftTitle.trim() !== (recordTitle ?? recipe.name) ||
-        (draftYield.trim() || null) !== (recipe.recipeYield ?? null) ||
-        (draftImageUrl.trim() || null) !== (imageUrl ?? null) ||
-        draftSourceUrl.trim() !== sourceUrl));
+    hasMetadataChanges;
 
   const startEditing = () => {
     setDraftIngredients([...visibleIngredients]);
@@ -269,7 +272,7 @@ export function RecipeDetailCard({
     setSaveError("");
 
     try {
-      if (showTimesCookedControls && onSaveMetadata) {
+      if (hasMetadataChanges && onSaveMetadata) {
         await onSaveMetadata({
           title: draftTitle.trim(),
           recipeYield: draftYield.trim() || null,

@@ -23,7 +23,7 @@ export function RecipeListPage() {
     pageSize: PAGE_SIZE,
     sort,
     cuisine: cuisine || null,
-    favorite: searchParams.get("favorite") === "true",
+    favorite: searchParams.get("favorite") === "true" ? true : null,
   });
   const { facets: cuisineFacets } = useCuisineFacets();
 
