@@ -10,6 +10,8 @@
     "dev": "vite",
     "dev:backend:mac": "python3 -m uvicorn backend.main:app --reload",
     "dev:backend:win": "py -m uvicorn backend.main:app --reload",
+    "refetch:recipes": "python3 -m backend.scripts.refetch_recipe_imports",
+    "refetch:recipes:dry-run": "python3 -m backend.scripts.refetch_recipe_imports --dry-run",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",

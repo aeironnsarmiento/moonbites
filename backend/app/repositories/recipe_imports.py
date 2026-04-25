@@ -58,6 +58,9 @@ def _sanitize_recipe_overrides(
         except (TypeError, ValueError):
             continue
 
+        if isinstance(sections, RecipeTextOverrides):
+            sections = sections.model_dump()
+
         if not isinstance(sections, dict):
             sections = {}
 
@@ -413,6 +416,20 @@ def list_cuisine_facets() -> CuisineFacetsResponse:
     return CuisineFacetsResponse(facets=_build_cuisine_facets(unique_records))
 
 
+def list_recipe_import_records_for_refresh() -> list[RecipeImportRecord]:
+    settings = get_settings()
+    client = get_supabase_client(settings)
+    if client is None:
+        raise RuntimeError(
+            "Supabase is not configured yet. Add backend env vars to enable reading saved recipes."
+        )
+
+    try:
+        return _fetch_all_recipe_import_records(client, settings.supabase_table_name)
+    except Exception as error:
+        raise RuntimeError(f"Supabase read failed: {error}") from error
+
+
 def get_recipe_import(recipe_import_id: str) -> Optional[RecipeImportRecord]:
     settings = get_settings()
     client = get_supabase_client(settings)
@@ -578,6 +595,110 @@ def update_recipe_metadata(
         return None
 
     payload = _build_metadata_update_payload(existing_record, metadata)
+
+    try:
+        (
+            client.table(settings.supabase_table_name)
+            .update(payload)
+            .eq("id", recipe_import_id)
+            .execute()
+        )
+    except Exception as error:
+        raise RuntimeError(f"Supabase update failed: {error}") from error
+
+    return get_recipe_import(recipe_import_id)
+
+
+def _prune_override_rows(rows: dict[str, str], row_count: int) -> dict[str, str]:
+    pruned_rows: dict[str, str] = {}
+    for row_index, value in rows.items():
+        if int(row_index) < row_count:
+            pruned_rows[row_index] = value
+    return pruned_rows
+
+
+def _prune_recipe_overrides_for_recipes(
+    overrides: object,
+    recipes: list[NormalizedRecipe],
+) -> dict[str, dict[str, dict[str, str]]]:
+    sanitized_overrides = _sanitize_recipe_overrides(overrides)
+    pruned_overrides: dict[str, dict[str, dict[str, str]]] = {}
+
+    for recipe_index, sections in sanitized_overrides.items():
+        index = int(recipe_index)
+        if index >= len(recipes):
+            continue
+
+        recipe = recipes[index]
+        ingredients = _prune_override_rows(
+            sections.get("ingredients", {}),
+            len(recipe.ingredients),
+        )
+        instructions = _prune_override_rows(
+            sections.get("instructions", {}),
+            len(recipe.instructions),
+        )
+
+        if ingredients or instructions:
+            pruned_overrides[recipe_index] = {
+                "ingredients": ingredients,
+                "instructions": instructions,
+            }
+
+    return pruned_overrides
+
+
+def _build_refetched_recipe_update_payload(
+    existing_record: RecipeImportRecord,
+    *,
+    title: Optional[str],
+    image_url: Optional[str],
+    recipes: list[NormalizedRecipe],
+) -> dict:
+    unique_recipes = dedupe_normalized_recipes(recipes)
+    servings = next(
+        (
+            parsed
+            for recipe in unique_recipes
+            if (parsed := parse_yield(recipe.recipeYield)) is not None
+        ),
+        None,
+    )
+
+    return {
+        "page_title": title,
+        "recipe_count": len(unique_recipes),
+        "recipes_json": [recipe.model_dump() for recipe in unique_recipes],
+        "recipe_overrides_json": _prune_recipe_overrides_for_recipes(
+            existing_record.recipe_overrides_json,
+            unique_recipes,
+        ),
+        "image_url": image_url,
+        "servings": servings,
+    }
+
+
+def update_recipe_import_from_extraction(
+    recipe_import_id: str,
+    extraction_result,
+) -> Optional[RecipeImportRecord]:
+    settings = get_settings()
+    client = get_supabase_client(settings)
+    if client is None:
+        raise RuntimeError(
+            "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
+        )
+
+    existing_record = get_recipe_import(recipe_import_id)
+    if existing_record is None:
+        return None
+
+    payload = _build_refetched_recipe_update_payload(
+        existing_record,
+        title=extraction_result.title,
+        image_url=extraction_result.image_url,
+        recipes=extraction_result.recipes,
+    )
 
     try:
         (
