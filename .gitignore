@@ -20,6 +20,9 @@ AGENTS.md
 CLAUDE.md
 .claude/
 
+# Ignore superpowers docs
+docs/superpowers/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
