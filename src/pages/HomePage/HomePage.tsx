@@ -10,7 +10,7 @@ export function HomePage() {
   const { data, error, isLoading } = useHighlightedRecipes();
   const mostCooked = data.mostCooked.some((item) => item.timesCooked > 0)
     ? data.mostCooked
-    : data.mostCooked;
+    : [];
 
   return (
     <Stack spacing={10} className="homePage">
