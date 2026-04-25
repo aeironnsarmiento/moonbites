@@ -1,14 +1,19 @@
 .recipeCard {
   display: block;
+  height: 100%;
+  cursor: pointer;
 
-  .chakra-card {
-    transition:
-      transform 0.18s ease,
-      box-shadow 0.18s ease;
+  &__card {
+    transition: box-shadow 0.18s ease;
   }
 
-  &:hover .chakra-card {
-    transform: translateY(-2px);
-    box-shadow: 0 24px 50px rgba(15, 23, 42, 0.12);
+  &:focus-visible {
+    outline: 3px solid var(--chakra-colors-brand-500);
+    outline-offset: 4px;
+    border-radius: 24px;
+  }
+
+  &:hover &__card {
+    box-shadow: 0 16px 36px rgba(74, 87, 60, 0.18);
   }
 }

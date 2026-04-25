@@ -1,8 +1,26 @@
 .recipeDetailCard {
   width: 100%;
+  overflow: hidden;
+
+  &__hero {
+    padding: 1rem 1rem 0;
+
+    .cardImage {
+      aspect-ratio: auto;
+      height: 280px;
+      border-radius: 18px;
+    }
+  }
 
   &__list {
     margin-left: 1.25rem;
+  }
+
+  &__section {
+    background: #eef2df;
+    border: 1px solid rgba(74, 87, 60, 0.12);
+    border-radius: 1rem;
+    padding: 1rem;
   }
 
   &__diff {
@@ -18,7 +36,7 @@
   }
 
   &__editorRow {
-    background: var(--chakra-colors-gray-50);
+    background: rgba(255, 255, 255, 0.72);
     border: 1px solid var(--chakra-colors-gray-200);
     border-radius: 0.75rem;
     padding: 0.75rem;

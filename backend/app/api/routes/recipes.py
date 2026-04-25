@@ -7,7 +7,11 @@ from ...repositories.recipe_imports import (
     list_cuisine_facets,
     list_recipe_imports,
     save_manual_recipe,
+    toggle_favorite,
     update_recipe_overrides,
+    update_image_url,
+    update_recipe_metadata,
+    update_servings,
     update_times_cooked,
 )
 from ...schemas.extract import (
@@ -16,7 +20,10 @@ from ...schemas.extract import (
     PaginatedRecipeImportsResponse,
     RecipeImportRecord,
     RecipeSortOption,
+    UpdateImageRequest,
+    UpdateRecipeMetadataRequest,
     UpdateRecipeOverridesRequest,
+    UpdateServingsRequest,
     UpdateTimesCookedRequest,
 )
 
@@ -40,15 +47,18 @@ async def create_manual_recipe(
 async def get_saved_recipes(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=50),
+    limit: Optional[int] = Query(default=None, ge=1, le=50),
     sort: RecipeSortOption = Query(default=RecipeSortOption.recent),
     cuisine: Optional[str] = Query(default=None),
+    favorite: Optional[bool] = Query(default=None),
 ) -> PaginatedRecipeImportsResponse:
     try:
         return list_recipe_imports(
             page=page,
-            page_size=page_size,
+            page_size=limit or page_size,
             sort=sort,
             cuisine=cuisine,
+            favorite=favorite,
         )
     except RuntimeError as error:
         message = str(error)
@@ -92,6 +102,75 @@ async def patch_times_cooked(
 
     try:
         record = update_times_cooked(recipe_import_id, payload.delta)
+    except RuntimeError as error:
+        message = str(error)
+        status_code = 503 if "not configured" in message else 502
+        raise HTTPException(status_code=status_code, detail=message) from error
+
+    if record is None:
+        raise HTTPException(status_code=404, detail="Recipe import not found")
+
+    return record
+
+
+@router.patch("/recipes/{recipe_import_id}/favorite", response_model=RecipeImportRecord)
+async def patch_favorite(recipe_import_id: str) -> RecipeImportRecord:
+    try:
+        record = toggle_favorite(recipe_import_id)
+    except RuntimeError as error:
+        message = str(error)
+        status_code = 503 if "not configured" in message else 502
+        raise HTTPException(status_code=status_code, detail=message) from error
+
+    if record is None:
+        raise HTTPException(status_code=404, detail="Recipe import not found")
+
+    return record
+
+
+@router.patch("/recipes/{recipe_import_id}/servings", response_model=RecipeImportRecord)
+async def patch_servings(
+    recipe_import_id: str,
+    payload: UpdateServingsRequest,
+) -> RecipeImportRecord:
+    try:
+        record = update_servings(recipe_import_id, payload.servings)
+    except RuntimeError as error:
+        message = str(error)
+        status_code = 503 if "not configured" in message else 502
+        raise HTTPException(status_code=status_code, detail=message) from error
+
+    if record is None:
+        raise HTTPException(status_code=404, detail="Recipe import not found")
+
+    return record
+
+
+@router.patch("/recipes/{recipe_import_id}/image", response_model=RecipeImportRecord)
+async def patch_image(
+    recipe_import_id: str,
+    payload: UpdateImageRequest,
+) -> RecipeImportRecord:
+    try:
+        record = update_image_url(recipe_import_id, payload.image_url)
+    except RuntimeError as error:
+        message = str(error)
+        status_code = 503 if "not configured" in message else 502
+        raise HTTPException(status_code=status_code, detail=message) from error
+
+    if record is None:
+        raise HTTPException(status_code=404, detail="Recipe import not found")
+
+    return record
+
+
+@router.patch("/recipes/{recipe_import_id}/metadata", response_model=RecipeImportRecord)
+async def patch_metadata(
+    recipe_import_id: str,
+    payload: UpdateRecipeMetadataRequest,
+) -> RecipeImportRecord:
+    try:
+        record = update_recipe_metadata(recipe_import_id, payload)
     except RuntimeError as error:
         message = str(error)
         status_code = 503 if "not configured" in message else 502

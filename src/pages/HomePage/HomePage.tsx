@@ -1,48 +1,64 @@
-import { useState } from "react";
-import type { FormEvent } from "react";
-
-import { Button, HStack, Stack, Text } from "@chakra-ui/react";
+import { Button, Heading, Spinner, Stack, Text } from "@chakra-ui/react";
 import { Link as RouterLink } from "react-router-dom";
 
+import { RecipeCardGrid } from "../../components/RecipeCardGrid/RecipeCardGrid";
 import { StatusBanner } from "../../components/StatusBanner/StatusBanner";
-import { UrlPasteForm } from "../../components/UrlPasteForm/UrlPasteForm";
-import { useExtractRecipe } from "../../hooks/useExtractRecipe";
+import { useHighlightedRecipes } from "../../hooks/useHighlightedRecipes";
 import "./HomePage.scss";
 
 export function HomePage() {
-  const [url, setUrl] = useState("");
-  const { error, isLoading, status, submitRecipe } = useExtractRecipe();
-
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    await submitRecipe(url);
-  };
+  const { data, error, isLoading } = useHighlightedRecipes();
+  const mostCooked = data.mostCooked.some((item) => item.timesCooked > 0)
+    ? data.mostCooked
+    : [];
 
   return (
-    <Stack spacing={8} className="homePage">
-      <UrlPasteForm
-        url={url}
-        isLoading={isLoading}
-        onUrlChange={setUrl}
-        onSubmit={handleSubmit}
-      />
+    <Stack spacing={10} className="homePage">
+      <Stack spacing={2} className="homePage__welcome">
+        <Heading size="xl">Welcome back.</Heading>
+        <Text color="gray.600">Your kitchen, in one place.</Text>
+      </Stack>
 
-      <StatusBanner error={error} status={status} />
+      {isLoading ? (
+        <Stack align="center" py={8}>
+          <Spinner color="brand.600" />
+        </Stack>
+      ) : null}
 
-      <HStack justify="space-between" className="homePage__footer" wrap="wrap">
-        <Text color="gray.500">
-          Imported recipes are saved to Supabase and can be browsed from the
-          recipe list page.
-        </Text>
-        <HStack wrap="wrap" spacing={3}>
-          <Button as={RouterLink} to="/recipes/create" colorScheme="brand">
-            Create recipe manually
-          </Button>
-          <Button as={RouterLink} to="/recipes" variant="outline">
-            Browse recipe list
-          </Button>
-        </HStack>
-      </HStack>
+      {!isLoading ? <StatusBanner error={error} /> : null}
+
+      {!isLoading ? (
+        <>
+          <Stack spacing={4} as="section">
+            <Heading size="lg">Favorites</Heading>
+            {data.favorites.length > 0 ? (
+              <RecipeCardGrid items={data.favorites} />
+            ) : (
+              <Text color="gray.600">No favorites yet. Tap the heart on any recipe.</Text>
+            )}
+            <Button
+              as={RouterLink}
+              to="/recipes?favorite=true"
+              variant="ghost"
+              alignSelf="flex-start"
+            >
+              See all favorites
+            </Button>
+          </Stack>
+
+          <Stack spacing={4} as="section">
+            <Heading size="lg">Most Cooked</Heading>
+            {mostCooked.length > 0 ? (
+              <RecipeCardGrid items={mostCooked} />
+            ) : (
+              <Text color="gray.600">Saved recipes will appear here.</Text>
+            )}
+            <Button as={RouterLink} to="/recipes" variant="ghost" alignSelf="flex-start">
+              Browse all recipes
+            </Button>
+          </Stack>
+        </>
+      ) : null}
     </Stack>
   );
 }

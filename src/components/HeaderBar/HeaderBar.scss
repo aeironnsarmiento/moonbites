@@ -2,9 +2,7 @@
   position: sticky;
   top: 0;
   z-index: 10;
-  backdrop-filter: blur(18px);
-  background: rgba(245, 247, 251, 0.82);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  background: var(--chakra-colors-surface-header);
 
   &__inner {
     width: min(1120px, calc(100% - 2rem));
@@ -12,16 +10,27 @@
     min-height: 76px;
   }
 
-  &__eyebrow {
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: #7c9446;
-    margin-bottom: 0.15rem;
+  &__brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.65rem;
+    color: var(--chakra-colors-brand-800);
+    text-decoration: none;
+  }
+
+  &__brandIcon {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+
+  &__brandText {
+    display: flex;
+    flex-direction: column;
+    font-weight: 800;
+    line-height: 1.05;
   }
 
   &__navButton {
-    min-width: 112px;
+    min-width: 118px;
   }
 }

@@ -3,10 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   adjustRecipeImportTimesCooked,
   getRecipeImportDetail,
+  updateRecipeImportMetadata,
+  updateRecipeServings,
   updateRecipeImportOverrides,
 } from "../controllers/recipeController";
 import type {
   RecipeImportRecord,
+  UpdateRecipeMetadataPayload,
   UpdateRecipeOverridesPayload,
 } from "../types/recipe";
 
@@ -61,6 +64,43 @@ export function useRecipeDetail(recipeImportId: string | undefined) {
     },
   });
 
+  const updateServingsMutation = useMutation({
+    mutationFn: (servings: number) => {
+      if (!recipeImportId) {
+        throw new Error("Missing recipe id.");
+      }
+
+      return updateRecipeServings(recipeImportId, servings);
+    },
+    onSuccess: async (record) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["recipe-list"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["recipe-detail", record.id],
+        }),
+      ]);
+    },
+  });
+
+  const updateMetadataMutation = useMutation({
+    mutationFn: (payload: UpdateRecipeMetadataPayload) => {
+      if (!recipeImportId) {
+        throw new Error("Missing recipe id.");
+      }
+
+      return updateRecipeImportMetadata(recipeImportId, payload);
+    },
+    onSuccess: async (record) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["recipe-list"] }),
+        queryClient.invalidateQueries({ queryKey: ["highlighted-recipes"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["recipe-detail", record.id],
+        }),
+      ]);
+    },
+  });
+
   const error = !recipeImportId
     ? "Missing recipe id."
     : query.error instanceof Error
@@ -69,13 +109,21 @@ export function useRecipeDetail(recipeImportId: string | undefined) {
         ? updateTimesCookedMutation.error.message
         : updateOverridesMutation.error instanceof Error
           ? updateOverridesMutation.error.message
-          : query.error
-            ? "Unable to load that recipe."
-            : updateTimesCookedMutation.error
-              ? "Unable to update cooked count."
-              : updateOverridesMutation.error
-                ? "Unable to save recipe edits."
-                : "";
+          : updateServingsMutation.error instanceof Error
+            ? updateServingsMutation.error.message
+            : updateMetadataMutation.error instanceof Error
+              ? updateMetadataMutation.error.message
+              : query.error
+                ? "Unable to load that recipe."
+                : updateTimesCookedMutation.error
+                  ? "Unable to update cooked count."
+                  : updateOverridesMutation.error
+                    ? "Unable to save recipe edits."
+                    : updateServingsMutation.error
+                      ? "Unable to update servings."
+                      : updateMetadataMutation.error
+                        ? "Unable to update recipe details."
+                        : "";
 
   return {
     recipeImport: query.data ?? null,
@@ -83,12 +131,20 @@ export function useRecipeDetail(recipeImportId: string | undefined) {
     isFetching: query.isFetching,
     isUpdatingTimesCooked: updateTimesCookedMutation.isPending,
     isSavingOverrides: updateOverridesMutation.isPending,
+    isSavingServings: updateServingsMutation.isPending,
+    isSavingMetadata: updateMetadataMutation.isPending,
     error,
     updateTimesCooked: async (delta: -1 | 1) => {
       await updateTimesCookedMutation.mutateAsync({ delta });
     },
     saveOverrides: async (payload: UpdateRecipeOverridesPayload) => {
       await updateOverridesMutation.mutateAsync(payload);
+    },
+    saveServings: async (servings: number) => {
+      await updateServingsMutation.mutateAsync(servings);
+    },
+    saveMetadata: async (payload: UpdateRecipeMetadataPayload) => {
+      await updateMetadataMutation.mutateAsync(payload);
     },
     refresh: async () => {
       await query.refetch();

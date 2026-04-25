@@ -5,10 +5,12 @@ import {
   Button,
   Card,
   CardBody,
+  Divider,
   FormControl,
   FormHelperText,
   FormLabel,
   Heading,
+  HStack,
   Input,
   SimpleGrid,
   Stack,
@@ -18,7 +20,9 @@ import {
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 
 import { StatusBanner } from "../../components/StatusBanner/StatusBanner";
+import { UrlPasteForm } from "../../components/UrlPasteForm/UrlPasteForm";
 import { useCreateRecipe } from "../../hooks/useCreateRecipe";
+import { useExtractRecipe } from "../../hooks/useExtractRecipe";
 import type { NormalizedRecipe } from "../../types/recipe";
 
 type RecipeFormState = {
@@ -75,7 +79,14 @@ function buildRecipePayload(form: RecipeFormState): NormalizedRecipe {
 export function RecipeCreatePage() {
   const navigate = useNavigate();
   const { createRecipe, error, isLoading } = useCreateRecipe();
+  const {
+    error: extractError,
+    isLoading: isExtracting,
+    status: extractStatus,
+    submitRecipe,
+  } = useExtractRecipe();
   const [form, setForm] = useState<RecipeFormState>(EMPTY_FORM);
+  const [url, setUrl] = useState("");
   const [validationError, setValidationError] = useState("");
 
   const fieldError = validationError || error;
@@ -112,24 +123,47 @@ export function RecipeCreatePage() {
     navigate(`/recipes/${record.id}`);
   };
 
+  const handleUrlSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await submitRecipe(url);
+  };
+
   return (
     <Stack spacing={8}>
       <Stack spacing={2}>
         <Text color="brand.600" fontWeight="700" fontSize="sm">
-          Manual recipe
+          Create recipe
         </Text>
-        <Heading size="xl">Create a recipe manually</Heading>
-        <Text color="gray.600">
-          Enter a recipe directly instead of importing it from a URL. After save,
-          you will land on the existing recipe detail page where the current edit
-          feature still works.
-        </Text>
+        <Heading size="xl">Add a recipe</Heading>
       </Stack>
+
+      <Stack spacing={4}>
+        <Heading size="md">Paste a URL to import.</Heading>
+        <UrlPasteForm
+          url={url}
+          isLoading={isExtracting}
+          onUrlChange={setUrl}
+          onSubmit={handleUrlSubmit}
+        />
+        <StatusBanner error={extractError} status={extractStatus} />
+      </Stack>
+
+      <HStack spacing={4}>
+        <Divider />
+        <Text color="gray.600" fontSize="sm" whiteSpace="nowrap">
+          or
+        </Text>
+        <Divider />
+      </HStack>
 
       <Card>
         <CardBody>
           <form onSubmit={handleSubmit}>
             <Stack spacing={6}>
+              <Stack spacing={1}>
+                <Heading size="md">Or enter the details yourself.</Heading>
+              </Stack>
+
               <SimpleGrid columns={{ base: 1, md: 2 }} spacing={6}>
                 <FormControl>
                   <FormLabel htmlFor="manual-title">Record title</FormLabel>

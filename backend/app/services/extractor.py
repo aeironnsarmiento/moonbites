@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from ..core.config import Settings, get_settings
 from ..schemas.extract import IngredientSection, JsonLdBlock, NormalizedRecipe
 from ..utils.text import clean_text
+from .image_extraction import extract_image_url
 from .normalizer import (
     collect_recipe_nodes,
     dedupe_normalized_recipes,
@@ -21,6 +22,7 @@ class ExtractionResult:
     source_url: str
     final_url: str
     title: Optional[str]
+    image_url: Optional[str]
     recipes: list[NormalizedRecipe]
 
 
@@ -302,6 +304,7 @@ async def extract_recipes_from_url(url: str) -> ExtractionResult:
             recipe_nodes.extend(collect_recipe_nodes(block.parsed))
 
     fallback_sections = html_ingredient_sections if len(recipe_nodes) == 1 else None
+    image_url = extract_image_url(response.text, recipe_nodes)
 
     for recipe in recipe_nodes:
         normalized = normalize_recipe(
@@ -317,5 +320,6 @@ async def extract_recipes_from_url(url: str) -> ExtractionResult:
         source_url=target_url,
         final_url=str(response.url),
         title=title,
+        image_url=image_url,
         recipes=recipes,
     )

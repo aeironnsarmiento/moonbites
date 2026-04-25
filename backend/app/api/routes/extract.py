@@ -22,6 +22,7 @@ async def extract_ld_json(payload: ExtractRequest) -> ExtractResponse:
             final_url=result.final_url,
             title=result.title,
             recipes=result.recipes,
+            image_url=result.image_url,
         )
     else:
         database_saved = False

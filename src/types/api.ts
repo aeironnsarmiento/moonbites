@@ -22,9 +22,11 @@ export type RecipeSortOption = "recent" | "az" | "za" | "times_cooked";
 
 export type RecipeListQuery = {
   page: number;
-  pageSize: number;
+  pageSize?: number;
+  limit?: number;
   sort: RecipeSortOption;
   cuisine: string | null;
+  favorite?: boolean | null;
 };
 
 export type CuisineFacet = {

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { Heading, Stack, Text } from "@chakra-ui/react";
+import { useSearchParams } from "react-router-dom";
 
 import { PaginationControls } from "../../components/PaginationControls/PaginationControls";
 import { RecipeList } from "../../components/RecipeList/RecipeList";
@@ -13,6 +14,7 @@ import "./RecipeListPage.scss";
 const PAGE_SIZE = 10;
 
 export function RecipeListPage() {
+  const [searchParams] = useSearchParams();
   const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
   const { sort, cuisine, setSort, setCuisine } = useRecipeListPreferences();
@@ -21,6 +23,7 @@ export function RecipeListPage() {
     pageSize: PAGE_SIZE,
     sort,
     cuisine: cuisine || null,
+    favorite: searchParams.get("favorite") === "true" ? true : null,
   });
   const { facets: cuisineFacets } = useCuisineFacets();
 
@@ -66,10 +69,7 @@ export function RecipeListPage() {
           Saved recipes
         </Text>
         <Heading size="xl">Recipe list</Heading>
-        <Text color="gray.600">
-          Browse saved recipe imports, sort and filter them, and open a recipe
-          page for the full normalized JSON.
-        </Text>
+        <Text color="gray.600">All your saved recipes.</Text>
       </Stack>
 
       <RecipeList

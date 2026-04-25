@@ -3,7 +3,10 @@ import {
   fetchCuisineFacets,
   fetchRecipeImportById,
   fetchRecipeImports,
+  patchRecipeImportMetadata,
   patchRecipeImportOverrides,
+  toggleRecipeImportFavorite,
+  updateRecipeImportServings,
   updateRecipeImportTimesCooked,
 } from "../services/recipeService";
 import type {
@@ -15,6 +18,7 @@ import type {
   NormalizedRecipe,
   RecipeCardItem,
   RecipeImportRecord,
+  UpdateRecipeMetadataPayload,
   UpdateRecipeOverridesPayload,
 } from "../types/recipe";
 import {
@@ -46,6 +50,9 @@ function mapRecipeImportToCard(record: RecipeImportRecord): RecipeCardItem {
     createdAtLabel: formatDate(record.created_at),
     recipeCount: record.recipe_count,
     timesCooked: record.times_cooked,
+    imageUrl: record.image_url,
+    isFavorite: record.is_favorite,
+    servings: record.servings,
     primaryRecipe,
   };
 }
@@ -117,6 +124,42 @@ export async function updateRecipeImportOverrides(
 
   if (!record || !Array.isArray(record.recipes_json)) {
     throw new Error("Recipes API returned an invalid update response.");
+  }
+
+  return dedupeRecipeImportRecord(record);
+}
+
+export async function updateRecipeImportMetadata(
+  recipeImportId: string,
+  payload: UpdateRecipeMetadataPayload,
+) {
+  const record = await patchRecipeImportMetadata(recipeImportId, payload);
+
+  if (!record || !Array.isArray(record.recipes_json)) {
+    throw new Error("Recipes API returned an invalid metadata response.");
+  }
+
+  return dedupeRecipeImportRecord(record);
+}
+
+export async function toggleFavorite(recipeImportId: string) {
+  const record = await toggleRecipeImportFavorite(recipeImportId);
+
+  if (!record || !Array.isArray(record.recipes_json)) {
+    throw new Error("Recipes API returned an invalid favorite response.");
+  }
+
+  return dedupeRecipeImportRecord(record);
+}
+
+export async function updateRecipeServings(
+  recipeImportId: string,
+  servings: number,
+) {
+  const record = await updateRecipeImportServings(recipeImportId, servings);
+
+  if (!record || !Array.isArray(record.recipes_json)) {
+    throw new Error("Recipes API returned an invalid servings response.");
   }
 
   return dedupeRecipeImportRecord(record);

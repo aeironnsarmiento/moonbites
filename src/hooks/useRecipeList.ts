@@ -16,6 +16,7 @@ type UseRecipeListParams = {
   pageSize: number;
   sort: RecipeSortOption;
   cuisine: string | null;
+  favorite?: boolean | null;
 };
 
 export function useRecipeList({
@@ -23,17 +24,19 @@ export function useRecipeList({
   pageSize,
   sort,
   cuisine,
+  favorite = null,
 }: UseRecipeListParams) {
   const queryClient = useQueryClient();
   const normalizedCuisine = cuisine && cuisine.length > 0 ? cuisine : null;
   const query = useQuery<RecipeListPageData>({
-    queryKey: ["recipe-list", page, pageSize, sort, normalizedCuisine],
+    queryKey: ["recipe-list", page, pageSize, sort, normalizedCuisine, favorite],
     queryFn: () =>
       getRecipeListPage({
         page,
         pageSize,
         sort,
         cuisine: normalizedCuisine,
+        favorite,
       }),
     placeholderData: keepPreviousData,
   });
@@ -47,17 +50,33 @@ export function useRecipeList({
     }
 
     void queryClient.prefetchQuery({
-      queryKey: ["recipe-list", nextPage, pageSize, sort, normalizedCuisine],
+      queryKey: [
+        "recipe-list",
+        nextPage,
+        pageSize,
+        sort,
+        normalizedCuisine,
+        favorite,
+      ],
       queryFn: () =>
         getRecipeListPage({
           page: nextPage,
           pageSize,
           sort,
           cuisine: normalizedCuisine,
+          favorite,
         }),
       staleTime: 1000 * 60 * 5,
     });
-  }, [nextPage, pageSize, queryClient, sort, normalizedCuisine, totalPages]);
+  }, [
+    nextPage,
+    pageSize,
+    queryClient,
+    sort,
+    normalizedCuisine,
+    totalPages,
+    favorite,
+  ]);
 
   let error = "";
   if (query.error) {

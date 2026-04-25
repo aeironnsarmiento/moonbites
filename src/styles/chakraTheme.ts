@@ -7,23 +7,29 @@ export const chakraTheme = extendTheme({
   },
   colors: {
     brand: {
-      50: "#fbfcf8",
-      100: "#f0f4e3",
-      200: "#e3ebcf",
-      300: "#d2deb0",
-      400: "#b8ca89",
-      500: "#9cb160",
-      600: "#7c9446",
-      700: "#627537",
-      800: "#4d5b2d",
-      900: "#3e4926",
+      50: "#f8faf3",
+      100: "#edf1e2",
+      200: "#dce4c9",
+      300: "#c3d0a8",
+      400: "#9eae77",
+      500: "#68784A",
+      600: "#59683f",
+      700: "#495536",
+      800: "#39432c",
+      900: "#2d3524",
+    },
+    surface: {
+      page: "#f0f4e2",
+      header: "#ccd1c3",
+      headerScrolled: "#99a293",
+      card: "#ccd1c3",
     },
   },
   styles: {
     global: {
       body: {
-        bg: "#f5f7fb",
-        color: "#1f2937",
+        bg: "surface.page",
+        color: "gray.800",
       },
     },
   },
@@ -36,10 +42,11 @@ export const chakraTheme = extendTheme({
     Card: {
       baseStyle: {
         container: {
+          bg: "surface.card",
           borderRadius: "24px",
           borderWidth: "1px",
           borderColor: "blackAlpha.100",
-          boxShadow: "0 20px 50px rgba(15, 23, 42, 0.08)",
+          boxShadow: "0 8px 24px rgba(74, 87, 60, 0.12)",
         },
       },
     },

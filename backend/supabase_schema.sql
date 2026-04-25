@@ -23,3 +23,18 @@ create index if not exists recipe_imports_created_at_idx
 
 create index if not exists recipe_imports_submitted_url_idx
   on public.recipe_imports (submitted_url);
+
+alter table public.recipe_imports
+  add column if not exists image_url text;
+
+alter table public.recipe_imports
+  add column if not exists is_favorite boolean not null default false;
+
+alter table public.recipe_imports
+  add column if not exists servings integer;
+
+create index if not exists recipe_imports_is_favorite_idx
+  on public.recipe_imports (is_favorite) where is_favorite = true;
+
+create index if not exists recipe_imports_times_cooked_idx
+  on public.recipe_imports (times_cooked desc);
