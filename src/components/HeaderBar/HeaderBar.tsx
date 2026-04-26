@@ -12,8 +12,9 @@ const navItems = [
 ];
 
 const subtleHeaderBackgroundImage =
+  "var(--app-subtle-header-background-image, " +
   "radial-gradient(1100px 420px at 50% -160px, rgba(104, 120, 74, 0.2), rgba(104, 120, 74, 0.08) 42%, transparent 72%), " +
-  "radial-gradient(circle, rgba(73, 85, 54, 0.1) 1px, transparent 1.2px)";
+  "radial-gradient(circle, rgba(73, 85, 54, 0.1) 1px, transparent 1.2px))";
 
 export function HeaderBar() {
   const isScrolled = useScrolled();
