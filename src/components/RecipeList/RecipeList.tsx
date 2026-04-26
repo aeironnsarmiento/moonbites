@@ -14,7 +14,7 @@ import {
   Stack,
   Text,
 } from "@chakra-ui/react";
-import { forwardRef } from "react";
+import { type ButtonHTMLAttributes, forwardRef } from "react";
 
 import type { CuisineFacet, RecipeSortOption } from "../../types/api";
 import type { RecipeCardItem } from "../../types/recipe";
@@ -74,7 +74,7 @@ function FilterSortIcon() {
   );
 }
 
-const SortChip = forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement>>(
+const SortChip = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement>>(
   function SortChip(props, ref) {
     return (
       <button

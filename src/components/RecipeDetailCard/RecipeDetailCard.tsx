@@ -489,16 +489,14 @@ export function RecipeDetailCard({
           ) : null}
 
           <Stack spacing={3} className="recipeDetailCard__section">
-            {canEdit ? (
-              <ServingsStepper
-                currentServings={servingsScale.currentServings}
-                originalServings={servingsScale.originalServings}
-                isSaving={isSavingServings}
-                onDecrement={servingsScale.decrement}
-                onIncrement={servingsScale.increment}
-                onSaveDefault={onSaveServings}
-              />
-            ) : null}
+            <ServingsStepper
+              currentServings={servingsScale.currentServings}
+              originalServings={servingsScale.originalServings}
+              isSaving={isSavingServings}
+              onDecrement={servingsScale.decrement}
+              onIncrement={servingsScale.increment}
+              onSaveDefault={canEdit ? onSaveServings : undefined}
+            />
             <HStack justify="space-between" wrap="wrap" spacing={3}>
               <Heading size="sm">Ingredients</Heading>
               {isEditing ? (
