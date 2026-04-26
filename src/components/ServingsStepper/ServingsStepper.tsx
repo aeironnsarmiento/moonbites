@@ -1,13 +1,4 @@
-import {
-  Button,
-  ButtonGroup,
-  HStack,
-  Icon,
-  IconButton,
-  Input,
-  Text,
-  Tooltip,
-} from "@chakra-ui/react";
+import { Button, HStack, Icon, Input, Text, Tooltip } from "@chakra-ui/react";
 import { useState } from "react";
 
 import "./ServingsStepper.scss";
@@ -55,15 +46,28 @@ export function ServingsStepper({
 
   return (
     <HStack className="servingsStepper" spacing={3} wrap="wrap">
-      <ButtonGroup isAttached size="sm" variant="outline">
-        <Button onClick={onDecrement} isDisabled={currentServings <= 1}>
-          -
-        </Button>
-        <Button className="servingsStepper__count" pointerEvents="none">
+      <div className="servingsStepper__group" role="group">
+        <button
+          type="button"
+          className="servingsStepper__step"
+          aria-label="Decrease servings"
+          onClick={onDecrement}
+          disabled={currentServings <= 1}
+        >
+          −
+        </button>
+        <span className="servingsStepper__count" aria-live="polite">
           {currentServings} serving{currentServings === 1 ? "" : "s"}
-        </Button>
-        <Button onClick={onIncrement}>+</Button>
-      </ButtonGroup>
+        </span>
+        <button
+          type="button"
+          className="servingsStepper__step"
+          aria-label="Increase servings"
+          onClick={onIncrement}
+        >
+          +
+        </button>
+      </div>
 
       <Text color="gray.600" fontSize="sm">
         Base: {originalServings}
@@ -94,16 +98,17 @@ export function ServingsStepper({
           </HStack>
         ) : (
           <Tooltip label="Edit default servings" hasArrow>
-            <IconButton
-              size="sm"
-              variant="ghost"
+            <button
+              type="button"
+              className="servingsStepper__edit"
               aria-label="Edit default servings"
-              icon={<PencilIcon />}
               onClick={() => {
                 setDraftServings(String(originalServings));
                 setIsEditing(true);
               }}
-            />
+            >
+              <PencilIcon />
+            </button>
           </Tooltip>
         )
       ) : null}

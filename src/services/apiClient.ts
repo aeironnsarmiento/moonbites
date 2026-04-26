@@ -1,11 +1,12 @@
 import type { ApiErrorResponse } from "../types/api";
+import { getCurrentAccessToken } from "./supabaseClient";
 
 const DEFAULT_API_BASE_URL = import.meta.env.PROD ? "/_/backend" : "";
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL
 ).replace(/\/$/, "");
 
-function buildApiUrl(path: string): string {
+export function buildApiUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) {
     return path;
   }
@@ -19,7 +20,17 @@ export async function apiRequest<T>(
   init?: RequestInit,
 ): Promise<T> {
   const requestUrl = buildApiUrl(path);
-  const response = await fetch(requestUrl, init);
+  const accessToken = await getCurrentAccessToken();
+  const headers = new Headers(init?.headers);
+
+  if (accessToken && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
+  }
+
+  const response = await fetch(requestUrl, {
+    ...init,
+    headers,
+  });
   const contentType = response.headers.get("content-type") ?? "";
   const data = contentType.includes("application/json")
     ? ((await response.json().catch(() => null)) as T | ApiErrorResponse | null)

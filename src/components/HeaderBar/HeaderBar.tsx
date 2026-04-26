@@ -2,16 +2,21 @@ import { Box, Button, Flex, HStack, Image, Text } from "@chakra-ui/react";
 import { motion } from "framer-motion";
 import { NavLink, Link } from "react-router-dom";
 
+import { useAuth } from "../../hooks/useAuth";
 import { useScrolled } from "../../hooks/useScrolled";
 import "./HeaderBar.scss";
 
 const navItems = [
-  { label: "Recipe List", to: "/recipes" },
-  { label: "Create Recipe", to: "/recipes/create" },
+  { label: "Recipe List", to: "/recipes", end: true },
+  { label: "Create Recipe", to: "/recipes/create", end: true },
 ];
 
 export function HeaderBar() {
   const isScrolled = useScrolled();
+  const { isAdmin } = useAuth();
+  const visibleNavItems = navItems.filter(
+    (item) => item.to !== "/recipes/create" || isAdmin,
+  );
 
   return (
     <motion.header
@@ -28,18 +33,32 @@ export function HeaderBar() {
         <Box as={Link} to="/" className="headerBar__brand">
           <Image src="/favicon.png" alt="" className="headerBar__brandIcon" />
           <Box className="headerBar__brandText">
-            <Text as="span">Moonbites</Text>
-            <Text as="span">Cookbook</Text>
+            <Text as="span" className="headerBar__brandPrimary">
+              Moonbites
+            </Text>
+            <Text as="span" className="headerBar__brandEyebrow">
+              Cookbook
+            </Text>
           </Box>
         </Box>
 
-        <HStack spacing={3}>
-          {navItems.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.to === "/"}>
+        <HStack spacing={2} className="headerBar__nav">
+          {visibleNavItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className="headerBar__navLink"
+            >
               {({ isActive }) => (
                 <Button
                   variant={isActive ? "solid" : "ghost"}
-                  className="headerBar__navButton"
+                  colorScheme="brand"
+                  className={
+                    isActive
+                      ? "headerBar__navButton headerBar__navButton--active"
+                      : "headerBar__navButton"
+                  }
                 >
                   {item.label}
                 </Button>

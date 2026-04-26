@@ -18,8 +18,10 @@ DEFAULT_SUPABASE_TABLE = "recipe_imports"
 class Settings:
     request_timeout_seconds: float
     supabase_url: Optional[str]
+    supabase_publishable_key: Optional[str]
     supabase_service_role_key: Optional[str]
     supabase_table_name: str
+    admin_emails: tuple[str, ...]
     cors_origins: tuple[str, ...]
     user_agent: str
     accept_header: str
@@ -35,6 +37,14 @@ def normalize_cors_origins(value: str) -> tuple[str, ...]:
     return origins or DEFAULT_CORS_ORIGINS
 
 
+def normalize_admin_emails(value: str) -> tuple[str, ...]:
+    return tuple(
+        normalized_email
+        for email in value.split(",")
+        if (normalized_email := email.strip().casefold())
+    )
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     cors_origins_value = os.getenv("BACKEND_CORS_ORIGINS", "")
@@ -43,8 +53,10 @@ def get_settings() -> Settings:
     return Settings(
         request_timeout_seconds=float(os.getenv("REQUEST_TIMEOUT_SECONDS", "15.0")),
         supabase_url=os.getenv("SUPABASE_URL"),
+        supabase_publishable_key=os.getenv("SUPABASE_PUBLISHABLE_KEY"),
         supabase_service_role_key=os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
         supabase_table_name=os.getenv("SUPABASE_TABLE_NAME", DEFAULT_SUPABASE_TABLE),
+        admin_emails=normalize_admin_emails(os.getenv("ADMIN_EMAILS", "")),
         cors_origins=cors_origins,
         user_agent=os.getenv(
             "REQUEST_USER_AGENT",

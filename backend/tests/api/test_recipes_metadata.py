@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import app
+from backend.app.api.auth import AuthenticatedAdmin, require_admin_user
 from app.repositories.recipe_imports import _build_metadata_update_payload
 from app.schemas.extract import (
     NormalizedRecipe,
@@ -15,6 +17,16 @@ from app.schemas.extract import (
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def admin_override():
+    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+        email="admin@example.com",
+        access_token="admin-token",
+    )
+    yield
+    app.dependency_overrides.clear()
 
 
 def _record() -> RecipeImportRecord:
