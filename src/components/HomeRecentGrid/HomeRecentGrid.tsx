@@ -30,7 +30,13 @@ function RecentTile({ item, span, canToggleFavorite }: TileProps) {
       }}
     >
       <div className="recentTile__imageWrap">
-        <img src={item.imageUrl ?? undefined} alt="" className="recentTile__image" />
+        {item.imageUrl ? (
+          <img
+            src={item.imageUrl}
+            alt={item.title}
+            className="recentTile__image"
+          />
+        ) : null}
         {canToggleFavorite ? (
           <FavoriteToggleButton
             title={item.title}
