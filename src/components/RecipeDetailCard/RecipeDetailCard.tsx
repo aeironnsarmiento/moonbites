@@ -67,6 +67,7 @@ type RecipeDetailCardProps = {
     overrides: RecipeTextOverrides,
   ) => Promise<void>;
   showTimesCookedControls?: boolean;
+  canEdit?: boolean;
 };
 
 function EditRecipeIcon() {
@@ -175,6 +176,7 @@ export function RecipeDetailCard({
   onSaveMetadata,
   onSaveOverrides,
   showTimesCookedControls = false,
+  canEdit = true,
 }: RecipeDetailCardProps) {
   const toggleFavorite = useToggleFavorite(recipeImportId);
   const servingsScale = useServingsScale(recipeImportId, servings);
@@ -231,6 +233,7 @@ export function RecipeDetailCard({
   };
 
   const hasMetadataChanges =
+    canEdit &&
     showTimesCookedControls &&
     (draftTitle.trim() !== (recordTitle ?? recipe.name) ||
       (draftYield.trim() || null) !== (recipe.recipeYield ?? null) ||
@@ -343,9 +346,13 @@ export function RecipeDetailCard({
           title={recipe.name}
           isFavorite={isFavorite}
           isTogglingFavorite={toggleFavorite.isPending}
-          onToggleFavorite={() => {
-            void toggleFavorite.mutateAsync();
-          }}
+          onToggleFavorite={
+            canEdit
+              ? () => {
+                  void toggleFavorite.mutateAsync();
+                }
+              : undefined
+          }
         />
       </div>
       <CardBody>
@@ -356,7 +363,7 @@ export function RecipeDetailCard({
                 Recipe {index}
               </Text>
               <HStack spacing={2} align="center" wrap="wrap" justify="flex-end">
-                {showTimesCookedControls ? (
+                {canEdit && showTimesCookedControls ? (
                   <>
                     {timesCooked > 0 ? (
                       <Badge colorScheme="brand">Cooked {timesCooked}x</Badge>
@@ -383,7 +390,7 @@ export function RecipeDetailCard({
                   </>
                 ) : null}
 
-                {!isEditing ? (
+                {canEdit && !isEditing ? (
                   <Tooltip label="Edit ingredients and instructions" hasArrow>
                     <IconButton
                       aria-label={`Edit ${recipe.name}`}
@@ -393,7 +400,7 @@ export function RecipeDetailCard({
                       isDisabled={isSavingOverrides || isSavingMetadata}
                     />
                   </Tooltip>
-                ) : (
+                ) : canEdit ? (
                   <ButtonGroup size="sm">
                     <Button
                       variant="ghost"
@@ -413,7 +420,7 @@ export function RecipeDetailCard({
                       Save edits
                     </Button>
                   </ButtonGroup>
-                )}
+                ) : null}
               </HStack>
             </HStack>
             <Heading size="lg">{recipe.name}</Heading>
@@ -430,7 +437,7 @@ export function RecipeDetailCard({
 
           {metadataItems.length > 0 ? <Divider /> : null}
 
-          {isEditing && showTimesCookedControls ? (
+          {canEdit && isEditing && showTimesCookedControls ? (
             <Stack spacing={4} className="recipeDetailCard__section">
               <Heading size="sm">Recipe details</Heading>
               <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
@@ -482,14 +489,16 @@ export function RecipeDetailCard({
           ) : null}
 
           <Stack spacing={3} className="recipeDetailCard__section">
-            <ServingsStepper
-              currentServings={servingsScale.currentServings}
-              originalServings={servingsScale.originalServings}
-              isSaving={isSavingServings}
-              onDecrement={servingsScale.decrement}
-              onIncrement={servingsScale.increment}
-              onSaveDefault={onSaveServings}
-            />
+            {canEdit ? (
+              <ServingsStepper
+                currentServings={servingsScale.currentServings}
+                originalServings={servingsScale.originalServings}
+                isSaving={isSavingServings}
+                onDecrement={servingsScale.decrement}
+                onIncrement={servingsScale.increment}
+                onSaveDefault={onSaveServings}
+              />
+            ) : null}
             <HStack justify="space-between" wrap="wrap" spacing={3}>
               <Heading size="sm">Ingredients</Heading>
               {isEditing ? (

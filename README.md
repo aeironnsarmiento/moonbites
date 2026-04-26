@@ -25,3 +25,32 @@ BACKEND_CORS_ORIGINS=https://moonbites-blue.vercel.app
 
 When `BACKEND_CORS_ORIGINS` is not set, the backend allows only the local Vite
 development origins.
+
+## Supabase Auth and RLS
+
+Saved recipes are publicly readable. Creating, importing, favoriting, and editing
+recipes requires an admin Google account.
+
+Frontend env:
+
+```env
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+```
+
+Backend env:
+
+```env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+ADMIN_EMAILS=admin@example.com,second-admin@example.com
+```
+
+Supabase setup:
+
+1. Enable Google provider in Supabase Auth.
+2. Apply `backend/supabase_schema.sql`.
+3. Insert lowercase admin emails into `public.recipe_admins`.
+4. Configure `public.hook_allow_recipe_admin_signup` as the Auth
+   `Before User Created` Postgres hook.

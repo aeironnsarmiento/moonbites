@@ -11,6 +11,7 @@ import { Link as RouterLink, useParams } from "react-router-dom";
 
 import { RecipeDetailCard } from "../../components/RecipeDetailCard/RecipeDetailCard";
 import { StatusBanner } from "../../components/StatusBanner/StatusBanner";
+import { useAuth } from "../../hooks/useAuth";
 import { useRecipeDetail } from "../../hooks/useRecipeDetail";
 import type { RecipeTextOverrides } from "../../types/recipe";
 import "./RecipePage.scss";
@@ -23,6 +24,7 @@ function getSourceLabel(value: string) {
 
 export function RecipePage() {
   const { recipeImportId } = useParams();
+  const { isAdmin } = useAuth();
   const [savingRecipeIndex, setSavingRecipeIndex] = useState<number | null>(
     null,
   );
@@ -112,6 +114,7 @@ export function RecipePage() {
               onSaveMetadata={saveMetadata}
               onSaveOverrides={handleSaveOverrides}
               showTimesCookedControls={index === 0}
+              canEdit={isAdmin}
             />
           ))}
         </Stack>

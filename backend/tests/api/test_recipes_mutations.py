@@ -3,13 +3,25 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import app
+from backend.app.api.auth import AuthenticatedAdmin, require_admin_user
 from app.schemas.extract import RecipeImportRecord
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def admin_override():
+    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+        email="admin@example.com",
+        access_token="admin-token",
+    )
+    yield
+    app.dependency_overrides.clear()
 
 
 def _make_record(
@@ -61,7 +73,7 @@ def test_update_servings_accepts_positive_integer():
 
     assert response.status_code == 200
     assert response.json()["servings"] == 4
-    update_servings.assert_called_once_with("abc", 4)
+    update_servings.assert_called_once_with("abc", 4, access_token="admin-token")
 
 
 def test_update_servings_rejects_zero():
@@ -80,4 +92,8 @@ def test_update_image_accepts_url_string():
 
     assert response.status_code == 200
     assert response.json()["image_url"] == image_url
-    update_image_url.assert_called_once_with("abc", image_url)
+    update_image_url.assert_called_once_with(
+        "abc",
+        image_url,
+        access_token="admin-token",
+    )

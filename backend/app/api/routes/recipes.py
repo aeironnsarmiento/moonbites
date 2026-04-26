@@ -1,7 +1,8 @@
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from ..auth import AuthenticatedAdmin, require_admin_user
 from ...repositories.recipe_imports import (
     get_recipe_import,
     list_cuisine_facets,
@@ -34,9 +35,14 @@ router = APIRouter(prefix="/api", tags=["recipes"])
 @router.post("/recipes/manual", response_model=RecipeImportRecord)
 async def create_manual_recipe(
     payload: CreateManualRecipeRequest,
+    admin: AuthenticatedAdmin = Depends(require_admin_user),
 ) -> RecipeImportRecord:
     try:
-        return save_manual_recipe(payload.recipe, title=payload.title)
+        return save_manual_recipe(
+            payload.recipe,
+            title=payload.title,
+            access_token=admin.access_token,
+        )
     except RuntimeError as error:
         message = str(error)
         status_code = 503 if "not configured" in message else 502
@@ -95,13 +101,19 @@ async def get_saved_recipe(recipe_import_id: str) -> RecipeImportRecord:
     "/recipes/{recipe_import_id}/times-cooked", response_model=RecipeImportRecord
 )
 async def patch_times_cooked(
-    recipe_import_id: str, payload: UpdateTimesCookedRequest
+    recipe_import_id: str,
+    payload: UpdateTimesCookedRequest,
+    admin: AuthenticatedAdmin = Depends(require_admin_user),
 ) -> RecipeImportRecord:
     if payload.delta not in {-1, 1}:
         raise HTTPException(status_code=400, detail="delta must be -1 or 1")
 
     try:
-        record = update_times_cooked(recipe_import_id, payload.delta)
+        record = update_times_cooked(
+            recipe_import_id,
+            payload.delta,
+            access_token=admin.access_token,
+        )
     except RuntimeError as error:
         message = str(error)
         status_code = 503 if "not configured" in message else 502
@@ -114,9 +126,12 @@ async def patch_times_cooked(
 
 
 @router.patch("/recipes/{recipe_import_id}/favorite", response_model=RecipeImportRecord)
-async def patch_favorite(recipe_import_id: str) -> RecipeImportRecord:
+async def patch_favorite(
+    recipe_import_id: str,
+    admin: AuthenticatedAdmin = Depends(require_admin_user),
+) -> RecipeImportRecord:
     try:
-        record = toggle_favorite(recipe_import_id)
+        record = toggle_favorite(recipe_import_id, access_token=admin.access_token)
     except RuntimeError as error:
         message = str(error)
         status_code = 503 if "not configured" in message else 502
@@ -132,9 +147,14 @@ async def patch_favorite(recipe_import_id: str) -> RecipeImportRecord:
 async def patch_servings(
     recipe_import_id: str,
     payload: UpdateServingsRequest,
+    admin: AuthenticatedAdmin = Depends(require_admin_user),
 ) -> RecipeImportRecord:
     try:
-        record = update_servings(recipe_import_id, payload.servings)
+        record = update_servings(
+            recipe_import_id,
+            payload.servings,
+            access_token=admin.access_token,
+        )
     except RuntimeError as error:
         message = str(error)
         status_code = 503 if "not configured" in message else 502
@@ -150,9 +170,14 @@ async def patch_servings(
 async def patch_image(
     recipe_import_id: str,
     payload: UpdateImageRequest,
+    admin: AuthenticatedAdmin = Depends(require_admin_user),
 ) -> RecipeImportRecord:
     try:
-        record = update_image_url(recipe_import_id, payload.image_url)
+        record = update_image_url(
+            recipe_import_id,
+            payload.image_url,
+            access_token=admin.access_token,
+        )
     except RuntimeError as error:
         message = str(error)
         status_code = 503 if "not configured" in message else 502
@@ -168,9 +193,14 @@ async def patch_image(
 async def patch_metadata(
     recipe_import_id: str,
     payload: UpdateRecipeMetadataRequest,
+    admin: AuthenticatedAdmin = Depends(require_admin_user),
 ) -> RecipeImportRecord:
     try:
-        record = update_recipe_metadata(recipe_import_id, payload)
+        record = update_recipe_metadata(
+            recipe_import_id,
+            payload,
+            access_token=admin.access_token,
+        )
     except RuntimeError as error:
         message = str(error)
         status_code = 503 if "not configured" in message else 502
@@ -186,13 +216,16 @@ async def patch_metadata(
     "/recipes/{recipe_import_id}/overrides", response_model=RecipeImportRecord
 )
 async def patch_recipe_overrides(
-    recipe_import_id: str, payload: UpdateRecipeOverridesRequest
+    recipe_import_id: str,
+    payload: UpdateRecipeOverridesRequest,
+    admin: AuthenticatedAdmin = Depends(require_admin_user),
 ) -> RecipeImportRecord:
     try:
         record = update_recipe_overrides(
             recipe_import_id,
             payload.recipe_index,
             payload.overrides,
+            access_token=admin.access_token,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

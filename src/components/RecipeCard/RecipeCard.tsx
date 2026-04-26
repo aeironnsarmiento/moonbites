@@ -17,9 +17,10 @@ import "./RecipeCard.scss";
 
 type RecipeCardProps = {
   item: RecipeCardItem;
+  canToggleFavorite?: boolean;
 };
 
-export function RecipeCard({ item }: RecipeCardProps) {
+export function RecipeCard({ item, canToggleFavorite = true }: RecipeCardProps) {
   const navigate = useNavigate();
   const toggleFavorite = useToggleFavorite(item.id);
   const recipeUrl = `/recipes/${item.id}`;
@@ -49,9 +50,13 @@ export function RecipeCard({ item }: RecipeCardProps) {
           title={item.title}
           isFavorite={item.isFavorite}
           isTogglingFavorite={toggleFavorite.isPending}
-          onToggleFavorite={() => {
-            void toggleFavorite.mutateAsync();
-          }}
+          onToggleFavorite={
+            canToggleFavorite
+              ? () => {
+                  void toggleFavorite.mutateAsync();
+                }
+              : undefined
+          }
         />
         <CardBody>
           <Stack spacing={4}>

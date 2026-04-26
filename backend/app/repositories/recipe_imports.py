@@ -1,7 +1,11 @@
 from typing import Optional
 from uuid import uuid4
 
-from ..clients.supabase_client import get_supabase_client
+from ..clients.supabase_client import (
+    get_supabase_client,
+    get_supabase_public_client,
+    get_supabase_user_client,
+)
 from ..core.config import get_settings
 from ..schemas.extract import (
     CuisineFacet,
@@ -24,6 +28,17 @@ from ..utils.yield_parser import parse_yield
 
 
 RECIPE_IMPORT_SELECT = "id, submitted_url, final_url, page_title, recipe_count, times_cooked, recipes_json, recipe_overrides_json, image_url, is_favorite, servings, created_at"
+
+
+def _get_read_client(settings):
+    return get_supabase_client(settings) or get_supabase_public_client(settings)
+
+
+def _get_write_client(settings, access_token: Optional[str] = None):
+    if access_token:
+        return get_supabase_user_client(settings, access_token)
+
+    return get_supabase_client(settings)
 
 
 def _sanitize_override_rows(rows: object) -> dict[str, str]:
@@ -255,9 +270,10 @@ def save_recipe_import(
     title: Optional[str],
     recipes: list[NormalizedRecipe],
     image_url: Optional[str] = None,
+    access_token: Optional[str] = None,
 ) -> tuple[bool, Optional[str]]:
     settings = get_settings()
-    client = get_supabase_client(settings)
+    client = _get_write_client(settings, access_token)
     if client is None:
         return (
             False,
@@ -315,9 +331,10 @@ def save_recipe_import(
 def save_manual_recipe(
     recipe: NormalizedRecipe,
     title: Optional[str] = None,
+    access_token: Optional[str] = None,
 ) -> RecipeImportRecord:
     settings = get_settings()
-    client = get_supabase_client(settings)
+    client = _get_write_client(settings, access_token)
     if client is None:
         raise RuntimeError(
             "Supabase is not configured yet. Add backend env vars to enable saving recipes."
@@ -362,7 +379,7 @@ def list_recipe_imports(
     favorite: Optional[bool] = None,
 ) -> PaginatedRecipeImportsResponse:
     settings = get_settings()
-    client = get_supabase_client(settings)
+    client = _get_read_client(settings)
     if client is None:
         raise RuntimeError(
             "Supabase is not configured yet. Add backend env vars to enable reading saved recipes."
@@ -399,7 +416,7 @@ def list_recipe_imports(
 
 def list_cuisine_facets() -> CuisineFacetsResponse:
     settings = get_settings()
-    client = get_supabase_client(settings)
+    client = _get_read_client(settings)
     if client is None:
         raise RuntimeError(
             "Supabase is not configured yet. Add backend env vars to enable reading saved recipes."
@@ -432,7 +449,7 @@ def list_recipe_import_records_for_refresh() -> list[RecipeImportRecord]:
 
 def get_recipe_import(recipe_import_id: str) -> Optional[RecipeImportRecord]:
     settings = get_settings()
-    client = get_supabase_client(settings)
+    client = _get_read_client(settings)
     if client is None:
         raise RuntimeError(
             "Supabase is not configured yet. Add backend env vars to enable reading saved recipes."
@@ -457,10 +474,12 @@ def get_recipe_import(recipe_import_id: str) -> Optional[RecipeImportRecord]:
 
 
 def update_times_cooked(
-    recipe_import_id: str, delta: int
+    recipe_import_id: str,
+    delta: int,
+    access_token: Optional[str] = None,
 ) -> Optional[RecipeImportRecord]:
     settings = get_settings()
-    client = get_supabase_client(settings)
+    client = _get_write_client(settings, access_token)
     if client is None:
         raise RuntimeError(
             "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
@@ -485,9 +504,12 @@ def update_times_cooked(
     return get_recipe_import(recipe_import_id)
 
 
-def toggle_favorite(recipe_import_id: str) -> Optional[RecipeImportRecord]:
+def toggle_favorite(
+    recipe_import_id: str,
+    access_token: Optional[str] = None,
+) -> Optional[RecipeImportRecord]:
     settings = get_settings()
-    client = get_supabase_client(settings)
+    client = _get_write_client(settings, access_token)
     if client is None:
         raise RuntimeError(
             "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
@@ -511,10 +533,12 @@ def toggle_favorite(recipe_import_id: str) -> Optional[RecipeImportRecord]:
 
 
 def update_servings(
-    recipe_import_id: str, servings: int
+    recipe_import_id: str,
+    servings: int,
+    access_token: Optional[str] = None,
 ) -> Optional[RecipeImportRecord]:
     settings = get_settings()
-    client = get_supabase_client(settings)
+    client = _get_write_client(settings, access_token)
     if client is None:
         raise RuntimeError(
             "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
@@ -534,10 +558,12 @@ def update_servings(
 
 
 def update_image_url(
-    recipe_import_id: str, image_url: str
+    recipe_import_id: str,
+    image_url: str,
+    access_token: Optional[str] = None,
 ) -> Optional[RecipeImportRecord]:
     settings = get_settings()
-    client = get_supabase_client(settings)
+    client = _get_write_client(settings, access_token)
     if client is None:
         raise RuntimeError(
             "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
@@ -582,9 +608,10 @@ def _build_metadata_update_payload(
 def update_recipe_metadata(
     recipe_import_id: str,
     metadata: UpdateRecipeMetadataRequest,
+    access_token: Optional[str] = None,
 ) -> Optional[RecipeImportRecord]:
     settings = get_settings()
-    client = get_supabase_client(settings)
+    client = _get_write_client(settings, access_token)
     if client is None:
         raise RuntimeError(
             "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
@@ -681,9 +708,10 @@ def _build_refetched_recipe_update_payload(
 def update_recipe_import_from_extraction(
     recipe_import_id: str,
     extraction_result,
+    access_token: Optional[str] = None,
 ) -> Optional[RecipeImportRecord]:
     settings = get_settings()
-    client = get_supabase_client(settings)
+    client = _get_write_client(settings, access_token)
     if client is None:
         raise RuntimeError(
             "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
@@ -717,9 +745,10 @@ def update_recipe_overrides(
     recipe_import_id: str,
     recipe_index: int,
     overrides: RecipeTextOverrides,
+    access_token: Optional[str] = None,
 ) -> Optional[RecipeImportRecord]:
     settings = get_settings()
-    client = get_supabase_client(settings)
+    client = _get_write_client(settings, access_token)
     if client is None:
         raise RuntimeError(
             "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."

@@ -3,34 +3,100 @@
   top: 0;
   z-index: 10;
   background: var(--chakra-colors-surface-header);
+  border-bottom: 1px solid rgba(57, 67, 44, 0.10);
 
   &__inner {
     width: min(1120px, calc(100% - 2rem));
     margin: 0 auto;
-    min-height: 76px;
+    min-height: 88px;
+    padding: 0 4px;
   }
 
   &__brand {
     display: inline-flex;
     align-items: center;
-    gap: 0.65rem;
+    gap: 14px;
     color: var(--chakra-colors-brand-800);
     text-decoration: none;
+
+    &:hover,
+    &:focus,
+    &:active {
+      text-decoration: none;
+    }
   }
 
   &__brandIcon {
-    width: 2.25rem;
-    height: 2.25rem;
+    width: 44px;
+    height: 44px;
+    filter: drop-shadow(0 2px 4px rgba(74, 87, 60, 0.18));
   }
 
   &__brandText {
     display: flex;
     flex-direction: column;
+    line-height: 1;
+  }
+
+  &__brandPrimary {
     font-weight: 800;
-    line-height: 1.05;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+    color: var(--chakra-colors-brand-900);
+  }
+
+  &__brandEyebrow {
+    margin-top: 6px;
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--chakra-colors-brand-600);
+  }
+
+  &__nav {
+    align-items: stretch;
+  }
+
+  &__navLink {
+    display: inline-flex;
   }
 
   &__navButton {
-    min-width: 118px;
+    min-width: 128px;
+    padding: 10px 20px;
+
+    &--active {
+      box-shadow: 0 4px 12px rgba(74, 87, 60, 0.22);
+    }
+  }
+}
+
+@media (max-width: 640px) {
+  .headerBar {
+    &__inner {
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: center;
+      gap: 12px;
+      min-height: auto;
+      padding: 12px 4px;
+    }
+
+    &__nav {
+      width: 100%;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    &__navLink {
+      display: flex;
+      width: 100%;
+    }
+
+    &__navButton {
+      width: 100%;
+      min-width: 0;
+    }
   }
 }

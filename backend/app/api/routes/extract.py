@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from ..auth import AuthenticatedAdmin, require_admin_user
 from ...repositories.recipe_imports import save_recipe_import
 from ...schemas.extract import ExtractRequest, ExtractResponse
 from ...services.extractor import extract_recipes_from_url
@@ -14,7 +15,10 @@ async def health_check() -> dict[str, str]:
 
 
 @router.post("/extract", response_model=ExtractResponse)
-async def extract_ld_json(payload: ExtractRequest) -> ExtractResponse:
+async def extract_ld_json(
+    payload: ExtractRequest,
+    admin: AuthenticatedAdmin = Depends(require_admin_user),
+) -> ExtractResponse:
     result = await extract_recipes_from_url(payload.url)
     if result.recipes:
         database_saved, database_message = save_recipe_import(
@@ -23,6 +27,7 @@ async def extract_ld_json(payload: ExtractRequest) -> ExtractResponse:
             title=result.title,
             recipes=result.recipes,
             image_url=result.image_url,
+            access_token=admin.access_token,
         )
     else:
         database_saved = False
