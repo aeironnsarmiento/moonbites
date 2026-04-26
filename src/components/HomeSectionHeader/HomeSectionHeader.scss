@@ -1,0 +1,48 @@
+.homeSectionHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid rgba(74, 87, 60, 0.18);
+  padding-bottom: 14px;
+
+  &__eyebrow {
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--chakra-colors-brand-600);
+    margin-bottom: 6px;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--chakra-colors-brand-900);
+    letter-spacing: -0.01em;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    font-family: inherit;
+  }
+
+  &__count {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--chakra-colors-gray-500);
+  }
+
+  &__action {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--chakra-colors-brand-700);
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    padding: 6px 0;
+    white-space: nowrap;
+  }
+}

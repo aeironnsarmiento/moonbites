@@ -77,7 +77,6 @@ Create `backend/.env` for the FastAPI service:
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-ADMIN_EMAILS=admin@example.com
 ```
 
 Optional backend env vars:
@@ -97,17 +96,21 @@ Supabase setup:
 
 1. Enable the Google provider in Supabase Auth.
 2. Apply `backend/supabase_schema.sql`.
-3. Insert approved lowercase admin emails into `public.recipe_admins`.
-4. Configure `public.hook_allow_recipe_admin_signup` as the Supabase Auth
+3. Configure `public.hook_allow_recipe_admin_signup` as the Supabase Auth
    `Before User Created` Postgres hook.
-5. Add the same approved admin emails to `ADMIN_EMAILS` in `backend/.env`.
+4. Grant admin access with the local CLI.
 
-Example admin seed:
+Example admin grant:
 
-```sql
-insert into public.recipe_admins (email)
-values ('admin@example.com')
-on conflict (email) do nothing;
+```bash
+python3 -m backend.scripts.admins grant admin@example.com
+```
+
+List or revoke admins:
+
+```bash
+python3 -m backend.scripts.admins list
+python3 -m backend.scripts.admins revoke admin@example.com
 ```
 
 Use the publishable key in browser/frontend env vars. Keep the service-role key
@@ -181,13 +184,14 @@ Check DevTools Network for `GET /api/auth/me`.
 
 - `200`: backend recognized the admin session.
 - `401`: Supabase session token is missing or invalid.
-- `403`: logged-in Google email is not in `ADMIN_EMAILS` or `public.recipe_admins`.
-- `503`: backend is missing `SUPABASE_URL` or `SUPABASE_PUBLISHABLE_KEY`.
+- `403`: logged-in Google email is not in `public.recipe_admins`.
+- `503`: backend is missing `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, or `SUPABASE_SERVICE_ROLE_KEY`.
 
 Also confirm:
 
 - Root `.env` uses `VITE_SUPABASE_PUBLISHABLE_KEY=...`, not `VITE_SUPABASE_PUBLISHABLE_KEY=SUPABASE_PUBLISHABLE_KEY=...`.
 - `backend/.env` uses the same Supabase project URL as root `.env`.
+- `python3 -m backend.scripts.admins list` shows the logged-in Google email.
 - The backend and frontend were restarted after env changes.
 
 ### API Calls Fail In Development

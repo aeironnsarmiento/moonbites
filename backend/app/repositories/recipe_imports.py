@@ -30,6 +30,10 @@ from ..utils.yield_parser import parse_yield
 RECIPE_IMPORT_SELECT = "id, submitted_url, final_url, page_title, recipe_count, times_cooked, recipes_json, recipe_overrides_json, image_url, is_favorite, servings, created_at"
 
 
+class RecipeWriteDeniedError(RuntimeError):
+    pass
+
+
 def _get_read_client(settings):
     return get_supabase_client(settings) or get_supabase_public_client(settings)
 
@@ -190,9 +194,7 @@ def _filter_recipe_import_records(
         return records
 
     return [
-        record
-        for record in records
-        if normalized_cuisine in _record_cuisines(record)
+        record for record in records if normalized_cuisine in _record_cuisines(record)
     ]
 
 
@@ -231,6 +233,16 @@ def _sort_recipe_import_records(
             reverse=True,
         )
 
+    if sort == RecipeSortOption.favorites:
+        return sorted(
+            records,
+            key=lambda record: (
+                record.is_favorite,
+                record.created_at.timestamp(),
+            ),
+            reverse=True,
+        )
+
     return sorted(records, key=lambda record: record.created_at, reverse=True)
 
 
@@ -243,9 +255,7 @@ def _prepare_recipe_import_records(
     unique_records = _dedupe_recipe_import_records(records)
     filtered_records = _filter_recipe_import_records(unique_records, cuisine)
     if favorite is True:
-        filtered_records = [
-            record for record in filtered_records if record.is_favorite
-        ]
+        filtered_records = [record for record in filtered_records if record.is_favorite]
     return _sort_recipe_import_records(filtered_records, sort)
 
 
@@ -386,9 +396,7 @@ def list_recipe_imports(
         )
 
     try:
-        records = _fetch_all_recipe_import_records(
-            client, settings.supabase_table_name
-        )
+        records = _fetch_all_recipe_import_records(client, settings.supabase_table_name)
     except Exception as error:
         raise RuntimeError(f"Supabase read failed: {error}") from error
 
@@ -423,9 +431,7 @@ def list_cuisine_facets() -> CuisineFacetsResponse:
         )
 
     try:
-        records = _fetch_all_recipe_import_records(
-            client, settings.supabase_table_name
-        )
+        records = _fetch_all_recipe_import_records(client, settings.supabase_table_name)
     except Exception as error:
         raise RuntimeError(f"Supabase read failed: {error}") from error
 
@@ -473,6 +479,37 @@ def get_recipe_import(recipe_import_id: str) -> Optional[RecipeImportRecord]:
     return _sanitize_record(records[0])
 
 
+def _raise_recipe_write_denied(recipe_import_id: str) -> None:
+    raise RecipeWriteDeniedError(
+        "Recipe update was denied by Supabase row-level security. "
+        "Confirm the admin email returned by /api/auth/me exists in "
+        f"public.recipe_admins before updating recipe import {recipe_import_id}."
+    )
+
+
+def _update_recipe_import_record(
+    client,
+    table_name: str,
+    recipe_import_id: str,
+    payload: dict,
+) -> RecipeImportRecord:
+    try:
+        response = (
+            client.table(table_name)
+            .update(payload)
+            .eq("id", recipe_import_id)
+            .execute()
+        )
+    except Exception as error:
+        raise RuntimeError(f"Supabase update failed: {error}") from error
+
+    records = response.data or []
+    if not records:
+        _raise_recipe_write_denied(recipe_import_id)
+
+    return _sanitize_record(records[0])
+
+
 def update_times_cooked(
     recipe_import_id: str,
     delta: int,
@@ -491,17 +528,12 @@ def update_times_cooked(
 
     next_times_cooked = max(0, existing_record.times_cooked + delta)
 
-    try:
-        (
-            client.table(settings.supabase_table_name)
-            .update({"times_cooked": next_times_cooked})
-            .eq("id", recipe_import_id)
-            .execute()
-        )
-    except Exception as error:
-        raise RuntimeError(f"Supabase update failed: {error}") from error
-
-    return get_recipe_import(recipe_import_id)
+    return _update_recipe_import_record(
+        client,
+        settings.supabase_table_name,
+        recipe_import_id,
+        {"times_cooked": next_times_cooked},
+    )
 
 
 def toggle_favorite(
@@ -519,17 +551,12 @@ def toggle_favorite(
     if existing_record is None:
         return None
 
-    try:
-        (
-            client.table(settings.supabase_table_name)
-            .update({"is_favorite": not existing_record.is_favorite})
-            .eq("id", recipe_import_id)
-            .execute()
-        )
-    except Exception as error:
-        raise RuntimeError(f"Supabase update failed: {error}") from error
-
-    return get_recipe_import(recipe_import_id)
+    return _update_recipe_import_record(
+        client,
+        settings.supabase_table_name,
+        recipe_import_id,
+        {"is_favorite": not existing_record.is_favorite},
+    )
 
 
 def update_servings(
@@ -544,17 +571,15 @@ def update_servings(
             "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
         )
 
-    try:
-        (
-            client.table(settings.supabase_table_name)
-            .update({"servings": servings})
-            .eq("id", recipe_import_id)
-            .execute()
-        )
-    except Exception as error:
-        raise RuntimeError(f"Supabase update failed: {error}") from error
+    if get_recipe_import(recipe_import_id) is None:
+        return None
 
-    return get_recipe_import(recipe_import_id)
+    return _update_recipe_import_record(
+        client,
+        settings.supabase_table_name,
+        recipe_import_id,
+        {"servings": servings},
+    )
 
 
 def update_image_url(
@@ -569,17 +594,15 @@ def update_image_url(
             "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
         )
 
-    try:
-        (
-            client.table(settings.supabase_table_name)
-            .update({"image_url": image_url})
-            .eq("id", recipe_import_id)
-            .execute()
-        )
-    except Exception as error:
-        raise RuntimeError(f"Supabase update failed: {error}") from error
+    if get_recipe_import(recipe_import_id) is None:
+        return None
 
-    return get_recipe_import(recipe_import_id)
+    return _update_recipe_import_record(
+        client,
+        settings.supabase_table_name,
+        recipe_import_id,
+        {"image_url": image_url},
+    )
 
 
 def _build_metadata_update_payload(
@@ -623,17 +646,12 @@ def update_recipe_metadata(
 
     payload = _build_metadata_update_payload(existing_record, metadata)
 
-    try:
-        (
-            client.table(settings.supabase_table_name)
-            .update(payload)
-            .eq("id", recipe_import_id)
-            .execute()
-        )
-    except Exception as error:
-        raise RuntimeError(f"Supabase update failed: {error}") from error
-
-    return get_recipe_import(recipe_import_id)
+    return _update_recipe_import_record(
+        client,
+        settings.supabase_table_name,
+        recipe_import_id,
+        payload,
+    )
 
 
 def _prune_override_rows(rows: dict[str, str], row_count: int) -> dict[str, str]:
@@ -728,17 +746,12 @@ def update_recipe_import_from_extraction(
         recipes=extraction_result.recipes,
     )
 
-    try:
-        (
-            client.table(settings.supabase_table_name)
-            .update(payload)
-            .eq("id", recipe_import_id)
-            .execute()
-        )
-    except Exception as error:
-        raise RuntimeError(f"Supabase update failed: {error}") from error
-
-    return get_recipe_import(recipe_import_id)
+    return _update_recipe_import_record(
+        client,
+        settings.supabase_table_name,
+        recipe_import_id,
+        payload,
+    )
 
 
 def update_recipe_overrides(
@@ -778,14 +791,9 @@ def update_recipe_overrides(
     else:
         next_overrides.pop(recipe_key, None)
 
-    try:
-        (
-            client.table(settings.supabase_table_name)
-            .update({"recipe_overrides_json": next_overrides})
-            .eq("id", recipe_import_id)
-            .execute()
-        )
-    except Exception as error:
-        raise RuntimeError(f"Supabase update failed: {error}") from error
-
-    return get_recipe_import(recipe_import_id)
+    return _update_recipe_import_record(
+        client,
+        settings.supabase_table_name,
+        recipe_import_id,
+        {"recipe_overrides_json": next_overrides},
+    )

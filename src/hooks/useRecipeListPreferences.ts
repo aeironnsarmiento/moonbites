@@ -9,6 +9,7 @@ const VALID_SORT_OPTIONS = new Set<RecipeSortOption>([
   "az",
   "za",
   "times_cooked",
+  "favorites",
 ]);
 
 export type RecipeListPreferences = {

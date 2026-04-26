@@ -29,12 +29,19 @@
   position: absolute !important;
   top: 0.75rem;
   right: 0.75rem;
+  width: 40px;
+  height: 40px;
   border-radius: 999px !important;
   background: rgba(31, 41, 55, 0.36) !important;
   backdrop-filter: blur(8px);
+  color: rgba(255, 255, 255, 0.92);
   transition: color 150ms ease, background 150ms ease;
 }
 
 .cardImage__favorite:hover {
   background: rgba(31, 41, 55, 0.48) !important;
+}
+
+.cardImage__favorite--active {
+  color: #e53e3e;
 }

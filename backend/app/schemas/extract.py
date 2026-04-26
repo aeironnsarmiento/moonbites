@@ -83,6 +83,7 @@ class RecipeSortOption(str, Enum):
     az = "az"
     za = "za"
     times_cooked = "times_cooked"
+    favorites = "favorites"
 
 
 class CuisineFacet(BaseModel):

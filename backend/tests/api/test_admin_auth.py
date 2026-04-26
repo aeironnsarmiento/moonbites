@@ -56,6 +56,32 @@ class _AuthClient:
         return _UserResponse(user=_User(email=self.email))
 
 
+class _AdminTable:
+    def __init__(self, rows: list[dict]):
+        self.rows = rows
+
+    def select(self, _columns: str):
+        return self
+
+    def eq(self, _column: str, _value: str):
+        return self
+
+    def limit(self, _limit: int):
+        return self
+
+    def execute(self):
+        return type("Response", (), {"data": self.rows})()
+
+
+class _AdminClient:
+    def __init__(self, rows: list[dict]):
+        self.rows = rows
+
+    def table(self, table_name: str):
+        assert table_name == "recipe_admins"
+        return _AdminTable(self.rows)
+
+
 def _record() -> RecipeImportRecord:
     return RecipeImportRecord(
         id="abc",
@@ -80,27 +106,57 @@ def test_write_endpoint_requires_bearer_token():
 
 
 def test_authenticate_admin_token_rejects_non_admin_email():
-    with patch(
-        "backend.app.api.auth.get_supabase_auth_client",
-        return_value=_AuthClient("guest@example.com"),
+    with (
+        patch(
+            "backend.app.api.auth.get_supabase_auth_client",
+            return_value=_AuthClient("guest@example.com"),
+        ),
+        patch(
+            "backend.app.api.auth.get_supabase_client",
+            return_value=_AdminClient([]),
+        ),
     ):
         with pytest.raises(HTTPException) as error:
-            authenticate_admin_token("valid-token", _settings())
+            authenticate_admin_token(
+                "valid-token",
+                _settings(admin_emails=("guest@example.com",)),
+            )
 
     assert error.value.status_code == 403
 
 
-def test_authenticate_admin_token_accepts_allowlisted_email_case_insensitive():
-    with patch(
-        "backend.app.api.auth.get_supabase_auth_client",
-        return_value=_AuthClient("ADMIN@example.com"),
+def test_authenticate_admin_token_accepts_recipe_admin_email_case_insensitive():
+    with (
+        patch(
+            "backend.app.api.auth.get_supabase_auth_client",
+            return_value=_AuthClient("ADMIN@example.com"),
+        ),
+        patch(
+            "backend.app.api.auth.get_supabase_client",
+            return_value=_AdminClient([{"email": "admin@example.com"}]),
+        ),
     ):
-        admin = authenticate_admin_token("valid-token", _settings())
+        admin = authenticate_admin_token("valid-token", _settings(admin_emails=()))
 
     assert admin == AuthenticatedAdmin(
         email="admin@example.com",
         access_token="valid-token",
     )
+
+
+def test_authenticate_admin_token_requires_service_role_admin_lookup():
+    with (
+        patch(
+            "backend.app.api.auth.get_supabase_auth_client",
+            return_value=_AuthClient("admin@example.com"),
+        ),
+        patch("backend.app.api.auth.get_supabase_client", return_value=None),
+    ):
+        with pytest.raises(HTTPException) as error:
+            authenticate_admin_token("valid-token", _settings(admin_emails=()))
+
+    assert error.value.status_code == 503
+    assert "admin lookup" in error.value.detail
 
 
 def test_admin_write_endpoint_passes_access_token_to_repository():

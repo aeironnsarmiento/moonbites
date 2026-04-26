@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 
-from ..clients.supabase_client import get_supabase_auth_client
+from ..clients.supabase_client import get_supabase_auth_client, get_supabase_client
 from ..core.config import Settings, get_settings
 
 
@@ -47,7 +47,29 @@ def authenticate_admin_token(
         raise HTTPException(status_code=401, detail="Invalid bearer token")
 
     normalized_email = email.casefold()
-    if normalized_email not in resolved_settings.admin_emails:
+
+    admin_client = get_supabase_client(resolved_settings)
+    if admin_client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Supabase admin lookup is not configured",
+        )
+
+    try:
+        response = (
+            admin_client.table("recipe_admins")
+            .select("email")
+            .eq("email", normalized_email)
+            .limit(1)
+            .execute()
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Supabase admin lookup failed",
+        ) from error
+
+    if not (response.data or []):
         raise HTTPException(status_code=403, detail="Admin access required")
 
     return AuthenticatedAdmin(email=normalized_email, access_token=access_token)

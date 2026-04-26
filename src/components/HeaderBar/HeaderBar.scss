@@ -2,20 +2,31 @@
   position: sticky;
   top: 0;
   z-index: 10;
-  background: var(--chakra-colors-surface-header);
-  border-bottom: 1px solid rgba(57, 67, 44, 0.10);
+  background-color: var(--chakra-colors-surface-page, #f0f4e2);
+  background-image:
+    radial-gradient(
+      1100px 420px at 50% -160px,
+      rgba(104, 120, 74, 0.2),
+      rgba(104, 120, 74, 0.08) 42%,
+      transparent 72%
+    ),
+    radial-gradient(circle, rgba(73, 85, 54, 0.1) 1px, transparent 1.2px);
+  background-size: auto, 22px 22px;
+  background-position: 0 0, 0 0;
+  background-attachment: fixed;
+  background-repeat: no-repeat, repeat;
+  transition: background-color 0.25s ease;
 
   &__inner {
     width: min(1120px, calc(100% - 2rem));
     margin: 0 auto;
-    min-height: 88px;
-    padding: 0 4px;
+    min-height: 76px;
   }
 
   &__brand {
     display: inline-flex;
     align-items: center;
-    gap: 14px;
+    gap: 0.65rem;
     color: var(--chakra-colors-brand-800);
     text-decoration: none;
 
@@ -27,35 +38,15 @@
   }
 
   &__brandIcon {
-    width: 44px;
-    height: 44px;
-    filter: drop-shadow(0 2px 4px rgba(74, 87, 60, 0.18));
+    width: 2.25rem;
+    height: 2.25rem;
   }
 
   &__brandText {
     display: flex;
     flex-direction: column;
-    line-height: 1;
-  }
-
-  &__brandPrimary {
     font-weight: 800;
-    font-size: 22px;
-    letter-spacing: -0.01em;
-    color: var(--chakra-colors-brand-900);
-  }
-
-  &__brandEyebrow {
-    margin-top: 6px;
-    font-weight: 600;
-    font-size: 13px;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--chakra-colors-brand-600);
-  }
-
-  &__nav {
-    align-items: stretch;
+    line-height: 1.05;
   }
 
   &__navLink {
@@ -63,12 +54,7 @@
   }
 
   &__navButton {
-    min-width: 128px;
-    padding: 10px 20px;
-
-    &--active {
-      box-shadow: 0 4px 12px rgba(74, 87, 60, 0.22);
-    }
+    min-width: 118px;
   }
 }
 

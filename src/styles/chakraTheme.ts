@@ -28,8 +28,15 @@ export const chakraTheme = extendTheme({
   styles: {
     global: {
       body: {
-        bg: "surface.page",
         color: "gray.800",
+        backgroundColor: "surface.page",
+        backgroundImage:
+          "radial-gradient(1100px 420px at 50% -160px, rgba(104,120,74,0.20), rgba(104,120,74,0.08) 42%, transparent 72%), " +
+          "radial-gradient(circle, rgba(73,85,54,0.10) 1px, transparent 1.2px)",
+        backgroundSize: "auto, 22px 22px",
+        backgroundPosition: "0 0, 0 0",
+        backgroundAttachment: "fixed",
+        backgroundRepeat: "no-repeat, repeat",
       },
     },
   },

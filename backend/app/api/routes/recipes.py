@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..auth import AuthenticatedAdmin, require_admin_user
 from ...repositories.recipe_imports import (
+    RecipeWriteDeniedError,
     get_recipe_import,
     list_cuisine_facets,
     list_recipe_imports,
@@ -32,6 +33,16 @@ from ...schemas.extract import (
 router = APIRouter(prefix="/api", tags=["recipes"])
 
 
+def _raise_repository_http_error(error: RuntimeError) -> None:
+    message = str(error)
+    if isinstance(error, RecipeWriteDeniedError):
+        status_code = 403
+    else:
+        status_code = 503 if "not configured" in message else 502
+
+    raise HTTPException(status_code=status_code, detail=message) from error
+
+
 @router.post("/recipes/manual", response_model=RecipeImportRecord)
 async def create_manual_recipe(
     payload: CreateManualRecipeRequest,
@@ -44,9 +55,7 @@ async def create_manual_recipe(
             access_token=admin.access_token,
         )
     except RuntimeError as error:
-        message = str(error)
-        status_code = 503 if "not configured" in message else 502
-        raise HTTPException(status_code=status_code, detail=message) from error
+        _raise_repository_http_error(error)
 
 
 @router.get("/recipes", response_model=PaginatedRecipeImportsResponse)
@@ -67,9 +76,7 @@ async def get_saved_recipes(
             favorite=favorite,
         )
     except RuntimeError as error:
-        message = str(error)
-        status_code = 503 if "not configured" in message else 502
-        raise HTTPException(status_code=status_code, detail=message) from error
+        _raise_repository_http_error(error)
 
 
 @router.get("/recipes/cuisines", response_model=CuisineFacetsResponse)
@@ -77,9 +84,7 @@ async def get_recipe_cuisines() -> CuisineFacetsResponse:
     try:
         return list_cuisine_facets()
     except RuntimeError as error:
-        message = str(error)
-        status_code = 503 if "not configured" in message else 502
-        raise HTTPException(status_code=status_code, detail=message) from error
+        _raise_repository_http_error(error)
 
 
 @router.get("/recipes/{recipe_import_id}", response_model=RecipeImportRecord)
@@ -87,9 +92,7 @@ async def get_saved_recipe(recipe_import_id: str) -> RecipeImportRecord:
     try:
         record = get_recipe_import(recipe_import_id)
     except RuntimeError as error:
-        message = str(error)
-        status_code = 503 if "not configured" in message else 502
-        raise HTTPException(status_code=status_code, detail=message) from error
+        _raise_repository_http_error(error)
 
     if record is None:
         raise HTTPException(status_code=404, detail="Recipe import not found")
@@ -115,9 +118,7 @@ async def patch_times_cooked(
             access_token=admin.access_token,
         )
     except RuntimeError as error:
-        message = str(error)
-        status_code = 503 if "not configured" in message else 502
-        raise HTTPException(status_code=status_code, detail=message) from error
+        _raise_repository_http_error(error)
 
     if record is None:
         raise HTTPException(status_code=404, detail="Recipe import not found")
@@ -133,9 +134,7 @@ async def patch_favorite(
     try:
         record = toggle_favorite(recipe_import_id, access_token=admin.access_token)
     except RuntimeError as error:
-        message = str(error)
-        status_code = 503 if "not configured" in message else 502
-        raise HTTPException(status_code=status_code, detail=message) from error
+        _raise_repository_http_error(error)
 
     if record is None:
         raise HTTPException(status_code=404, detail="Recipe import not found")
@@ -156,9 +155,7 @@ async def patch_servings(
             access_token=admin.access_token,
         )
     except RuntimeError as error:
-        message = str(error)
-        status_code = 503 if "not configured" in message else 502
-        raise HTTPException(status_code=status_code, detail=message) from error
+        _raise_repository_http_error(error)
 
     if record is None:
         raise HTTPException(status_code=404, detail="Recipe import not found")
@@ -179,9 +176,7 @@ async def patch_image(
             access_token=admin.access_token,
         )
     except RuntimeError as error:
-        message = str(error)
-        status_code = 503 if "not configured" in message else 502
-        raise HTTPException(status_code=status_code, detail=message) from error
+        _raise_repository_http_error(error)
 
     if record is None:
         raise HTTPException(status_code=404, detail="Recipe import not found")
@@ -202,9 +197,7 @@ async def patch_metadata(
             access_token=admin.access_token,
         )
     except RuntimeError as error:
-        message = str(error)
-        status_code = 503 if "not configured" in message else 502
-        raise HTTPException(status_code=status_code, detail=message) from error
+        _raise_repository_http_error(error)
 
     if record is None:
         raise HTTPException(status_code=404, detail="Recipe import not found")
@@ -230,9 +223,7 @@ async def patch_recipe_overrides(
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except RuntimeError as error:
-        message = str(error)
-        status_code = 503 if "not configured" in message else 502
-        raise HTTPException(status_code=status_code, detail=message) from error
+        _raise_repository_http_error(error)
 
     if record is None:
         raise HTTPException(status_code=404, detail="Recipe import not found")
