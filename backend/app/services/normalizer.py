@@ -25,9 +25,11 @@ NUTRITION_KEY_MAP = {
 
 def has_recipe_type(value: Any) -> bool:
     if isinstance(value, str):
-        return value == "Recipe"
+        return value.casefold() == "recipe"
     if isinstance(value, list):
-        return any(isinstance(item, str) and item == "Recipe" for item in value)
+        return any(
+            isinstance(item, str) and item.casefold() == "recipe" for item in value
+        )
     return False
 
 
@@ -142,7 +144,7 @@ def normalize_string_list(value: Any) -> list[str]:
 
 
 def normalize_ingredients(value: Any) -> list[str]:
-    return unique_strings(_extract_ingredient_lines(value))
+    return _extract_ingredient_lines(value)
 
 
 def _clean_ingredient_text(value: Any) -> Optional[str]:
@@ -276,9 +278,29 @@ def normalize_ingredient_sections(recipe: Any) -> list[IngredientSection]:
 
 
 def flatten_ingredient_sections(sections: list[IngredientSection]) -> list[str]:
-    return unique_strings(
-        [item for section in sections for item in section.items if item]
-    )
+    return [item for section in sections for item in section.items if item]
+
+
+def _ingredient_match_key(value: str) -> str:
+    cleaned = clean_text(value)
+    if not cleaned:
+        return ""
+
+    simplified = re.sub(r"[(),]", " ", cleaned).casefold()
+    return re.sub(r"\s+", " ", simplified).strip()
+
+
+def ingredient_sections_match_ingredients(
+    sections: list[IngredientSection], ingredients: list[str]
+) -> bool:
+    if not sections or not ingredients:
+        return False
+
+    section_items = [
+        _ingredient_match_key(item) for item in flatten_ingredient_sections(sections)
+    ]
+    ingredient_items = [_ingredient_match_key(item) for item in ingredients]
+    return section_items == ingredient_items
 
 
 def extract_instruction_lines(value: Any) -> list[str]:
@@ -314,21 +336,34 @@ def normalize_recipe(
     recipe: Any,
     *,
     fallback_ingredient_sections: Optional[list[IngredientSection]] = None,
+    fallback_instructions: Optional[list[str]] = None,
 ) -> Optional[NormalizedRecipe]:
     if not isinstance(recipe, dict):
         return None
 
     name = clean_text(recipe.get("name"))
     ingredient_sections = normalize_ingredient_sections(recipe)
-    if not ingredient_sections and fallback_ingredient_sections:
-        ingredient_sections = fallback_ingredient_sections
-
     ingredients = (
         flatten_ingredient_sections(ingredient_sections)
         if ingredient_sections
         else normalize_ingredients(recipe.get("recipeIngredient"))
     )
+    if not ingredients and fallback_ingredient_sections:
+        ingredient_sections = fallback_ingredient_sections
+        ingredients = flatten_ingredient_sections(ingredient_sections)
+    elif (
+        not ingredient_sections
+        and fallback_ingredient_sections
+        and ingredient_sections_match_ingredients(
+            fallback_ingredient_sections,
+            ingredients,
+        )
+    ):
+        ingredient_sections = fallback_ingredient_sections
+
     instructions = extract_instruction_lines(recipe.get("recipeInstructions"))
+    if not instructions and fallback_instructions:
+        instructions = fallback_instructions
 
     if not name or not ingredients or not instructions:
         return None
