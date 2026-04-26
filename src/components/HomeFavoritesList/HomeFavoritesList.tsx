@@ -30,7 +30,11 @@ function FavoriteRow({ item, canToggleFavorite }: FavoriteRowProps) {
     >
       <div className="favoriteRow__thumb">
         {item.imageUrl ? (
-          <img src={item.imageUrl} alt="" className="favoriteRow__thumbImage" />
+          <img
+            src={item.imageUrl}
+            alt={item.title}
+            className="favoriteRow__thumbImage"
+          />
         ) : null}
       </div>
       <div className="favoriteRow__info">
