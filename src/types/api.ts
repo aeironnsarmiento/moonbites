@@ -18,7 +18,7 @@ export type PaginatedRecipeImportsResponse = {
   total_pages: number;
 };
 
-export type RecipeSortOption = "recent" | "az" | "za" | "times_cooked";
+export type RecipeSortOption = "recent" | "az" | "za" | "times_cooked" | "favorites";
 
 export type RecipeListQuery = {
   page: number;

@@ -139,6 +139,7 @@ export function RecipeList({
                     <option value="az">A-Z</option>
                     <option value="za">Z-A</option>
                     <option value="times_cooked">Most cooked</option>
+                    <option value="favorites">Favorites</option>
                   </Select>
                 </Box>
 

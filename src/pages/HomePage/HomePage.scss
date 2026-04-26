@@ -1,9 +1,12 @@
 .homePage {
   width: 100%;
-  max-width: 1120px;
-  margin: 0 auto;
 
-  &__welcome {
-    padding: 1rem 0 0.5rem;
+  &__recent {
+    margin-top: 48px;
+  }
+
+  &__favorites {
+    margin-top: 72px;
+    margin-bottom: 64px;
   }
 }

@@ -1,0 +1,133 @@
+.homeRecentGrid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.recentTile {
+  position: relative;
+  overflow: hidden;
+  border-radius: 24px;
+  cursor: pointer;
+  background: var(--chakra-colors-surface-card);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 8px 24px rgba(74, 87, 60, 0.12);
+  transition: all 0.2s ease;
+
+  &:hover,
+  &:focus-visible {
+    box-shadow: 0 16px 36px rgba(74, 87, 60, 0.18);
+    transform: translateY(-4px);
+    outline: none;
+  }
+
+  &--span {
+    grid-column: span 2;
+  }
+
+  &__imageWrap {
+    position: relative;
+    overflow: hidden;
+    background: var(--chakra-colors-brand-100);
+    aspect-ratio: 4 / 3;
+
+    .recentTile--span & {
+      aspect-ratio: 16 / 9;
+    }
+  }
+
+  &__image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.4s ease;
+
+    .recentTile:hover & {
+      transform: scale(1.04);
+    }
+  }
+
+  &__heart {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 38px;
+    height: 38px;
+    border-radius: 999px;
+    border: none;
+    background: rgba(31, 41, 55, 0.36);
+    backdrop-filter: blur(8px);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    color: rgba(255, 255, 255, 0.92);
+    transition: color 0.18s ease;
+
+    &--active {
+      color: #E53E3E;
+    }
+  }
+
+  &__cuisinePill {
+    position: absolute;
+    bottom: 14px;
+    left: 14px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(8px);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--chakra-colors-brand-700);
+  }
+
+  &__body {
+    padding: 18px 22px 22px;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--chakra-colors-brand-900);
+    line-height: 1.25;
+    letter-spacing: -0.005em;
+    font-family: inherit;
+
+    .recentTile--span & {
+      font-size: 22px;
+    }
+  }
+
+  &__meta {
+    margin-top: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    color: var(--chakra-colors-gray-500);
+  }
+}
+
+@media (max-width: 768px) {
+  .homeRecentGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .recentTile--span {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 480px) {
+  .homeRecentGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .recentTile--span {
+    grid-column: span 1;
+  }
+}

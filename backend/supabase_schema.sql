@@ -67,6 +67,10 @@ grant execute on function public.is_recipe_admin() to authenticated;
 
 alter table public.recipe_imports enable row level security;
 
+grant usage on schema public to anon, authenticated;
+grant select on public.recipe_imports to anon, authenticated;
+grant insert, update on public.recipe_imports to authenticated;
+
 drop policy if exists "Recipe imports are publicly readable" on public.recipe_imports;
 create policy "Recipe imports are publicly readable"
   on public.recipe_imports

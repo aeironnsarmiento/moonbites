@@ -11,6 +11,10 @@ const navItems = [
   { label: "Create Recipe", to: "/recipes/create", end: true },
 ];
 
+const subtleHeaderBackgroundImage =
+  "radial-gradient(1100px 420px at 50% -160px, rgba(104, 120, 74, 0.2), rgba(104, 120, 74, 0.08) 42%, transparent 72%), " +
+  "radial-gradient(circle, rgba(73, 85, 54, 0.1) 1px, transparent 1.2px)";
+
 export function HeaderBar() {
   const isScrolled = useScrolled();
   const { isAdmin } = useAuth();
@@ -20,8 +24,17 @@ export function HeaderBar() {
 
   return (
     <motion.header
+      style={{
+        backgroundColor: isScrolled
+          ? "var(--chakra-colors-surface-headerScrolled, #99a293)"
+          : "var(--chakra-colors-surface-page, #f0f4e2)",
+        backgroundImage: subtleHeaderBackgroundImage,
+        backgroundSize: "auto, 22px 22px",
+        backgroundPosition: "0 0, 0 0",
+        backgroundAttachment: "fixed",
+        backgroundRepeat: "no-repeat, repeat",
+      }}
       animate={{
-        backgroundColor: isScrolled ? "#99a293" : "#ccd1c3",
         boxShadow: isScrolled
           ? "0 4px 16px rgba(0, 0, 0, 0.08)"
           : "0 0 0 rgba(0, 0, 0, 0)",
@@ -33,16 +46,12 @@ export function HeaderBar() {
         <Box as={Link} to="/" className="headerBar__brand">
           <Image src="/favicon.png" alt="" className="headerBar__brandIcon" />
           <Box className="headerBar__brandText">
-            <Text as="span" className="headerBar__brandPrimary">
-              Moonbites
-            </Text>
-            <Text as="span" className="headerBar__brandEyebrow">
-              Cookbook
-            </Text>
+            <Text as="span">Moonbites</Text>
+            <Text as="span">Cookbook</Text>
           </Box>
         </Box>
 
-        <HStack spacing={2} className="headerBar__nav">
+        <HStack spacing={3}>
           {visibleNavItems.map((item) => (
             <NavLink
               key={item.to}

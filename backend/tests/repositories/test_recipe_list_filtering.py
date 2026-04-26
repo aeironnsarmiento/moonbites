@@ -29,6 +29,7 @@ def _record(
     name: str,
     created_at: str,
     times_cooked: int = 0,
+    is_favorite: bool = False,
     cuisines: list[str] | None = None,
 ) -> RecipeImportRecord:
     return RecipeImportRecord(
@@ -40,6 +41,7 @@ def _record(
         times_cooked=times_cooked,
         recipes_json=[_recipe(name, cuisines)],
         recipe_overrides_json={},
+        is_favorite=is_favorite,
         created_at=datetime.fromisoformat(created_at).replace(tzinfo=timezone.utc),
     )
 
@@ -75,9 +77,7 @@ def test_sort_recipe_import_records_orders_most_cooked_with_recent_tie_breaker()
         _record("3", "Three", "2026-04-02T00:00:00", times_cooked=7),
     ]
 
-    sorted_records = _sort_recipe_import_records(
-        records, RecipeSortOption.times_cooked
-    )
+    sorted_records = _sort_recipe_import_records(records, RecipeSortOption.times_cooked)
 
     assert [record.id for record in sorted_records] == ["2", "3", "1"]
 
@@ -90,6 +90,18 @@ def test_sort_recipe_import_records_orders_recent_first():
     ]
 
     sorted_records = _sort_recipe_import_records(records, RecipeSortOption.recent)
+
+    assert [record.id for record in sorted_records] == ["2", "3", "1"]
+
+
+def test_sort_recipe_import_records_orders_favorites_first_with_recent_tie_breaker():
+    records = [
+        _record("1", "One", "2026-04-01T00:00:00", is_favorite=False),
+        _record("2", "Two", "2026-04-03T00:00:00", is_favorite=True),
+        _record("3", "Three", "2026-04-02T00:00:00", is_favorite=True),
+    ]
+
+    sorted_records = _sort_recipe_import_records(records, RecipeSortOption.favorites)
 
     assert [record.id for record in sorted_records] == ["2", "3", "1"]
 

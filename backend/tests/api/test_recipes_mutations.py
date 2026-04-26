@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from backend.main import app
 from backend.app.api.auth import AuthenticatedAdmin, require_admin_user
+from backend.app.repositories.recipe_imports import RecipeWriteDeniedError
 from app.schemas.extract import RecipeImportRecord
 
 
@@ -62,6 +63,19 @@ def test_toggle_favorite_returns_404_when_missing():
         response = client.patch("/api/recipes/missing/favorite")
 
     assert response.status_code == 404
+
+
+def test_toggle_favorite_returns_403_when_supabase_write_is_denied():
+    with patch(
+        "backend.app.api.routes.recipes.toggle_favorite",
+        side_effect=RecipeWriteDeniedError(
+            "Recipe update denied. Confirm admin email exists in public.recipe_admins."
+        ),
+    ):
+        response = client.patch("/api/recipes/abc/favorite")
+
+    assert response.status_code == 403
+    assert "public.recipe_admins" in response.json()["detail"]
 
 
 def test_update_servings_accepts_positive_integer():

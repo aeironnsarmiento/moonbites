@@ -1,6 +1,6 @@
-import { Icon, IconButton, Tooltip } from "@chakra-ui/react";
-import { motion } from "framer-motion";
+import { Icon } from "@chakra-ui/react";
 
+import { FavoriteToggleButton } from "../FavoriteToggleButton/FavoriteToggleButton";
 import "./CardImage.scss";
 
 type CardImageProps = {
@@ -10,21 +10,6 @@ type CardImageProps = {
   onToggleFavorite?: () => void;
   isTogglingFavorite?: boolean;
 };
-
-function HeartIcon({ filled }: { filled: boolean }) {
-  return (
-    <Icon viewBox="0 0 24 24" boxSize={5}>
-      <path
-        fill={filled ? "currentColor" : "none"}
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2"
-        d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78Z"
-      />
-    </Icon>
-  );
-}
 
 export function CardImage({
   imageUrl,
@@ -49,23 +34,14 @@ export function CardImage({
       )}
 
       {onToggleFavorite ? (
-        <Tooltip label={isFavorite ? "Remove favorite" : "Add favorite"} hasArrow>
-          <IconButton
-            as={motion.button}
-            whileTap={{ scale: 1.3 }}
-            type="button"
-            aria-label={`${isFavorite ? "Remove" : "Add"} ${title} favorite`}
-            icon={<HeartIcon filled={isFavorite} />}
-            className="cardImage__favorite"
-            color={isFavorite ? "red.500" : "whiteAlpha.900"}
-            isLoading={isTogglingFavorite}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onToggleFavorite();
-            }}
-          />
-        </Tooltip>
+        <FavoriteToggleButton
+          title={title}
+          isFavorite={isFavorite}
+          isTogglingFavorite={isTogglingFavorite}
+          onToggleFavorite={onToggleFavorite}
+          className="cardImage__favorite"
+          activeClassName="cardImage__favorite--active"
+        />
       ) : null}
     </div>
   );
