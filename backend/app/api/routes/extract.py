@@ -31,9 +31,15 @@ async def extract_ld_json(
         )
     else:
         database_saved = False
-        database_message = (
-            "Nothing was saved because no Recipe objects were found on that page."
-        )
+        if result.recipe_node_count > 0:
+            database_message = (
+                "Nothing was saved because recipe objects were found on that page, "
+                "but they did not include enough data to extract a complete recipe."
+            )
+        else:
+            database_message = (
+                "Nothing was saved because no Recipe objects were found on that page."
+            )
 
     return ExtractResponse(
         source_url=result.source_url,
