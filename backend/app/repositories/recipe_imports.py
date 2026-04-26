@@ -510,6 +510,31 @@ def _update_recipe_import_record(
     return _sanitize_record(records[0])
 
 
+def delete_recipe_import(
+    recipe_import_id: str,
+    access_token: Optional[str] = None,
+) -> bool:
+    settings = get_settings()
+    client = _get_write_client(settings, access_token)
+    if client is None:
+        raise RuntimeError(
+            "Supabase is not configured yet. Add backend env vars to enable deleting saved recipes."
+        )
+
+    existing_record = get_recipe_import(recipe_import_id)
+    if existing_record is None:
+        return False
+
+    try:
+        client.table(settings.supabase_table_name).delete().eq(
+            "id", recipe_import_id
+        ).execute()
+    except Exception as error:
+        raise RuntimeError(f"Supabase delete failed: {error}") from error
+
+    return True
+
+
 def update_times_cooked(
     recipe_import_id: str,
     delta: int,

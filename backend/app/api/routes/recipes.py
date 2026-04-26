@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from ..auth import AuthenticatedAdmin, require_admin_user
 from ...repositories.recipe_imports import (
     RecipeWriteDeniedError,
+    delete_recipe_import,
     get_recipe_import,
     list_cuisine_facets,
     list_recipe_imports,
@@ -19,6 +20,7 @@ from ...repositories.recipe_imports import (
 from ...schemas.extract import (
     CreateManualRecipeRequest,
     CuisineFacetsResponse,
+    DeleteRecipeImportResponse,
     PaginatedRecipeImportsResponse,
     RecipeImportRecord,
     RecipeSortOption,
@@ -98,6 +100,25 @@ async def get_saved_recipe(recipe_import_id: str) -> RecipeImportRecord:
         raise HTTPException(status_code=404, detail="Recipe import not found")
 
     return record
+
+
+@router.delete("/recipes/{recipe_import_id}", response_model=DeleteRecipeImportResponse)
+async def delete_saved_recipe(
+    recipe_import_id: str,
+    admin: AuthenticatedAdmin = Depends(require_admin_user),
+) -> DeleteRecipeImportResponse:
+    try:
+        deleted = delete_recipe_import(
+            recipe_import_id,
+            access_token=admin.access_token,
+        )
+    except RuntimeError as error:
+        _raise_repository_http_error(error)
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Recipe import not found")
+
+    return DeleteRecipeImportResponse(id=recipe_import_id)
 
 
 @router.patch(

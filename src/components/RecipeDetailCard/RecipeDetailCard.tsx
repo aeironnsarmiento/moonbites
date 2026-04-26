@@ -1,4 +1,10 @@
 import {
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogOverlay,
   Badge,
   Button,
   ButtonGroup,
@@ -21,7 +27,7 @@ import {
   Tooltip,
   UnorderedList,
 } from "@chakra-ui/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { ServingsStepper } from "../../components/ServingsStepper/ServingsStepper";
 import { useServingsScale } from "../../hooks/useServingsScale";
@@ -59,7 +65,9 @@ type RecipeDetailCardProps = {
   isSavingOverrides?: boolean;
   isSavingServings?: boolean;
   isSavingMetadata?: boolean;
+  isDeleting?: boolean;
   onAdjustTimesCooked?: (delta: -1 | 1) => Promise<void>;
+  onDelete?: () => Promise<void>;
   onSaveServings?: (servings: number) => Promise<void>;
   onSaveMetadata?: (metadata: UpdateRecipeMetadataPayload) => Promise<void>;
   onSaveOverrides?: (
@@ -76,6 +84,17 @@ function EditRecipeIcon() {
       <path
         fill="currentColor"
         d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm17.71-10.04a.996.996 0 0 0 0-1.41l-2.5-2.5a.996.996 0 0 0-1.41 0l-1.96 1.96 3.75 3.75 1.92-1.8z"
+      />
+    </Icon>
+  );
+}
+
+function DeleteRecipeIcon() {
+  return (
+    <Icon viewBox="0 0 24 24" boxSize={5}>
+      <path
+        fill="currentColor"
+        d="M9 3h6l1 2h5v2H3V5h5l1-2zm1 6h2v9h-2V9zm4 0h2v9h-2V9zM7 9h2v9H7V9zm-1 12c-1.1 0-2-.9-2-2V8h16v11c0 1.1-.9 2-2 2H6z"
       />
     </Icon>
   );
@@ -171,7 +190,9 @@ export function RecipeDetailCard({
   isSavingOverrides = false,
   isSavingServings = false,
   isSavingMetadata = false,
+  isDeleting = false,
   onAdjustTimesCooked,
+  onDelete,
   onSaveServings,
   onSaveMetadata,
   onSaveOverrides,
@@ -206,7 +227,9 @@ export function RecipeDetailCard({
   const [draftYield, setDraftYield] = useState(recipe.recipeYield ?? "");
   const [draftImageUrl, setDraftImageUrl] = useState(imageUrl ?? "");
   const [draftSourceUrl, setDraftSourceUrl] = useState(sourceUrl);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const cancelDeleteRef = useRef<HTMLButtonElement | null>(null);
 
   const metadataItems = [
     recipe.recipeYield ? { label: "Yield", value: recipe.recipeYield } : null,
@@ -267,6 +290,17 @@ export function RecipeDetailCard({
     setIsEditing(false);
   };
 
+  const openDeleteDialog = () => {
+    setSaveError("");
+    setIsDeleteDialogOpen(true);
+  };
+
+  const closeDeleteDialog = () => {
+    if (!isDeleting) {
+      setIsDeleteDialogOpen(false);
+    }
+  };
+
   const handleSaveOverrides = async () => {
     if (!onSaveOverrides && !onSaveMetadata) {
       return;
@@ -294,6 +328,23 @@ export function RecipeDetailCard({
     } catch (error) {
       setSaveError(
         error instanceof Error ? error.message : "Unable to save recipe edits.",
+      );
+    }
+  };
+
+  const handleDeleteRecipe = async () => {
+    if (!onDelete) {
+      return;
+    }
+
+    setSaveError("");
+
+    try {
+      await onDelete();
+      setIsDeleteDialogOpen(false);
+    } catch (error) {
+      setSaveError(
+        error instanceof Error ? error.message : "Unable to delete recipe.",
       );
     }
   };
@@ -391,21 +442,36 @@ export function RecipeDetailCard({
                 ) : null}
 
                 {canEdit && !isEditing ? (
-                  <Tooltip label="Edit ingredients and instructions" hasArrow>
-                    <IconButton
-                      aria-label={`Edit ${recipe.name}`}
-                      icon={<EditRecipeIcon />}
-                      variant="outline"
-                      onClick={startEditing}
-                      isDisabled={isSavingOverrides || isSavingMetadata}
-                    />
-                  </Tooltip>
+                  <HStack spacing={2}>
+                    <Tooltip label="Edit ingredients and instructions" hasArrow>
+                      <IconButton
+                        aria-label={`Edit ${recipe.name}`}
+                        icon={<EditRecipeIcon />}
+                        variant="outline"
+                        onClick={startEditing}
+                        isDisabled={isSavingOverrides || isSavingMetadata || isDeleting}
+                      />
+                    </Tooltip>
+                    {showTimesCookedControls && onDelete ? (
+                      <Tooltip label="Delete saved recipe" hasArrow>
+                        <IconButton
+                          aria-label={`Delete ${recipe.name}`}
+                          icon={<DeleteRecipeIcon />}
+                          variant="outline"
+                          colorScheme="red"
+                          onClick={openDeleteDialog}
+                          isDisabled={isSavingOverrides || isSavingMetadata || isDeleting}
+                          isLoading={isDeleting}
+                        />
+                      </Tooltip>
+                    ) : null}
+                  </HStack>
                 ) : canEdit ? (
                   <ButtonGroup size="sm">
                     <Button
                       variant="ghost"
                       onClick={cancelEditing}
-                      isDisabled={isSavingOverrides || isSavingMetadata}
+                      isDisabled={isSavingOverrides || isSavingMetadata || isDeleting}
                     >
                       Cancel
                     </Button>
@@ -415,7 +481,7 @@ export function RecipeDetailCard({
                       _hover={{ bg: "brand.700" }}
                       onClick={handleSaveOverrides}
                       isLoading={isSavingOverrides || isSavingMetadata}
-                      isDisabled={!hasUnsavedChanges}
+                      isDisabled={!hasUnsavedChanges || isDeleting}
                     >
                       Save edits
                     </Button>
@@ -592,7 +658,7 @@ export function RecipeDetailCard({
             )}
           </Stack>
 
-          {isEditing && saveError ? (
+          {saveError ? (
             <Text color="red.500">{saveError}</Text>
           ) : null}
 
@@ -610,6 +676,39 @@ export function RecipeDetailCard({
           ) : null}
         </Stack>
       </CardBody>
+      <AlertDialog
+        isOpen={isDeleteDialogOpen}
+        leastDestructiveRef={cancelDeleteRef}
+        onClose={closeDeleteDialog}
+        isCentered
+      >
+        <AlertDialogOverlay>
+          <AlertDialogContent>
+            <AlertDialogHeader>Delete saved recipe?</AlertDialogHeader>
+            <AlertDialogBody>
+              This removes the entire saved recipe record, including overrides and favorite state.
+            </AlertDialogBody>
+            <AlertDialogFooter>
+              <Button
+                ref={cancelDeleteRef}
+                variant="ghost"
+                onClick={closeDeleteDialog}
+                isDisabled={isDeleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                colorScheme="red"
+                ml={3}
+                onClick={handleDeleteRecipe}
+                isLoading={isDeleting}
+              >
+                Delete recipe
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
     </Card>
   );
 }

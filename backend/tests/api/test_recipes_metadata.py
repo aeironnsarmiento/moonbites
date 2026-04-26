@@ -92,6 +92,33 @@ def test_update_metadata_returns_updated_record():
     update_recipe_metadata.assert_called_once()
 
 
+def test_update_metadata_accepts_manual_source_url():
+    updated = _record().model_copy(
+        update={
+            "submitted_url": "manual://abc",
+            "final_url": "manual://abc",
+        }
+    )
+
+    with patch(
+        "backend.app.api.routes.recipes.update_recipe_metadata",
+        return_value=updated,
+    ) as update_recipe_metadata:
+        response = client.patch(
+            "/api/recipes/abc/metadata",
+            json={
+                "title": "New Title",
+                "recipe_yield": "6 servings",
+                "image_url": "https://example.com/recipe.jpg",
+                "source_url": "manual://abc",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["submitted_url"] == "manual://abc"
+    update_recipe_metadata.assert_called_once()
+
+
 def test_update_metadata_rejects_invalid_source_url():
     response = client.patch(
         "/api/recipes/abc/metadata",
@@ -99,7 +126,7 @@ def test_update_metadata_rejects_invalid_source_url():
             "title": "New Title",
             "recipe_yield": "6 servings",
             "image_url": None,
-            "source_url": "manual://abc",
+            "source_url": "recipe://abc",
         },
     )
 

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   adjustRecipeImportTimesCooked,
+  deleteRecipeImport,
   getRecipeImportDetail,
   updateRecipeImportMetadata,
   updateRecipeServings,
@@ -43,6 +44,23 @@ export function useRecipeDetail(recipeImportId: string | undefined) {
           queryKey: ["recipe-detail", record.id],
         }),
       ]);
+    },
+  });
+
+  const deleteRecipeMutation = useMutation({
+    mutationFn: () => {
+      if (!recipeImportId) {
+        throw new Error("Missing recipe id.");
+      }
+
+      return deleteRecipeImport(recipeImportId);
+    },
+    onSuccess: async ({ id }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["recipe-list"] }),
+        queryClient.invalidateQueries({ queryKey: ["highlighted-recipes"] }),
+      ]);
+      queryClient.removeQueries({ queryKey: ["recipe-detail", id], exact: true });
     },
   });
 
@@ -105,6 +123,8 @@ export function useRecipeDetail(recipeImportId: string | undefined) {
     ? "Missing recipe id."
     : query.error instanceof Error
       ? query.error.message
+      : deleteRecipeMutation.error instanceof Error
+        ? deleteRecipeMutation.error.message
       : updateTimesCookedMutation.error instanceof Error
         ? updateTimesCookedMutation.error.message
         : updateOverridesMutation.error instanceof Error
@@ -115,6 +135,8 @@ export function useRecipeDetail(recipeImportId: string | undefined) {
               ? updateMetadataMutation.error.message
               : query.error
                 ? "Unable to load that recipe."
+                : deleteRecipeMutation.error
+                  ? "Unable to delete recipe."
                 : updateTimesCookedMutation.error
                   ? "Unable to update cooked count."
                   : updateOverridesMutation.error
@@ -129,6 +151,7 @@ export function useRecipeDetail(recipeImportId: string | undefined) {
     recipeImport: query.data ?? null,
     isLoading: recipeImportId ? query.isLoading : false,
     isFetching: query.isFetching,
+    isDeleting: deleteRecipeMutation.isPending,
     isUpdatingTimesCooked: updateTimesCookedMutation.isPending,
     isSavingOverrides: updateOverridesMutation.isPending,
     isSavingServings: updateServingsMutation.isPending,
@@ -136,6 +159,9 @@ export function useRecipeDetail(recipeImportId: string | undefined) {
     error,
     updateTimesCooked: async (delta: -1 | 1) => {
       await updateTimesCookedMutation.mutateAsync({ delta });
+    },
+    deleteRecipe: async () => {
+      await deleteRecipeMutation.mutateAsync();
     },
     saveOverrides: async (payload: UpdateRecipeOverridesPayload) => {
       await updateOverridesMutation.mutateAsync(payload);

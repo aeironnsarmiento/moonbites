@@ -32,4 +32,24 @@ describe("apiRequest", () => {
 
     expect(headers.get("Authorization")).toBe("Bearer session-token");
   });
+
+  it("formats structured validation errors into readable messages", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({
+        detail: [
+          {
+            loc: ["body", "source_url"],
+            msg: "source_url must start with http:// or https://",
+          },
+        ],
+      }),
+    } as Response);
+
+    await expect(apiRequest("/api/test")).rejects.toThrow(
+      "source_url: source_url must start with http:// or https://",
+    );
+  });
 });
