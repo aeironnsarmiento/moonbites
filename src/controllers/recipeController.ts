@@ -1,5 +1,6 @@
 import {
   createManualRecipeImport,
+  deleteRecipeImport as deleteRecipeImportRequest,
   fetchCuisineFacets,
   fetchRecipeImportById,
   fetchRecipeImports,
@@ -101,6 +102,16 @@ export async function createManualRecipe(
   }
 
   return dedupeRecipeImportRecord(record);
+}
+
+export async function deleteRecipeImport(recipeImportId: string) {
+  const response = await deleteRecipeImportRequest(recipeImportId);
+
+  if (!response || typeof response.id !== "string" || !response.id.trim()) {
+    throw new Error("Recipes API returned an invalid delete response.");
+  }
+
+  return response;
 }
 
 export async function adjustRecipeImportTimesCooked(

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import NoReturn, Optional
 from uuid import uuid4
 
 from ..clients.supabase_client import (
@@ -479,11 +479,11 @@ def get_recipe_import(recipe_import_id: str) -> Optional[RecipeImportRecord]:
     return _sanitize_record(records[0])
 
 
-def _raise_recipe_write_denied(recipe_import_id: str) -> None:
+def _raise_recipe_write_denied(recipe_import_id: str) -> NoReturn:
     raise RecipeWriteDeniedError(
-        "Recipe update was denied by Supabase row-level security. "
+        "Recipe write was denied by Supabase row-level security. "
         "Confirm the admin email returned by /api/auth/me exists in "
-        f"public.recipe_admins before updating recipe import {recipe_import_id}."
+        f"public.recipe_admins before changing recipe import {recipe_import_id}."
     )
 
 
@@ -508,6 +508,41 @@ def _update_recipe_import_record(
         _raise_recipe_write_denied(recipe_import_id)
 
     return _sanitize_record(records[0])
+
+
+def delete_recipe_import(
+    recipe_import_id: str,
+    access_token: Optional[str] = None,
+) -> bool:
+    settings = get_settings()
+    client = _get_write_client(settings, access_token)
+    if client is None:
+        raise RuntimeError(
+            "Supabase is not configured yet. Add backend env vars to enable deleting saved recipes."
+        )
+
+    existing_record = get_recipe_import(recipe_import_id)
+    if existing_record is None:
+        return False
+
+    try:
+        response = (
+            client.table(settings.supabase_table_name)
+            .delete()
+            .eq("id", recipe_import_id)
+            .execute()
+        )
+    except Exception as error:
+        raise RuntimeError(f"Supabase delete failed: {error}") from error
+
+    records = response.data or []
+    if records:
+        return True
+
+    if get_recipe_import(recipe_import_id) is None:
+        return False
+
+    _raise_recipe_write_denied(recipe_import_id)
 
 
 def update_times_cooked(

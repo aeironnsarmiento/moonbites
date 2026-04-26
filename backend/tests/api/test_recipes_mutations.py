@@ -78,6 +78,31 @@ def test_toggle_favorite_returns_403_when_supabase_write_is_denied():
     assert "public.recipe_admins" in response.json()["detail"]
 
 
+def test_delete_recipe_returns_deleted_id():
+    with patch(
+        "backend.app.api.routes.recipes.delete_recipe_import",
+        return_value=True,
+    ) as delete_recipe_import:
+        response = client.delete("/api/recipes/abc")
+
+    assert response.status_code == 200
+    assert response.json() == {"id": "abc"}
+    delete_recipe_import.assert_called_once_with(
+        "abc",
+        access_token="admin-token",
+    )
+
+
+def test_delete_recipe_returns_404_when_missing():
+    with patch(
+        "backend.app.api.routes.recipes.delete_recipe_import",
+        return_value=False,
+    ):
+        response = client.delete("/api/recipes/missing")
+
+    assert response.status_code == 404
+
+
 def test_update_servings_accepts_positive_integer():
     with patch(
         "backend.app.api.routes.recipes.update_servings",

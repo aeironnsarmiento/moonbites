@@ -14,6 +14,10 @@ def _strip_ingredient_markers(value: Any) -> Any:
     return re.sub(r"^[\s•◦▪▫●○■□▢▣▤▥▦▧▨▩☐☑✓✔✗✘*-]+", "", value).strip()
 
 
+def _is_manual_recipe_url(value: str) -> bool:
+    return value.strip().lower().startswith("manual://")
+
+
 class ExtractRequest(BaseModel):
     url: str = Field(..., min_length=1, max_length=2048)
 
@@ -21,6 +25,10 @@ class ExtractRequest(BaseModel):
 class CreateManualRecipeRequest(BaseModel):
     recipe: "NormalizedRecipe"
     title: Optional[str] = None
+
+
+class DeleteRecipeImportResponse(BaseModel):
+    id: str
 
 
 class UpdateTimesCookedRequest(BaseModel):
@@ -57,6 +65,9 @@ class UpdateRecipeMetadataRequest(BaseModel):
         from urllib.parse import urlparse
 
         normalized = value.strip()
+        if _is_manual_recipe_url(normalized):
+            return normalized
+
         parsed = urlparse(normalized)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("source_url must start with http:// or https://")

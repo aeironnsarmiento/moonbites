@@ -1,6 +1,7 @@
 import { apiRequest } from "./apiClient";
 import type {
   CuisineFacetsResponse,
+  DeleteRecipeImportResponse,
   PaginatedRecipeImportsResponse,
   RecipeListQuery,
 } from "../types/api";
@@ -53,6 +54,14 @@ export function fetchRecipeImportById(
   recipeImportId: string,
 ): Promise<RecipeImportRecord> {
   return apiRequest<RecipeImportRecord>(`/api/recipes/${recipeImportId}`);
+}
+
+export function deleteRecipeImport(
+  recipeImportId: string,
+): Promise<DeleteRecipeImportResponse> {
+  return apiRequest<DeleteRecipeImportResponse>(`/api/recipes/${recipeImportId}`, {
+    method: "DELETE",
+  });
 }
 
 export function createManualRecipeImport(

@@ -15,6 +15,60 @@ export function buildApiUrl(path: string): string {
   return `${API_BASE_URL}${normalizedPath}`;
 }
 
+function extractApiErrorMessage(detail: unknown): string | null {
+  if (typeof detail === "string") {
+    const normalized = detail.trim();
+    return normalized || null;
+  }
+
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => extractApiErrorMessage(item))
+      .filter((message): message is string => Boolean(message));
+
+    return messages.length > 0 ? messages.join(" ") : null;
+  }
+
+  if (detail && typeof detail === "object") {
+    const record = detail as {
+      detail?: unknown;
+      loc?: unknown;
+      message?: unknown;
+      msg?: unknown;
+    };
+
+    const nestedMessage = extractApiErrorMessage(record.detail);
+    if (nestedMessage) {
+      return nestedMessage;
+    }
+
+    const baseMessage =
+      typeof record.msg === "string"
+        ? record.msg.trim()
+        : typeof record.message === "string"
+          ? record.message.trim()
+          : "";
+
+    if (!baseMessage) {
+      return null;
+    }
+
+    const location = Array.isArray(record.loc)
+      ? record.loc
+          .filter(
+            (part): part is string | number =>
+              (typeof part === "string" || typeof part === "number") &&
+              part !== "body",
+          )
+          .join(".")
+      : "";
+
+    return location ? `${location}: ${baseMessage}` : baseMessage;
+  }
+
+  return null;
+}
+
 export async function apiRequest<T>(
   path: string,
   init?: RequestInit,
@@ -38,8 +92,9 @@ export async function apiRequest<T>(
 
   if (!response.ok) {
     const message =
-      data && typeof data === "object" && "detail" in data && data.detail
-        ? data.detail
+      data && typeof data === "object" && "detail" in data
+        ? extractApiErrorMessage(data.detail) ??
+          `API request failed with status ${response.status}.`
         : `API request failed with status ${response.status}.`;
     throw new Error(message);
   }

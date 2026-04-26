@@ -7,7 +7,7 @@ import {
   Text,
 } from "@chakra-ui/react";
 import { useState } from "react";
-import { Link as RouterLink, useParams } from "react-router-dom";
+import { Link as RouterLink, useNavigate, useParams } from "react-router-dom";
 
 import { RecipeDetailCard } from "../../components/RecipeDetailCard/RecipeDetailCard";
 import { StatusBanner } from "../../components/StatusBanner/StatusBanner";
@@ -23,6 +23,7 @@ function getSourceLabel(value: string) {
 }
 
 export function RecipePage() {
+  const navigate = useNavigate();
   const { recipeImportId } = useParams();
   const { isAdmin } = useAuth();
   const [savingRecipeIndex, setSavingRecipeIndex] = useState<number | null>(
@@ -31,10 +32,12 @@ export function RecipePage() {
   const {
     error,
     isLoading,
+    isDeleting,
     isSavingOverrides,
     isUpdatingTimesCooked,
     isSavingServings,
     isSavingMetadata,
+    deleteRecipe,
     recipeImport,
     saveServings,
     saveMetadata,
@@ -53,6 +56,11 @@ export function RecipePage() {
     } finally {
       setSavingRecipeIndex(null);
     }
+  };
+
+  const handleDeleteRecipe = async () => {
+    await deleteRecipe();
+    navigate("/recipes");
   };
 
   return (
@@ -109,7 +117,9 @@ export function RecipePage() {
               isSavingOverrides={
                 isSavingOverrides && savingRecipeIndex === index
               }
+              isDeleting={isDeleting}
               onAdjustTimesCooked={updateTimesCooked}
+              onDelete={index === 0 ? handleDeleteRecipe : undefined}
               onSaveServings={saveServings}
               onSaveMetadata={saveMetadata}
               onSaveOverrides={handleSaveOverrides}

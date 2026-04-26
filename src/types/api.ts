@@ -38,6 +38,10 @@ export type CuisineFacetsResponse = {
   facets: CuisineFacet[];
 };
 
+export type DeleteRecipeImportResponse = {
+  id: string;
+};
+
 export type ApiErrorResponse = {
-  detail?: string;
+  detail?: unknown;
 };
