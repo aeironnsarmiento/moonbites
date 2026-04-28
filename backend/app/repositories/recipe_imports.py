@@ -18,6 +18,7 @@ from ..schemas.extract import (
     RecipeTextOverrides,
 )
 from ..services.cuisine_catalog import (
+    CANONICAL_CUISINES,
     OTHER_CUISINE_LABEL,
     canonical_cuisine,
     collect_canonical_cuisines,
@@ -274,6 +275,53 @@ def _build_cuisine_facets(
     ]
 
 
+_SORT_CLAUSES: dict[RecipeSortOption, list[tuple[str, bool]]] = {
+    RecipeSortOption.recent: [("created_at", True)],
+    RecipeSortOption.times_cooked: [("times_cooked", True), ("created_at", True)],
+    RecipeSortOption.favorites: [("is_favorite", True), ("created_at", True)],
+    RecipeSortOption.az: [("page_title", False), ("created_at", True)],
+    RecipeSortOption.za: [("page_title", True), ("created_at", False)],
+}
+
+
+_CUISINE_LABEL_BY_DB_KEY = {
+    cuisine.casefold(): cuisine for cuisine in CANONICAL_CUISINES
+}
+_CUISINE_LABEL_BY_DB_KEY[OTHER_CUISINE_LABEL.casefold()] = OTHER_CUISINE_LABEL
+
+
+def _apply_sort(query, sort: RecipeSortOption):
+    for column, desc in _SORT_CLAUSES.get(sort, [("created_at", True)]):
+        query = query.order(column, desc=desc)
+    return query
+
+
+def _cuisine_db_key(cuisine: Optional[str]) -> Optional[str]:
+    normalized_cuisine = _normalize_cuisine_filter(cuisine)
+    if normalized_cuisine is None:
+        return None
+    return normalized_cuisine.casefold()
+
+
+def _cuisine_display_label(label: str) -> str:
+    return _CUISINE_LABEL_BY_DB_KEY.get(label.casefold(), label)
+
+
+def _find_existing_records_by_exact_urls(
+    client, table_name: str, urls: list[str]
+) -> list[dict]:
+    records: list[dict] = []
+    for column in ("submitted_url", "final_url"):
+        response = (
+            client.table(table_name)
+            .select("submitted_url, final_url")
+            .in_(column, urls)
+            .execute()
+        )
+        records.extend(response.data or [])
+    return records
+
+
 def save_recipe_import(
     submitted_url: str,
     final_url: str,
@@ -301,16 +349,22 @@ def save_recipe_import(
     )
     submitted_url_key = canonicalize_url(submitted_url)
     final_url_key = canonicalize_url(final_url)
+    candidate_urls = sorted({submitted_url, final_url})
 
     try:
-        existing_records = _fetch_all_recipe_import_records(
-            client, settings.supabase_table_name
+        existing_records = _find_existing_records_by_exact_urls(
+            client,
+            settings.supabase_table_name,
+            candidate_urls,
         )
     except Exception as error:
         return False, f"Supabase duplicate check failed: {error}"
 
-    for existing_record in existing_records:
-        existing_keys = _record_url_keys(existing_record)
+    for existing in existing_records:
+        existing_keys = {
+            canonicalize_url(existing.get("submitted_url") or ""),
+            canonicalize_url(existing.get("final_url") or ""),
+        }
         if submitted_url_key in existing_keys or final_url_key in existing_keys:
             return (
                 True,
@@ -333,9 +387,15 @@ def save_recipe_import(
     try:
         client.table(settings.supabase_table_name).insert(payload).execute()
     except Exception as error:
+        message = str(error).lower()
+        if "unique" in message or "duplicate" in message or "23505" in message:
+            return (
+                True,
+                "Recipe import already exists, so the duplicate save was skipped.",
+            )
         return False, f"Supabase save failed: {error}"
 
-    return True, f"Saved to Supabase table '{settings.supabase_table_name}'."
+    return True, "Recipe saved to your collection."
 
 
 def save_manual_recipe(
@@ -395,26 +455,38 @@ def list_recipe_imports(
             "Supabase is not configured yet. Add backend env vars to enable reading saved recipes."
         )
 
+    table_name = settings.supabase_table_name
+    offset = (page - 1) * page_size
+
+    cuisine_key = _cuisine_db_key(cuisine)
+
     try:
-        records = _fetch_all_recipe_import_records(client, settings.supabase_table_name)
+        query = client.table(table_name).select(
+            RECIPE_IMPORT_SELECT, count="exact"
+        )
+        if favorite is True:
+            query = query.eq("is_favorite", True)
+        if cuisine_key is not None:
+            query = query.contains("cuisines", [cuisine_key])
+        query = _apply_sort(query, sort)
+        query = query.range(offset, offset + page_size - 1)
+        response = query.execute()
     except Exception as error:
         raise RuntimeError(f"Supabase read failed: {error}") from error
 
-    prepared_records = _prepare_recipe_import_records(
-        records,
-        sort,
-        cuisine,
-        favorite=favorite,
-    )
-    total_count = len(prepared_records)
+    raw_records = response.data or []
+    items = [_sanitize_record(record) for record in raw_records]
+    items = _dedupe_recipe_import_records(items)
+
+    total_count = getattr(response, "count", None)
+    if total_count is None:
+        total_count = len(items)
     total_pages = (
         max(1, (total_count + page_size - 1) // page_size) if total_count else 1
     )
-    offset = (page - 1) * page_size
-    paginated_records = prepared_records[offset : offset + page_size]
 
     return PaginatedRecipeImportsResponse(
-        items=paginated_records,
+        items=items,
         page=page,
         page_size=page_size,
         total_count=total_count,
@@ -431,15 +503,32 @@ def list_cuisine_facets() -> CuisineFacetsResponse:
         )
 
     try:
-        records = _fetch_all_recipe_import_records(client, settings.supabase_table_name)
+        response = client.rpc("cuisine_facets", {}).execute()
     except Exception as error:
         raise RuntimeError(f"Supabase read failed: {error}") from error
 
-    unique_records = _dedupe_recipe_import_records(records)
-    return CuisineFacetsResponse(facets=_build_cuisine_facets(unique_records))
+    facets: list[CuisineFacet] = []
+    for row in response.data or []:
+        label = str(row.get("label") or "").strip()
+        if not label:
+            continue
+        facets.append(
+            CuisineFacet(
+                label=_cuisine_display_label(label),
+                count=int(row.get("count") or 0),
+            )
+        )
+    return CuisineFacetsResponse(facets=facets)
 
 
-def list_recipe_import_records_for_refresh() -> list[RecipeImportRecord]:
+REFRESH_BATCH_SIZE = 100
+
+
+def list_recipe_import_records_for_refresh(
+    *,
+    cursor: Optional[str] = None,
+    batch_size: int = REFRESH_BATCH_SIZE,
+) -> list[RecipeImportRecord]:
     settings = get_settings()
     client = get_supabase_client(settings)
     if client is None:
@@ -448,9 +537,38 @@ def list_recipe_import_records_for_refresh() -> list[RecipeImportRecord]:
         )
 
     try:
-        return _fetch_all_recipe_import_records(client, settings.supabase_table_name)
+        query = (
+            client.table(settings.supabase_table_name)
+            .select(RECIPE_IMPORT_SELECT)
+            .order("created_at", desc=True)
+            .limit(batch_size)
+        )
+        if cursor:
+            query = query.lt("created_at", cursor)
+        response = query.execute()
     except Exception as error:
         raise RuntimeError(f"Supabase read failed: {error}") from error
+
+    raw_records = response.data or []
+    return [_sanitize_record(record) for record in raw_records]
+
+
+def iter_recipe_import_records_for_refresh(
+    *,
+    batch_size: int = REFRESH_BATCH_SIZE,
+):
+    cursor: Optional[str] = None
+    while True:
+        page = list_recipe_import_records_for_refresh(
+            cursor=cursor, batch_size=batch_size
+        )
+        if not page:
+            return
+        for record in page:
+            yield record
+        cursor = page[-1].created_at.isoformat()
+        if len(page) < batch_size:
+            return
 
 
 def get_recipe_import(recipe_import_id: str) -> Optional[RecipeImportRecord]:
@@ -510,6 +628,51 @@ def _update_recipe_import_record(
     return _sanitize_record(records[0])
 
 
+def _resolve_empty_write(recipe_import_id: str) -> Optional[RecipeImportRecord]:
+    if get_recipe_import(recipe_import_id) is None:
+        return None
+    _raise_recipe_write_denied(recipe_import_id)
+
+
+def _update_or_resolve(
+    client,
+    table_name: str,
+    recipe_import_id: str,
+    payload: dict,
+) -> Optional[RecipeImportRecord]:
+    try:
+        response = (
+            client.table(table_name)
+            .update(payload)
+            .eq("id", recipe_import_id)
+            .execute()
+        )
+    except Exception as error:
+        raise RuntimeError(f"Supabase update failed: {error}") from error
+
+    records = response.data or []
+    if records:
+        return _sanitize_record(records[0])
+    return _resolve_empty_write(recipe_import_id)
+
+
+def _rpc_or_resolve(
+    client,
+    fn_name: str,
+    params: dict,
+    recipe_import_id: str,
+) -> Optional[RecipeImportRecord]:
+    try:
+        response = client.rpc(fn_name, params).execute()
+    except Exception as error:
+        raise RuntimeError(f"Supabase update failed: {error}") from error
+
+    records = response.data or []
+    if records:
+        return _sanitize_record(records[0])
+    return _resolve_empty_write(recipe_import_id)
+
+
 def delete_recipe_import(
     recipe_import_id: str,
     access_token: Optional[str] = None,
@@ -521,10 +684,6 @@ def delete_recipe_import(
             "Supabase is not configured yet. Add backend env vars to enable deleting saved recipes."
         )
 
-    existing_record = get_recipe_import(recipe_import_id)
-    if existing_record is None:
-        return False
-
     try:
         response = (
             client.table(settings.supabase_table_name)
@@ -535,8 +694,7 @@ def delete_recipe_import(
     except Exception as error:
         raise RuntimeError(f"Supabase delete failed: {error}") from error
 
-    records = response.data or []
-    if records:
+    if response.data:
         return True
 
     if get_recipe_import(recipe_import_id) is None:
@@ -557,17 +715,11 @@ def update_times_cooked(
             "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
         )
 
-    existing_record = get_recipe_import(recipe_import_id)
-    if existing_record is None:
-        return None
-
-    next_times_cooked = max(0, existing_record.times_cooked + delta)
-
-    return _update_recipe_import_record(
+    return _rpc_or_resolve(
         client,
-        settings.supabase_table_name,
+        "increment_times_cooked",
+        {"p_id": recipe_import_id, "p_delta": delta},
         recipe_import_id,
-        {"times_cooked": next_times_cooked},
     )
 
 
@@ -582,15 +734,11 @@ def toggle_favorite(
             "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
         )
 
-    existing_record = get_recipe_import(recipe_import_id)
-    if existing_record is None:
-        return None
-
-    return _update_recipe_import_record(
+    return _rpc_or_resolve(
         client,
-        settings.supabase_table_name,
+        "toggle_recipe_favorite",
+        {"p_id": recipe_import_id},
         recipe_import_id,
-        {"is_favorite": not existing_record.is_favorite},
     )
 
 
@@ -606,10 +754,7 @@ def update_servings(
             "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
         )
 
-    if get_recipe_import(recipe_import_id) is None:
-        return None
-
-    return _update_recipe_import_record(
+    return _update_or_resolve(
         client,
         settings.supabase_table_name,
         recipe_import_id,
@@ -629,10 +774,7 @@ def update_image_url(
             "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
         )
 
-    if get_recipe_import(recipe_import_id) is None:
-        return None
-
-    return _update_recipe_import_record(
+    return _update_or_resolve(
         client,
         settings.supabase_table_name,
         recipe_import_id,
@@ -809,7 +951,6 @@ def update_recipe_overrides(
     if recipe_index >= len(existing_record.recipes_json):
         raise ValueError("recipe_index is out of range")
 
-    next_overrides = _sanitize_recipe_overrides(existing_record.recipe_overrides_json)
     recipe_key = str(recipe_index)
     sanitized_override_entry = RecipeTextOverrides.model_validate(
         {
@@ -818,17 +959,19 @@ def update_recipe_overrides(
         }
     ).model_dump()
 
-    if (
+    has_content = bool(
         sanitized_override_entry["ingredients"]
         or sanitized_override_entry["instructions"]
-    ):
-        next_overrides[recipe_key] = sanitized_override_entry
-    else:
-        next_overrides.pop(recipe_key, None)
+    )
+    rpc_override = sanitized_override_entry if has_content else {}
 
-    return _update_recipe_import_record(
+    return _rpc_or_resolve(
         client,
-        settings.supabase_table_name,
+        "set_recipe_override",
+        {
+            "p_id": recipe_import_id,
+            "p_recipe_key": recipe_key,
+            "p_override": rpc_override,
+        },
         recipe_import_id,
-        {"recipe_overrides_json": next_overrides},
     )

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from app.repositories.recipe_imports import (
     _build_cuisine_facets,
     _filter_recipe_import_records,
     _prepare_recipe_import_records,
     _sort_recipe_import_records,
+    list_cuisine_facets,
+    list_recipe_imports,
 )
 from app.schemas.extract import (
     NormalizedRecipe,
@@ -44,6 +47,86 @@ def _record(
         is_favorite=is_favorite,
         created_at=datetime.fromisoformat(created_at).replace(tzinfo=timezone.utc),
     )
+
+
+def _record_dict(recipe_id: str = "1", *, cuisines: list[str] | None = None) -> dict:
+    return {
+        "id": recipe_id,
+        "submitted_url": f"https://example.com/{recipe_id}",
+        "final_url": f"https://example.com/{recipe_id}",
+        "page_title": "Pasta",
+        "recipe_count": 1,
+        "times_cooked": 2,
+        "recipes_json": [_recipe("Pasta", cuisines or ["Italian"]).model_dump()],
+        "recipe_overrides_json": {},
+        "image_url": None,
+        "is_favorite": False,
+        "servings": None,
+        "created_at": datetime(2026, 4, 1, tzinfo=timezone.utc).isoformat(),
+    }
+
+
+class _Response:
+    def __init__(self, data: list[dict], count: int | None = None):
+        self.data = data
+        self.count = count
+
+
+class _ListQuery:
+    def __init__(self, response: _Response):
+        self.response = response
+        self.calls: list[tuple] = []
+
+    def select(self, *args, **kwargs):
+        self.calls.append(("select", args, kwargs))
+        return self
+
+    def eq(self, column: str, value):
+        self.calls.append(("eq", column, value))
+        return self
+
+    def in_(self, column: str, value):
+        self.calls.append(("in_", column, value))
+        return self
+
+    def contains(self, column: str, value):
+        self.calls.append(("contains", column, value))
+        return self
+
+    def order(self, column: str, **kwargs):
+        self.calls.append(("order", column, kwargs))
+        return self
+
+    def range(self, start: int, end: int):
+        self.calls.append(("range", start, end))
+        return self
+
+    def execute(self):
+        return self.response
+
+
+class _ListClient:
+    def __init__(self, query: _ListQuery):
+        self.query = query
+
+    def table(self, _table_name: str):
+        return self.query
+
+
+class _FacetClient:
+    def __init__(self):
+        self.rpc_calls: list[tuple[str, dict | None]] = []
+
+    def rpc(self, fn_name: str, params: dict | None = None):
+        self.rpc_calls.append((fn_name, params))
+        return _ListQuery(
+            _Response(
+                [
+                    {"label": "american", "count": 2},
+                    {"label": "other", "count": 1},
+                ]
+            )
+        )
 
 
 def test_sort_recipe_import_records_orders_a_to_z_case_insensitive():
@@ -158,5 +241,69 @@ def test_build_cuisine_facets_counts_each_record_once_per_canonical_cuisine():
     assert [(facet.label, facet.count) for facet in facets] == [
         ("American", 1),
         ("Italian", 1),
+        ("Other", 1),
+    ]
+
+
+def test_list_recipe_imports_applies_db_pagination_sort_and_count():
+    query = _ListQuery(_Response([_record_dict("1")], count=12))
+
+    with (
+        patch("app.repositories.recipe_imports.get_settings") as get_settings,
+        patch("app.repositories.recipe_imports._get_read_client") as get_read_client,
+    ):
+        get_settings.return_value.supabase_table_name = "recipe_imports"
+        get_read_client.return_value = _ListClient(query)
+
+        response = list_recipe_imports(
+            page=2,
+            page_size=10,
+            sort=RecipeSortOption.times_cooked,
+        )
+
+    assert response.total_count == 12
+    assert response.total_pages == 2
+    assert ("select", (("id, submitted_url, final_url, page_title, recipe_count, times_cooked, recipes_json, recipe_overrides_json, image_url, is_favorite, servings, created_at"),), {"count": "exact"}) in query.calls
+    assert ("order", "times_cooked", {"desc": True}) in query.calls
+    assert ("order", "created_at", {"desc": True}) in query.calls
+    assert ("range", 10, 19) in query.calls
+
+
+def test_list_recipe_imports_filters_cuisine_with_cuisines_contains():
+    query = _ListQuery(_Response([_record_dict("1", cuisines=["Italian"])], count=1))
+
+    with (
+        patch("app.repositories.recipe_imports.get_settings") as get_settings,
+        patch("app.repositories.recipe_imports._get_read_client") as get_read_client,
+    ):
+        get_settings.return_value.supabase_table_name = "recipe_imports"
+        get_read_client.return_value = _ListClient(query)
+
+        list_recipe_imports(
+            page=1,
+            page_size=10,
+            sort=RecipeSortOption.recent,
+            cuisine="Italian",
+        )
+
+    assert ("contains", "cuisines", ["italian"]) in query.calls
+    assert not any(call[0] == "in_" for call in query.calls)
+
+
+def test_list_cuisine_facets_uses_rpc_and_maps_display_labels():
+    client = _FacetClient()
+
+    with (
+        patch("app.repositories.recipe_imports.get_settings") as get_settings,
+        patch("app.repositories.recipe_imports._get_read_client") as get_read_client,
+    ):
+        get_settings.return_value.supabase_table_name = "recipe_imports"
+        get_read_client.return_value = client
+
+        response = list_cuisine_facets()
+
+    assert client.rpc_calls == [("cuisine_facets", {})]
+    assert [(facet.label, facet.count) for facet in response.facets] == [
+        ("American", 2),
         ("Other", 1),
     ]

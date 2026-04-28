@@ -41,8 +41,14 @@ export function buildExtractStatus(response: ExtractResponse) {
       ? `Found ${response.recipe_count} unique recipe${response.recipe_count === 1 ? "" : "s"}.`
       : "No Recipe objects were found on that page, so nothing was saved.";
 
+  const rawDatabaseMessage =
+    response.database_saved &&
+    response.database_message?.includes("Supabase table")
+      ? "Recipe saved to your collection."
+      : response.database_message;
+
   const databaseMessage = response.database_message
-    ? ` ${response.database_message}`
+    ? ` ${rawDatabaseMessage}`
     : "";
 
   return `${importMessage}${databaseMessage}`;

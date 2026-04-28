@@ -137,3 +137,236 @@ revoke execute on function public.hook_allow_recipe_admin_signup(jsonb)
 -- Seed admins manually after applying this schema, for example:
 -- insert into public.recipe_admins (email) values ('admin@example.com')
 -- on conflict (email) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- Optimization migration: indexes, UNIQUE, generated cuisines column, RPCs.
+-- Idempotent. Run after deduplicating any existing url collisions.
+-- ---------------------------------------------------------------------------
+
+create index if not exists recipe_imports_page_title_idx
+  on public.recipe_imports (page_title);
+
+create index if not exists recipe_imports_final_url_idx
+  on public.recipe_imports (final_url);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'recipe_imports_submitted_url_key'
+  ) then
+    alter table public.recipe_imports
+      add constraint recipe_imports_submitted_url_key unique (submitted_url);
+  end if;
+end$$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'recipe_imports_final_url_key'
+  ) then
+    alter table public.recipe_imports
+      add constraint recipe_imports_final_url_key unique (final_url);
+  end if;
+end$$;
+
+create or replace function public.recipe_cuisine_bucket(value text)
+returns text
+language sql
+immutable
+set search_path = public
+as $$
+  with normalized as (
+    select btrim(
+      regexp_replace(
+        replace(
+          regexp_replace(
+            lower(btrim(coalesce(value, ''))),
+            '[^[:alnum:]_[:space:]-]',
+            ' ',
+            'g'
+          ),
+          '-',
+          ' '
+        ),
+        '[[:space:]]+',
+        ' ',
+        'g'
+      )
+    ) as key
+  )
+  select case
+    when key = '' then null
+    when key in (
+      'american',
+      'america',
+      'north american',
+      'north america',
+      'united states',
+      'united states of america',
+      'usa',
+      'us',
+      'u s',
+      'u s a',
+      'southern',
+      'southern us',
+      'southern united states',
+      'cajun',
+      'creole',
+      'tex mex',
+      'new england',
+      'southwestern'
+    ) then 'american'
+    when key in (
+      'british',
+      'english',
+      'england',
+      'uk',
+      'u k',
+      'united kingdom',
+      'great britain',
+      'scottish',
+      'scotland',
+      'welsh',
+      'wales',
+      'irish',
+      'ireland'
+    ) then 'british'
+    when key in ('chinese', 'china', 'szechuan', 'sichuan', 'cantonese') then 'chinese'
+    when key in ('french', 'france') then 'french'
+    when key in ('greek', 'greece') then 'greek'
+    when key in ('indian', 'india') then 'indian'
+    when key in ('italian', 'italy') then 'italian'
+    when key in ('japanese', 'japan') then 'japanese'
+    when key in ('korean', 'korea', 'south korea') then 'korean'
+    when key = 'mediterranean' then 'mediterranean'
+    when key in ('mexican', 'mexico') then 'mexican'
+    when key in ('middle eastern', 'middle east', 'levantine', 'levant') then 'middle eastern'
+    when key in ('moroccan', 'morocco') then 'moroccan'
+    when key in ('spanish', 'spain') then 'spanish'
+    when key in ('thai', 'thailand') then 'thai'
+    when key in ('vietnamese', 'vietnam') then 'vietnamese'
+    else 'other'
+  end
+  from normalized;
+$$;
+
+create or replace function public.extract_recipe_cuisines(recipes jsonb)
+returns text[]
+language sql
+immutable
+set search_path = public
+as $$
+  with raw_values as (
+    select value
+    from jsonb_array_elements(
+      case jsonb_typeof(recipes)
+        when 'array' then recipes
+        else '[]'::jsonb
+      end
+    ) recipe(node),
+    lateral jsonb_array_elements_text(
+      case jsonb_typeof(recipe.node->'recipeCuisine')
+        when 'array' then recipe.node->'recipeCuisine'
+        when 'string' then jsonb_build_array(recipe.node->'recipeCuisine')
+        else '[]'::jsonb
+      end
+    ) cuisine(value)
+  ),
+  buckets as (
+    select public.recipe_cuisine_bucket(value) as label
+    from raw_values
+  ),
+  known as (
+    select distinct label
+    from buckets
+    where label is not null and label <> 'other'
+  )
+  select case
+    when exists (select 1 from known)
+      then array(select label from known order by label)
+    when exists (select 1 from buckets where label = 'other')
+      then array['other']::text[]
+    else '{}'::text[]
+  end;
+$$;
+
+alter table public.recipe_imports
+  add column if not exists cuisines text[]
+  generated always as (public.extract_recipe_cuisines(recipes_json)) stored;
+
+create index if not exists recipe_imports_cuisines_gin_idx
+  on public.recipe_imports using gin (cuisines);
+
+create or replace function public.cuisine_facets()
+returns table(label text, count bigint)
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select cuisine.label, count(*)::bigint
+  from public.recipe_imports,
+       lateral unnest(cuisines) as cuisine(label)
+  group by cuisine.label
+  order by cuisine.label;
+$$;
+
+grant execute on function public.cuisine_facets() to anon, authenticated;
+
+create or replace function public.increment_times_cooked(
+  p_id uuid,
+  p_delta int
+) returns setof public.recipe_imports
+language sql
+security invoker
+set search_path = public
+as $$
+  update public.recipe_imports
+     set times_cooked = greatest(0, times_cooked + p_delta)
+   where id = p_id
+  returning *;
+$$;
+
+create or replace function public.toggle_recipe_favorite(
+  p_id uuid
+) returns setof public.recipe_imports
+language sql
+security invoker
+set search_path = public
+as $$
+  update public.recipe_imports
+     set is_favorite = not is_favorite
+   where id = p_id
+  returning *;
+$$;
+
+create or replace function public.set_recipe_override(
+  p_id uuid,
+  p_recipe_key text,
+  p_override jsonb
+) returns setof public.recipe_imports
+language sql
+security invoker
+set search_path = public
+as $$
+  update public.recipe_imports
+     set recipe_overrides_json =
+       case
+         when p_override is null or p_override = '{}'::jsonb
+           then coalesce(recipe_overrides_json, '{}'::jsonb) - p_recipe_key
+         else jsonb_set(
+           coalesce(recipe_overrides_json, '{}'::jsonb),
+           array[p_recipe_key],
+           p_override,
+           true
+         )
+       end
+   where id = p_id
+  returning *;
+$$;
+
+grant execute on function public.increment_times_cooked(uuid, int) to authenticated;
+grant execute on function public.toggle_recipe_favorite(uuid) to authenticated;
+grant execute on function public.set_recipe_override(uuid, text, jsonb) to authenticated;
