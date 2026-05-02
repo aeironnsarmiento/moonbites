@@ -26,6 +26,15 @@ def test_recipe_imports_has_admin_delete_policy():
     ) in normalized_sql
 
 
+def test_recipe_imports_unique_url_constraints_skip_when_duplicates_exist():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    assert "duplicate submitted_url values exist" in normalized_sql
+    assert "duplicate final_url values exist" in normalized_sql
+    assert "raise notice" in normalized_sql
+    assert "having count(*) > 1" in normalized_sql
+
+
 def test_recipe_imports_has_immutable_cuisine_helpers_and_gin_index():
     normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
 
