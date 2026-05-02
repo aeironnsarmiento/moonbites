@@ -69,7 +69,7 @@ def test_refetch_skips_manual_recipe_imports():
 
     with (
         patch(
-            "app.services.recipe_refresher.list_recipe_import_records_for_refresh",
+            "app.services.recipe_refresher.iter_recipe_import_records_for_refresh",
             return_value=[manual_record],
         ),
         patch("app.services.recipe_refresher.extract_recipes_from_url") as extract,
@@ -103,7 +103,7 @@ def test_refetch_updates_url_recipe_and_preserves_user_fields():
 
     with (
         patch(
-            "app.services.recipe_refresher.list_recipe_import_records_for_refresh",
+            "app.services.recipe_refresher.iter_recipe_import_records_for_refresh",
             return_value=[record],
         ),
         patch(
@@ -134,7 +134,7 @@ def test_refetch_falls_back_to_submitted_url_when_final_url_fails():
 
     with (
         patch(
-            "app.services.recipe_refresher.list_recipe_import_records_for_refresh",
+            "app.services.recipe_refresher.iter_recipe_import_records_for_refresh",
             return_value=[record],
         ),
         patch("app.services.recipe_refresher.extract_recipes_from_url", new=extract),
@@ -157,7 +157,7 @@ def test_refetch_records_no_recipe_found_without_update():
 
     with (
         patch(
-            "app.services.recipe_refresher.list_recipe_import_records_for_refresh",
+            "app.services.recipe_refresher.iter_recipe_import_records_for_refresh",
             return_value=[record],
         ),
         patch(
@@ -177,7 +177,7 @@ def test_refetch_records_failed_when_all_urls_fail():
 
     with (
         patch(
-            "app.services.recipe_refresher.list_recipe_import_records_for_refresh",
+            "app.services.recipe_refresher.iter_recipe_import_records_for_refresh",
             return_value=[record],
         ),
         patch(

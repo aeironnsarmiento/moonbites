@@ -1,8 +1,9 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from ..auth import AuthenticatedAdmin, require_admin_user
+from ...core.rate_limit import limiter
 from ...repositories.recipe_imports import (
     RecipeWriteDeniedError,
     delete_recipe_import,
@@ -46,7 +47,9 @@ def _raise_repository_http_error(error: RuntimeError) -> None:
 
 
 @router.post("/recipes/manual", response_model=RecipeImportRecord)
+@limiter.limit("30/minute")
 async def create_manual_recipe(
+    request: Request,
     payload: CreateManualRecipeRequest,
     admin: AuthenticatedAdmin = Depends(require_admin_user),
 ) -> RecipeImportRecord:
@@ -61,7 +64,9 @@ async def create_manual_recipe(
 
 
 @router.get("/recipes", response_model=PaginatedRecipeImportsResponse)
+@limiter.limit("60/minute")
 async def get_saved_recipes(
+    request: Request,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=50),
     limit: Optional[int] = Query(default=None, ge=1, le=50),
@@ -82,7 +87,8 @@ async def get_saved_recipes(
 
 
 @router.get("/recipes/cuisines", response_model=CuisineFacetsResponse)
-async def get_recipe_cuisines() -> CuisineFacetsResponse:
+@limiter.limit("60/minute")
+async def get_recipe_cuisines(request: Request) -> CuisineFacetsResponse:
     try:
         return list_cuisine_facets()
     except RuntimeError as error:
@@ -90,7 +96,11 @@ async def get_recipe_cuisines() -> CuisineFacetsResponse:
 
 
 @router.get("/recipes/{recipe_import_id}", response_model=RecipeImportRecord)
-async def get_saved_recipe(recipe_import_id: str) -> RecipeImportRecord:
+@limiter.limit("60/minute")
+async def get_saved_recipe(
+    request: Request,
+    recipe_import_id: str,
+) -> RecipeImportRecord:
     try:
         record = get_recipe_import(recipe_import_id)
     except RuntimeError as error:
@@ -103,7 +113,9 @@ async def get_saved_recipe(recipe_import_id: str) -> RecipeImportRecord:
 
 
 @router.delete("/recipes/{recipe_import_id}", response_model=DeleteRecipeImportResponse)
+@limiter.limit("30/minute")
 async def delete_saved_recipe(
+    request: Request,
     recipe_import_id: str,
     admin: AuthenticatedAdmin = Depends(require_admin_user),
 ) -> DeleteRecipeImportResponse:
@@ -124,7 +136,9 @@ async def delete_saved_recipe(
 @router.patch(
     "/recipes/{recipe_import_id}/times-cooked", response_model=RecipeImportRecord
 )
+@limiter.limit("30/minute")
 async def patch_times_cooked(
+    request: Request,
     recipe_import_id: str,
     payload: UpdateTimesCookedRequest,
     admin: AuthenticatedAdmin = Depends(require_admin_user),
@@ -148,7 +162,9 @@ async def patch_times_cooked(
 
 
 @router.patch("/recipes/{recipe_import_id}/favorite", response_model=RecipeImportRecord)
+@limiter.limit("30/minute")
 async def patch_favorite(
+    request: Request,
     recipe_import_id: str,
     admin: AuthenticatedAdmin = Depends(require_admin_user),
 ) -> RecipeImportRecord:
@@ -164,7 +180,9 @@ async def patch_favorite(
 
 
 @router.patch("/recipes/{recipe_import_id}/servings", response_model=RecipeImportRecord)
+@limiter.limit("30/minute")
 async def patch_servings(
+    request: Request,
     recipe_import_id: str,
     payload: UpdateServingsRequest,
     admin: AuthenticatedAdmin = Depends(require_admin_user),
@@ -185,7 +203,9 @@ async def patch_servings(
 
 
 @router.patch("/recipes/{recipe_import_id}/image", response_model=RecipeImportRecord)
+@limiter.limit("30/minute")
 async def patch_image(
+    request: Request,
     recipe_import_id: str,
     payload: UpdateImageRequest,
     admin: AuthenticatedAdmin = Depends(require_admin_user),
@@ -206,7 +226,9 @@ async def patch_image(
 
 
 @router.patch("/recipes/{recipe_import_id}/metadata", response_model=RecipeImportRecord)
+@limiter.limit("30/minute")
 async def patch_metadata(
+    request: Request,
     recipe_import_id: str,
     payload: UpdateRecipeMetadataRequest,
     admin: AuthenticatedAdmin = Depends(require_admin_user),
@@ -229,7 +251,9 @@ async def patch_metadata(
 @router.patch(
     "/recipes/{recipe_import_id}/overrides", response_model=RecipeImportRecord
 )
+@limiter.limit("30/minute")
 async def patch_recipe_overrides(
+    request: Request,
     recipe_import_id: str,
     payload: UpdateRecipeOverridesRequest,
     admin: AuthenticatedAdmin = Depends(require_admin_user),

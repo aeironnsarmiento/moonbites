@@ -4,3 +4,4 @@ beautifulsoup4
 httpx
 supabase
 python-dotenv
+slowapi>=0.1.9

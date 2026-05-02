@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from ..repositories.recipe_imports import (
     get_recipe_import,
     is_manual_recipe_url,
-    list_recipe_import_records_for_refresh,
+    iter_recipe_import_records_for_refresh,
     update_recipe_import_from_extraction,
 )
 from ..schemas.extract import RecipeImportRecord
@@ -31,15 +31,6 @@ class RefetchRecipeImportsSummary:
     failed: int = 0
     no_recipe_found: int = 0
     results: list[RefetchRecipeImportResult] = field(default_factory=list)
-
-
-def _limited_records(
-    records: list[RecipeImportRecord],
-    limit: Optional[int],
-) -> list[RecipeImportRecord]:
-    if limit is None:
-        return records
-    return records[:limit]
 
 
 def _source_urls(record: RecipeImportRecord) -> list[str]:
@@ -95,9 +86,15 @@ def _summary_from_results(
 
 def _records_for_refetch(
     recipe_import_id: Optional[str],
+    limit: Optional[int],
 ) -> list[RecipeImportRecord]:
     if recipe_import_id is None:
-        return list_recipe_import_records_for_refresh()
+        records: list[RecipeImportRecord] = []
+        for record in iter_recipe_import_records_for_refresh():
+            records.append(record)
+            if limit is not None and len(records) >= limit:
+                break
+        return records
 
     record = get_recipe_import(recipe_import_id)
     return [record] if record is not None else []
@@ -110,7 +107,7 @@ async def refetch_recipe_imports(
     recipe_import_id: Optional[str] = None,
 ) -> RefetchRecipeImportsSummary:
     results: list[RefetchRecipeImportResult] = []
-    records = _limited_records(_records_for_refetch(recipe_import_id), limit)
+    records = _records_for_refetch(recipe_import_id, limit)
 
     if recipe_import_id is not None and not records:
         return _summary_from_results(

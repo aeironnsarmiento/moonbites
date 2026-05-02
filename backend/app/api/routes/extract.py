@@ -1,12 +1,21 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from ..auth import AuthenticatedAdmin, require_admin_user
+from ...core.rate_limit import limiter
 from ...repositories.recipe_imports import save_recipe_import
 from ...schemas.extract import ExtractRequest, ExtractResponse
 from ...services.extractor import extract_recipes_from_url
 
 
 router = APIRouter(prefix="/api", tags=["extract"])
+GENERIC_SAVE_SUCCESS_MESSAGE = "Recipe saved to your collection."
+
+
+def _sanitize_database_message(database_saved: bool, message: str) -> str:
+    if database_saved and "Supabase table" in message:
+        return GENERIC_SAVE_SUCCESS_MESSAGE
+
+    return message
 
 
 @router.get("/health")
@@ -15,7 +24,9 @@ async def health_check() -> dict[str, str]:
 
 
 @router.post("/extract", response_model=ExtractResponse)
+@limiter.limit("10/minute")
 async def extract_ld_json(
+    request: Request,
     payload: ExtractRequest,
     admin: AuthenticatedAdmin = Depends(require_admin_user),
 ) -> ExtractResponse:
@@ -29,6 +40,7 @@ async def extract_ld_json(
             image_url=result.image_url,
             access_token=admin.access_token,
         )
+        database_message = _sanitize_database_message(database_saved, database_message)
     else:
         database_saved = False
         if result.recipe_node_count > 0:
