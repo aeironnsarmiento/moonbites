@@ -140,7 +140,8 @@ revoke execute on function public.hook_allow_recipe_admin_signup(jsonb)
 
 -- ---------------------------------------------------------------------------
 -- Optimization migration: indexes, UNIQUE, generated cuisines column, RPCs.
--- Idempotent. Run after deduplicating any existing url collisions.
+-- Idempotent. URL UNIQUE constraints are skipped when legacy duplicates exist;
+-- resolve duplicates and rerun this schema to add the skipped constraint(s).
 -- ---------------------------------------------------------------------------
 
 create index if not exists recipe_imports_page_title_idx
@@ -155,8 +156,21 @@ begin
     select 1 from pg_constraint
     where conname = 'recipe_imports_submitted_url_key'
   ) then
-    alter table public.recipe_imports
-      add constraint recipe_imports_submitted_url_key unique (submitted_url);
+    if exists (
+      select 1
+      from (
+        select submitted_url
+        from public.recipe_imports
+        group by submitted_url
+        having count(*) > 1
+      ) duplicates
+    ) then
+      raise notice
+        'Skipping recipe_imports_submitted_url_key; duplicate submitted_url values exist. Resolve duplicates and rerun this schema.';
+    else
+      alter table public.recipe_imports
+        add constraint recipe_imports_submitted_url_key unique (submitted_url);
+    end if;
   end if;
 end$$;
 
@@ -166,8 +180,21 @@ begin
     select 1 from pg_constraint
     where conname = 'recipe_imports_final_url_key'
   ) then
-    alter table public.recipe_imports
-      add constraint recipe_imports_final_url_key unique (final_url);
+    if exists (
+      select 1
+      from (
+        select final_url
+        from public.recipe_imports
+        group by final_url
+        having count(*) > 1
+      ) duplicates
+    ) then
+      raise notice
+        'Skipping recipe_imports_final_url_key; duplicate final_url values exist. Resolve duplicates and rerun this schema.';
+    else
+      alter table public.recipe_imports
+        add constraint recipe_imports_final_url_key unique (final_url);
+    end if;
   end if;
 end$$;
 

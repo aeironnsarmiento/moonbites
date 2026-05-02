@@ -1,4 +1,9 @@
-from backend.app.main import app
+try:
+    from backend.app.main import app
+except ModuleNotFoundError as error:
+    if error.name != "backend":
+        raise
+    from app.main import app
 
 if __name__ == "__main__":
     import uvicorn
