@@ -6,14 +6,13 @@ import {
   SimpleGrid,
   Stack,
   Text,
-  Tooltip,
-  UnorderedList,
 } from "@chakra-ui/react";
 import type { ReactNode } from "react";
 
 import { ServingsStepper } from "../../components/ServingsStepper/ServingsStepper";
 import type { IngredientSection } from "../../types/recipe";
-import { buildDiffSegments } from "../../utils/recipeOverrides";
+import { RecipeDiffText } from "./RecipeDiffText";
+import { RecipeIngredientsDisplay } from "./RecipeIngredientsDisplay";
 
 type ServingsControls = {
   currentServings: number;
@@ -46,136 +45,6 @@ type InstructionsSectionProps = {
 
 type RecipeTextSectionProps = IngredientsSectionProps | InstructionsSectionProps;
 
-function renderDiffText(
-  originalValue: string,
-  editedValue: string,
-  keyPrefix: string,
-) {
-  const diffSegments = buildDiffSegments(originalValue, editedValue);
-
-  if (originalValue === editedValue) {
-    return editedValue;
-  }
-
-  if (diffSegments.length === 0) {
-    return (
-      <Tooltip label={`Original: ${originalValue}`} hasArrow>
-        <Text
-          as="span"
-          tabIndex={0}
-          className="recipeDetailCard__diff recipeDetailCard__diff--changed"
-        >
-          (empty)
-        </Text>
-      </Tooltip>
-    );
-  }
-
-  return diffSegments.map((segment, index) => {
-    if (!segment.changed) {
-      return (
-        <Text as="span" key={`${keyPrefix}-${index}`}>
-          {segment.text}
-        </Text>
-      );
-    }
-
-    return (
-      <Tooltip
-        key={`${keyPrefix}-${index}`}
-        label={`Original: ${originalValue}`}
-        hasArrow
-      >
-        <Text
-          as="span"
-          tabIndex={0}
-          className="recipeDetailCard__diff recipeDetailCard__diff--changed"
-        >
-          {segment.text}
-        </Text>
-      </Tooltip>
-    );
-  });
-}
-
-function renderIngredientText(
-  originalValue: string,
-  editedValue: string,
-  keyPrefix: string,
-  scaleFactor: number,
-) {
-  if (Math.abs(scaleFactor - 1) > 0.001) {
-    return editedValue;
-  }
-
-  return renderDiffText(originalValue, editedValue, keyPrefix);
-}
-
-function IngredientsDisplay({
-  originalRows,
-  scaledVisibleIngredients,
-  visibleIngredientSections,
-  originalIngredientSections,
-  scaleFactor,
-}: Pick<
-  IngredientsSectionProps,
-  | "originalRows"
-  | "scaledVisibleIngredients"
-  | "visibleIngredientSections"
-  | "originalIngredientSections"
-  | "scaleFactor"
->) {
-  if (visibleIngredientSections) {
-    return (
-      <Stack spacing={4}>
-        {visibleIngredientSections.map((section, sectionIndex) => {
-          const sectionStart =
-            originalIngredientSections
-              ?.slice(0, sectionIndex)
-              .reduce((count, item) => count + item.items.length, 0) ?? 0;
-
-          return (
-            <Stack key={`${section.title ?? "ingredients"}-${sectionIndex}`} spacing={2}>
-              {section.title ? <Text fontWeight="700">{section.title}</Text> : null}
-              <UnorderedList spacing={2} className="recipeDetailCard__list">
-                {section.items.map((ingredient, itemIndex) => {
-                  const rowIndex = sectionStart + itemIndex;
-
-                  return (
-                    <ListItem key={`ingredient-${rowIndex}`}>
-                      {renderIngredientText(
-                        originalRows[rowIndex] ?? "",
-                        ingredient,
-                        `ingredient-${rowIndex}`,
-                        scaleFactor,
-                      )}
-                    </ListItem>
-                  );
-                })}
-              </UnorderedList>
-            </Stack>
-          );
-        })}
-      </Stack>
-    );
-  }
-
-  return (
-    <UnorderedList spacing={2} className="recipeDetailCard__list">
-      {scaledVisibleIngredients.map((ingredient, rowIndex) => (
-        <ListItem key={`ingredient-${rowIndex}`}>
-          {renderIngredientText(
-            originalRows[rowIndex] ?? "",
-            ingredient,
-            `ingredient-${rowIndex}`,
-            scaleFactor,
-          )}
-        </ListItem>
-      ))}
-    </UnorderedList>
-  );
-}
-
 export function RecipeTextSection(props: RecipeTextSectionProps) {
   if (props.section === "ingredients") {
     return (
@@ -199,7 +68,7 @@ export function RecipeTextSection(props: RecipeTextSectionProps) {
         {props.isEditing ? (
           props.editorRows
         ) : (
-          <IngredientsDisplay
+          <RecipeIngredientsDisplay
             originalRows={props.originalRows}
             scaledVisibleIngredients={props.scaledVisibleIngredients}
             visibleIngredientSections={props.visibleIngredientSections}
@@ -220,11 +89,11 @@ export function RecipeTextSection(props: RecipeTextSectionProps) {
         <OrderedList spacing={3} className="recipeDetailCard__list">
           {props.visibleRows.map((instruction, rowIndex) => (
             <ListItem key={`instruction-${rowIndex}`}>
-              {renderDiffText(
-                props.originalRows[rowIndex] ?? "",
-                instruction,
-                `instruction-${rowIndex}`,
-              )}
+              <RecipeDiffText
+                originalValue={props.originalRows[rowIndex] ?? ""}
+                editedValue={instruction}
+                keyPrefix={`instruction-${rowIndex}`}
+              />
             </ListItem>
           ))}
         </OrderedList>

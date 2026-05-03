@@ -51,4 +51,15 @@ describe("HomeRecentGrid", () => {
 
     expect(screen.queryByRole("button", { name: /favorite/i })).not.toBeInTheDocument();
   });
+
+  it("navigates on Enter and Space key presses", () => {
+    render(<HomeRecentGrid items={[item]} canToggleFavorite={false} />);
+    const link = screen.getByRole("link", { name: /miso cookies/i });
+
+    fireEvent.keyDown(link, { key: "Enter" });
+    fireEvent.keyDown(link, { key: " " });
+
+    expect(navigate).toHaveBeenNthCalledWith(1, "/recipes/recipe-1");
+    expect(navigate).toHaveBeenNthCalledWith(2, "/recipes/recipe-1");
+  });
 });

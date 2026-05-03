@@ -1,6 +1,7 @@
-import { Card, CardBody, Divider, Stack, Text } from "@chakra-ui/react";
+import { Card, CardBody, Stack } from "@chakra-ui/react";
 import { useState } from "react";
 
+import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { useServingsScale } from "../../hooks/useServingsScale";
 import { useToggleFavorite } from "../../hooks/useToggleFavorite";
 import type {
@@ -11,19 +12,15 @@ import type {
 } from "../../types/recipe";
 import {
   applyRowOverrides,
-  areRowsEqual,
-  buildRowOverrides,
   getRecipeTextOverrides,
 } from "../../utils/recipeOverrides";
 import { scaleIngredients } from "../../utils/scaleIngredients";
 import { DeleteRecipeDialog } from "./DeleteRecipeDialog";
-import {
-  RecipeDetailHeader,
-  RecipeDetailHero,
-} from "./RecipeDetailHeader";
-import { RecipeMetadataEditor } from "./RecipeMetadataEditor";
-import { RecipeTextEditorRows } from "./RecipeTextEditorRows";
-import { NutritionSection, RecipeTextSection } from "./RecipeTextSection";
+import { RecipeDetailEditor } from "./RecipeDetailEditor";
+import { RecipeDetailHeader } from "./RecipeDetailHeader";
+import { RecipeDetailHero } from "./RecipeDetailHero";
+import { RecipeDetailView } from "./RecipeDetailView";
+import { useRecipeEditDraft } from "./hooks/useRecipeEditDraft";
 import "./RecipeDetailCard.scss";
 
 type RecipeDetailCardProps = {
@@ -118,17 +115,20 @@ export function RecipeDetailCard({
     recipe.instructions,
     savedOverrides.instructions,
   );
-  const [isEditing, setIsEditing] = useState(false);
-  const [draftIngredients, setDraftIngredients] =
-    useState<string[]>(visibleIngredients);
-  const [draftInstructions, setDraftInstructions] =
-    useState<string[]>(visibleInstructions);
-  const [draftTitle, setDraftTitle] = useState(recordTitle ?? recipe.name);
-  const [draftYield, setDraftYield] = useState(recipe.recipeYield ?? "");
-  const [draftImageUrl, setDraftImageUrl] = useState(imageUrl ?? "");
-  const [draftSourceUrl, setDraftSourceUrl] = useState(sourceUrl);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [saveError, setSaveError] = useState("");
+  const deleteDialog = useConfirmDialog();
+  const [deleteError, setDeleteError] = useState("");
+  const editDraft = useRecipeEditDraft({
+    recipe,
+    recipeIndex,
+    recordTitle,
+    imageUrl,
+    sourceUrl,
+    visibleIngredients,
+    visibleInstructions,
+    canEditMetadata: canEdit && showTimesCookedControls,
+    onSaveMetadata,
+    onSaveOverrides,
+  });
 
   const metadataItems = [
     recipe.recipeYield ? { label: "Yield", value: recipe.recipeYield } : null,
@@ -138,80 +138,15 @@ export function RecipeDetailCard({
       : null,
   ].filter((item): item is { label: string; value: string } => item !== null);
 
-  const hasMetadataChanges =
-    canEdit &&
-    showTimesCookedControls &&
-    (draftTitle.trim() !== (recordTitle ?? recipe.name) ||
-      (draftYield.trim() || null) !== (recipe.recipeYield ?? null) ||
-      (draftImageUrl.trim() || null) !== (imageUrl ?? null) ||
-      draftSourceUrl.trim() !== sourceUrl);
-
-  const hasUnsavedChanges =
-    !areRowsEqual(draftIngredients, visibleIngredients) ||
-    !areRowsEqual(draftInstructions, visibleInstructions) ||
-    hasMetadataChanges;
-
-  const startEditing = () => {
-    setDraftIngredients([...visibleIngredients]);
-    setDraftInstructions([...visibleInstructions]);
-    setDraftTitle(recordTitle ?? recipe.name);
-    setDraftYield(recipe.recipeYield ?? "");
-    setDraftImageUrl(imageUrl ?? "");
-    setDraftSourceUrl(sourceUrl);
-    setSaveError("");
-    setIsEditing(true);
-  };
-
-  const cancelEditing = () => {
-    setDraftIngredients([...visibleIngredients]);
-    setDraftInstructions([...visibleInstructions]);
-    setDraftTitle(recordTitle ?? recipe.name);
-    setDraftYield(recipe.recipeYield ?? "");
-    setDraftImageUrl(imageUrl ?? "");
-    setDraftSourceUrl(sourceUrl);
-    setSaveError("");
-    setIsEditing(false);
-  };
-
   const openDeleteDialog = () => {
-    setSaveError("");
-    setIsDeleteDialogOpen(true);
+    editDraft.setSaveError("");
+    setDeleteError("");
+    deleteDialog.open();
   };
 
   const closeDeleteDialog = () => {
     if (!isDeleting) {
-      setIsDeleteDialogOpen(false);
-    }
-  };
-
-  const handleSaveOverrides = async () => {
-    if (!onSaveOverrides && !onSaveMetadata) {
-      return;
-    }
-
-    setSaveError("");
-
-    try {
-      if (hasMetadataChanges && onSaveMetadata) {
-        await onSaveMetadata({
-          title: draftTitle.trim(),
-          recipeYield: draftYield.trim() || null,
-          imageUrl: draftImageUrl.trim() || null,
-          sourceUrl: draftSourceUrl.trim(),
-        });
-      }
-
-      if (onSaveOverrides) {
-        await onSaveOverrides(recipeIndex, {
-          ingredients: buildRowOverrides(recipe.ingredients, draftIngredients),
-          instructions: buildRowOverrides(recipe.instructions, draftInstructions),
-        });
-      }
-      setIsEditing(false);
-    } catch (error) {
-      setSaveError(
-        error instanceof Error ? error.message : "Unable to save recipe edits.",
-      );
+      deleteDialog.close();
     }
   };
 
@@ -220,16 +155,25 @@ export function RecipeDetailCard({
       return;
     }
 
-    setSaveError("");
+    setDeleteError("");
 
     try {
-      await onDelete();
-      setIsDeleteDialogOpen(false);
+      await deleteDialog.confirm(onDelete);
     } catch (error) {
-      setSaveError(
+      setDeleteError(
         error instanceof Error ? error.message : "Unable to delete recipe.",
       );
     }
+  };
+  const isDeleteProcessing = isDeleting || deleteDialog.isProcessing;
+  const isBusy = isSavingOverrides || isSavingMetadata || isDeleteProcessing;
+  const servingsControls = {
+    currentServings: servingsScale.currentServings,
+    originalServings: servingsScale.originalServings,
+    isSaving: isSavingServings,
+    onDecrement: servingsScale.decrement,
+    onIncrement: servingsScale.increment,
+    onSaveDefault: canEdit ? onSaveServings : undefined,
   };
 
   return (
@@ -253,91 +197,63 @@ export function RecipeDetailCard({
             title={recipe.name}
             metadataItems={metadataItems}
             timesCooked={timesCooked}
-            isEditing={isEditing}
+            isEditing={editDraft.isEditing}
             canEdit={canEdit}
             showTimesCookedControls={showTimesCookedControls}
             isUpdatingTimesCooked={isUpdatingTimesCooked}
-            isSavingOverrides={isSavingOverrides}
-            isSavingMetadata={isSavingMetadata}
-            isDeleting={isDeleting}
-            hasUnsavedChanges={hasUnsavedChanges}
+            isBusy={isBusy}
+            hasUnsavedChanges={editDraft.hasUnsavedChanges}
             onAdjustTimesCooked={onAdjustTimesCooked}
-            onStartEditing={startEditing}
-            onCancelEditing={cancelEditing}
+            onStartEditing={editDraft.startEditing}
+            onCancelEditing={editDraft.cancelEditing}
             onSaveEdits={() => {
-              void handleSaveOverrides();
+              void editDraft.save();
             }}
             onOpenDeleteDialog={openDeleteDialog}
             canDelete={canEdit && showTimesCookedControls && Boolean(onDelete)}
           />
 
-          {metadataItems.length > 0 ? <Divider /> : null}
-
-          {canEdit && isEditing && showTimesCookedControls ? (
-            <RecipeMetadataEditor
+          {editDraft.isEditing ? (
+            <RecipeDetailEditor
               recipeImportId={recipeImportId}
-              draftTitle={draftTitle}
-              draftYield={draftYield}
-              draftImageUrl={draftImageUrl}
-              draftSourceUrl={draftSourceUrl}
-              onChangeTitle={setDraftTitle}
-              onChangeYield={setDraftYield}
-              onChangeImageUrl={setDraftImageUrl}
-              onChangeSourceUrl={setDraftSourceUrl}
+              recipe={recipe}
+              showMetadataDivider={metadataItems.length > 0}
+              showMetadataEditor={canEdit && showTimesCookedControls}
+              draftIngredients={editDraft.draftIngredients}
+              draftInstructions={editDraft.draftInstructions}
+              draftTitle={editDraft.draftTitle}
+              draftYield={editDraft.draftYield}
+              draftImageUrl={editDraft.draftImageUrl}
+              draftSourceUrl={editDraft.draftSourceUrl}
+              scaledVisibleIngredients={scaledVisibleIngredients}
+              visibleIngredientSections={visibleIngredientSections}
+              scaleFactor={servingsScale.scaleFactor}
+              servingsControls={servingsControls}
+              saveError={editDraft.saveError}
+              onChangeIngredients={editDraft.setDraftIngredients}
+              onChangeInstructions={editDraft.setDraftInstructions}
+              onChangeTitle={editDraft.setDraftTitle}
+              onChangeYield={editDraft.setDraftYield}
+              onChangeImageUrl={editDraft.setDraftImageUrl}
+              onChangeSourceUrl={editDraft.setDraftSourceUrl}
             />
-          ) : null}
-
-          <RecipeTextSection
-            section="ingredients"
-            isEditing={isEditing}
-            editorRows={
-              <RecipeTextEditorRows
-                section="ingredients"
-                rows={draftIngredients}
-                originals={recipe.ingredients}
-                onChangeRows={setDraftIngredients}
-              />
-            }
-            originalRows={recipe.ingredients}
-            scaledVisibleIngredients={scaledVisibleIngredients}
-            visibleIngredientSections={visibleIngredientSections}
-            originalIngredientSections={recipe.ingredientSections}
-            scaleFactor={servingsScale.scaleFactor}
-            servingsControls={{
-              currentServings: servingsScale.currentServings,
-              originalServings: servingsScale.originalServings,
-              isSaving: isSavingServings,
-              onDecrement: servingsScale.decrement,
-              onIncrement: servingsScale.increment,
-              onSaveDefault: canEdit ? onSaveServings : undefined,
-            }}
-          />
-
-          <RecipeTextSection
-            section="instructions"
-            isEditing={isEditing}
-            editorRows={
-              <RecipeTextEditorRows
-                section="instructions"
-                rows={draftInstructions}
-                originals={recipe.instructions}
-                onChangeRows={setDraftInstructions}
-              />
-            }
-            originalRows={recipe.instructions}
-            visibleRows={visibleInstructions}
-          />
-
-          {saveError ? <Text color="red.500">{saveError}</Text> : null}
-
-          {recipe.nutrition ? (
-            <NutritionSection nutrition={recipe.nutrition} />
-          ) : null}
+          ) : (
+            <RecipeDetailView
+              recipe={recipe}
+              showMetadataDivider={metadataItems.length > 0}
+              scaledVisibleIngredients={scaledVisibleIngredients}
+              visibleIngredientSections={visibleIngredientSections}
+              visibleInstructions={visibleInstructions}
+              scaleFactor={servingsScale.scaleFactor}
+              servingsControls={servingsControls}
+              error={deleteError}
+            />
+          )}
         </Stack>
       </CardBody>
       <DeleteRecipeDialog
-        isOpen={isDeleteDialogOpen}
-        isDeleting={isDeleting}
+        isOpen={deleteDialog.isOpen}
+        isDeleting={isDeleteProcessing}
         onClose={closeDeleteDialog}
         onDelete={() => {
           void handleDeleteRecipe();

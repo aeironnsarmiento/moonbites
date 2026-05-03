@@ -26,17 +26,10 @@ import {
   dedupeRecipeImportRecord,
   dedupeRecipeImports,
 } from "../utils/recipeDedup";
+import { formatDate } from "../utils/formatDate";
 
 function isManualRecipeUrl(value: string) {
   return value.trim().toLowerCase().startsWith("manual://");
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(value));
 }
 
 function mapRecipeImportToCard(record: RecipeImportRecord): RecipeCardItem {

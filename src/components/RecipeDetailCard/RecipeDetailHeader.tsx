@@ -4,7 +4,6 @@ import {
   ButtonGroup,
   Heading,
   HStack,
-  Icon,
   IconButton,
   SimpleGrid,
   Stack,
@@ -12,19 +11,11 @@ import {
   Tooltip,
 } from "@chakra-ui/react";
 
-import { CardImage } from "../RecipeCard/CardImage";
+import { DeleteRecipeIcon, EditRecipeIcon } from "../Icons";
 
-type MetadataItem = {
+export type MetadataItem = {
   label: string;
   value: string;
-};
-
-type RecipeDetailHeroProps = {
-  imageUrl: string | null;
-  title: string;
-  isFavorite: boolean;
-  isTogglingFavorite: boolean;
-  onToggleFavorite?: () => void;
 };
 
 type RecipeDetailHeaderProps = {
@@ -35,9 +26,7 @@ type RecipeDetailHeaderProps = {
   canEdit: boolean;
   showTimesCookedControls: boolean;
   isUpdatingTimesCooked: boolean;
-  isSavingOverrides: boolean;
-  isSavingMetadata: boolean;
-  isDeleting: boolean;
+  isBusy: boolean;
   hasUnsavedChanges: boolean;
   onAdjustTimesCooked?: (delta: -1 | 1) => Promise<void>;
   onStartEditing: () => void;
@@ -47,48 +36,6 @@ type RecipeDetailHeaderProps = {
   canDelete: boolean;
 };
 
-function EditRecipeIcon() {
-  return (
-    <Icon viewBox="0 0 24 24" boxSize={5}>
-      <path
-        fill="currentColor"
-        d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm17.71-10.04a.996.996 0 0 0 0-1.41l-2.5-2.5a.996.996 0 0 0-1.41 0l-1.96 1.96 3.75 3.75 1.92-1.8z"
-      />
-    </Icon>
-  );
-}
-
-function DeleteRecipeIcon() {
-  return (
-    <Icon viewBox="0 0 24 24" boxSize={5}>
-      <path
-        fill="currentColor"
-        d="M9 3h6l1 2h5v2H3V5h5l1-2zm1 6h2v9h-2V9zm4 0h2v9h-2V9zM7 9h2v9H7V9zm-1 12c-1.1 0-2-.9-2-2V8h16v11c0 1.1-.9 2-2 2H6z"
-      />
-    </Icon>
-  );
-}
-
-export function RecipeDetailHero({
-  imageUrl,
-  title,
-  isFavorite,
-  isTogglingFavorite,
-  onToggleFavorite,
-}: RecipeDetailHeroProps) {
-  return (
-    <div className="recipeDetailCard__hero">
-      <CardImage
-        imageUrl={imageUrl}
-        title={title}
-        isFavorite={isFavorite}
-        isTogglingFavorite={isTogglingFavorite}
-        onToggleFavorite={onToggleFavorite}
-      />
-    </div>
-  );
-}
-
 export function RecipeDetailHeader({
   title,
   metadataItems,
@@ -97,9 +44,7 @@ export function RecipeDetailHeader({
   canEdit,
   showTimesCookedControls,
   isUpdatingTimesCooked,
-  isSavingOverrides,
-  isSavingMetadata,
-  isDeleting,
+  isBusy,
   hasUnsavedChanges,
   onAdjustTimesCooked,
   onStartEditing,
@@ -152,7 +97,7 @@ export function RecipeDetailHeader({
                   icon={<EditRecipeIcon />}
                   variant="outline"
                   onClick={onStartEditing}
-                  isDisabled={isSavingOverrides || isSavingMetadata || isDeleting}
+                  isDisabled={isBusy}
                 />
               </Tooltip>
               {canDelete ? (
@@ -163,8 +108,8 @@ export function RecipeDetailHeader({
                     variant="outline"
                     colorScheme="red"
                     onClick={onOpenDeleteDialog}
-                    isDisabled={isSavingOverrides || isSavingMetadata || isDeleting}
-                    isLoading={isDeleting}
+                    isDisabled={isBusy}
+                    isLoading={isBusy}
                   />
                 </Tooltip>
               ) : null}
@@ -174,7 +119,7 @@ export function RecipeDetailHeader({
               <Button
                 variant="ghost"
                 onClick={onCancelEditing}
-                isDisabled={isSavingOverrides || isSavingMetadata || isDeleting}
+                isDisabled={isBusy}
               >
                 Cancel
               </Button>
@@ -183,8 +128,8 @@ export function RecipeDetailHeader({
                 color="white"
                 _hover={{ bg: "brand.700" }}
                 onClick={onSaveEdits}
-                isLoading={isSavingOverrides || isSavingMetadata}
-                isDisabled={!hasUnsavedChanges || isDeleting}
+                isLoading={isBusy}
+                isDisabled={!hasUnsavedChanges}
               >
                 Save edits
               </Button>
