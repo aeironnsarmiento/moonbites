@@ -27,6 +27,11 @@ class Settings:
     accept_header: str
     accept_language_header: str
     youtube_api_key: Optional[str]
+    gemini_api_key: Optional[str]
+    gemini_normalization_enabled: bool
+    gemini_model: str
+    gemini_timeout_seconds: float
+    gemini_rate_limit_per_minute: int
 
 
 def normalize_cors_origins(value: str) -> tuple[str, ...]:
@@ -76,4 +81,16 @@ def get_settings() -> Settings:
             "en-US,en;q=0.9",
         ),
         youtube_api_key=os.getenv("YOUTUBE_API_KEY"),
+        gemini_api_key=os.getenv("GEMINI_API_KEY"),
+        gemini_normalization_enabled=os.getenv(
+            "GEMINI_NORMALIZATION_ENABLED", ""
+        )
+        .strip()
+        .casefold()
+        in {"1", "true", "yes", "on"},
+        gemini_model=os.getenv("GEMINI_MODEL", "gemini-3-flash-preview"),
+        gemini_timeout_seconds=float(os.getenv("GEMINI_TIMEOUT_SECONDS", "8.0")),
+        gemini_rate_limit_per_minute=int(
+            os.getenv("GEMINI_RATE_LIMIT_PER_MINUTE", "3")
+        ),
     )

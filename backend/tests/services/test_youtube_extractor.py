@@ -30,6 +30,11 @@ def _settings(api_key: str | None = "youtube-key") -> Settings:
         accept_header="text/html",
         accept_language_header="en-US",
         youtube_api_key=api_key,
+        gemini_api_key=None,
+        gemini_normalization_enabled=False,
+        gemini_model="gemini-3-flash-preview",
+        gemini_timeout_seconds=8.0,
+        gemini_rate_limit_per_minute=3,
     )
 
 
