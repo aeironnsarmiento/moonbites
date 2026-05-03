@@ -178,7 +178,6 @@ export function RecipeDetailCard({
   recipeImportId,
   recipe,
   recipeIndex,
-  index,
   recordTitle,
   timesCooked,
   imageUrl,
