@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from ...core.config import Settings, get_settings
 from ...schemas.extract import IngredientSection, JsonLdBlock, NormalizedRecipe
 from ...utils.text import clean_text, unique_strings
+from ...utils.url_safety import validate_public_http_url
 from ..extraction_types import ExtractionResult
 from ..image_extraction import extract_image_url
 from ..normalizer import (
@@ -67,6 +68,8 @@ CONTAINER_SELECTORS = (
     "[class*='recipe']",
     "[id*='recipe']",
 )
+REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
+MAX_REDIRECTS = 10
 
 
 def normalize_url(value: str) -> str:
@@ -412,17 +415,42 @@ async def _get_with_403_retry(
     return response
 
 
+async def _get_with_safe_redirects(
+    client: httpx.AsyncClient, url: str, settings: Settings
+) -> httpx.Response:
+    current_url = url
+
+    for _ in range(MAX_REDIRECTS + 1):
+        response = await _get_with_403_retry(client, current_url, settings)
+        if getattr(response, "status_code", None) not in REDIRECT_STATUS_CODES:
+            return response
+
+        location = response.headers.get("Location")
+        if not location:
+            return response
+
+        current_url = normalize_url(
+            validate_public_http_url(str(response.url.join(location)))
+        )
+
+    raise HTTPException(
+        status_code=502,
+        detail="Target site redirected too many times",
+    )
+
+
 async def extract_recipes_from_url(url: str) -> ExtractionResult:
     settings = get_settings()
-    target_url = normalize_url(url)
+    target_url = normalize_url(validate_public_http_url(url))
 
     try:
         async with httpx.AsyncClient(
             headers=_build_request_headers(settings),
-            follow_redirects=True,
+            follow_redirects=False,
             timeout=settings.request_timeout_seconds,
         ) as client:
-            response = await _get_with_403_retry(client, target_url, settings)
+            response = await _get_with_safe_redirects(client, target_url, settings)
+            validate_public_http_url(str(response.url))
             response.raise_for_status()
     except httpx.TimeoutException as error:
         raise HTTPException(

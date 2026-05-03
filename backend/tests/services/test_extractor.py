@@ -1,6 +1,10 @@
 import asyncio
 from unittest.mock import AsyncMock, patch
 
+import httpx
+import pytest
+from fastapi import HTTPException
+
 from app.schemas.extract import IngredientSection
 from app.core.config import Settings
 from app.services.extractor import extract_recipes_from_url
@@ -365,3 +369,69 @@ def test_extract_recipes_from_url_uses_matching_wprm_headers_for_flat_json_ld_in
             items=["1/4 cup sugar", "2 eggs"],
         ),
     ]
+
+
+def test_extract_recipes_from_url_rejects_redirect_to_private_url():
+    class RedirectingClient:
+        def __init__(self, **kwargs):
+            self.follow_redirects = kwargs.get("follow_redirects", False)
+            self.requested_urls: list[str] = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str, **kwargs):
+            self.requested_urls.append(str(url))
+            if str(url) == "https://example.com/recipe":
+                response = httpx.Response(
+                    status_code=302,
+                    headers={"Location": "http://127.0.0.1/private"},
+                    request=httpx.Request("GET", str(url)),
+                )
+                if self.follow_redirects:
+                    return await self.get(
+                        str(response.url.join(response.headers["Location"]))
+                    )
+                return response
+
+            return httpx.Response(
+                status_code=200,
+                text="<html></html>",
+                request=httpx.Request("GET", str(url)),
+            )
+
+    client = RedirectingClient()
+
+    def client_factory(**kwargs):
+        nonlocal client
+        client = RedirectingClient(**kwargs)
+        return client
+
+    with (
+        patch("app.services.blog.extractor.get_settings", return_value=_settings()),
+        patch(
+            "app.utils.url_safety.socket.getaddrinfo",
+            return_value=[(None, None, None, "", ("93.184.216.34", 443))],
+        ),
+        patch(
+            "app.services.blog.extractor.httpx.AsyncClient",
+            side_effect=client_factory,
+        ),
+    ):
+        with pytest.raises(HTTPException) as error:
+            asyncio.run(extract_recipes_from_url("https://example.com/recipe"))
+
+    assert error.value.status_code == 400
+    assert error.value.detail == "Private or localhost URLs are not supported"
+    assert client.requested_urls == ["https://example.com/recipe"]
+
+
+def test_extract_recipes_from_url_rejects_non_http_url_with_public_url_detail():
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(extract_recipes_from_url("file://x"))
+
+    assert error.value.status_code == 400
+    assert error.value.detail == "Enter a public http(s) URL"
