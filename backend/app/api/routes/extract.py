@@ -19,6 +19,15 @@ def _sanitize_database_message(database_saved: bool, message: str) -> str:
     return message
 
 
+def _extract_metadata(result) -> dict:
+    return {
+        "extraction_method": result.extraction_method,
+        "normalization_model": result.normalization_model,
+        "warnings": result.warnings,
+        "fallback_reason": result.fallback_reason,
+    }
+
+
 @router.get("/health")
 async def health_check() -> dict[str, str]:
     return {"status": "ok"}
@@ -44,6 +53,7 @@ async def extract_ld_json(
             database_message="Skipped — not a recipe.",
             parse_status="not_recipe",
             parse_reason=result.parse_reason,
+            **_extract_metadata(result),
         )
 
     if result.recipes:
@@ -77,4 +87,6 @@ async def extract_ld_json(
         database_saved=database_saved,
         database_message=database_message,
         parse_status="recipe",
+        parse_reason=result.parse_reason,
+        **_extract_metadata(result),
     )

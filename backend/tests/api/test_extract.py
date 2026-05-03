@@ -1,4 +1,4 @@
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -18,7 +18,7 @@ def test_extract_returns_incomplete_recipe_message_when_recipe_nodes_fail_to_nor
     )
 
     try:
-        extraction = Mock(
+        extraction = ExtractionResult(
             source_url="https://example.com/submitted",
             final_url="https://example.com/final",
             title="Recipe Page",
@@ -53,7 +53,7 @@ def test_extract_success_message_does_not_expose_supabase_table_name():
     )
 
     try:
-        extraction = Mock(
+        extraction = ExtractionResult(
             source_url="https://example.com/submitted",
             final_url="https://example.com/final",
             title="Recipe Page",
@@ -99,7 +99,7 @@ def test_extract_response_includes_image_url():
     )
 
     try:
-        extraction = Mock(
+        extraction = ExtractionResult(
             source_url="https://youtu.be/abc123XYZ09",
             final_url="https://youtu.be/abc123XYZ09",
             title="Video Soup",
@@ -144,6 +144,10 @@ def test_extract_not_recipe_response_skips_db_write():
             recipes=[],
             parse_status=ParseStatus.NOT_RECIPE,
             parse_reason="Description lacks recipe signals.",
+            extraction_method="manual_fallback",
+            normalization_model="legacy-youtube-parser",
+            warnings=["Gemini disabled."],
+            fallback_reason="Gemini normalization is not enabled.",
         )
 
         with (
@@ -164,6 +168,10 @@ def test_extract_not_recipe_response_skips_db_write():
     body = response.json()
     assert body["parse_status"] == "not_recipe"
     assert body["parse_reason"] == "Description lacks recipe signals."
+    assert body["extraction_method"] == "manual_fallback"
+    assert body["normalization_model"] == "legacy-youtube-parser"
+    assert body["warnings"] == ["Gemini disabled."]
+    assert body["fallback_reason"] == "Gemini normalization is not enabled."
     assert body["recipes"] == []
     assert "_".join(("recipe", "count")) not in body
     assert body["database_saved"] is False
@@ -193,6 +201,10 @@ def test_extract_recipe_response_includes_parse_status_recipe():
                 )
             ],
             parse_status=ParseStatus.RECIPE,
+            extraction_method="gemini",
+            normalization_model="gemini-3-flash-preview",
+            warnings=["Trimmed raw payload to fit model limits."],
+            fallback_reason=None,
         )
 
         with (
@@ -216,6 +228,10 @@ def test_extract_recipe_response_includes_parse_status_recipe():
     body = response.json()
     assert body["parse_status"] == "recipe"
     assert body["parse_reason"] is None
+    assert body["extraction_method"] == "gemini"
+    assert body["normalization_model"] == "gemini-3-flash-preview"
+    assert body["warnings"] == ["Trimmed raw payload to fit model limits."]
+    assert body["fallback_reason"] is None
 
 
 def test_extract_success_passes_image_url_to_save_recipe_import():
@@ -225,7 +241,7 @@ def test_extract_success_passes_image_url_to_save_recipe_import():
     )
 
     try:
-        extraction = Mock(
+        extraction = ExtractionResult(
             source_url="https://youtu.be/abc123XYZ09",
             final_url="https://example.com/soup",
             title="Soup",
