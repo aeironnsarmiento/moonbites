@@ -5,7 +5,6 @@ create table if not exists public.recipe_imports (
   submitted_url text not null,
   final_url text not null,
   page_title text,
-  recipe_count integer not null default 0,
   times_cooked integer not null default 0,
   recipes_json jsonb not null,
   recipe_overrides_json jsonb not null default '{}'::jsonb,
@@ -17,6 +16,9 @@ alter table public.recipe_imports
 
 alter table public.recipe_imports
   add column if not exists recipe_overrides_json jsonb not null default '{}'::jsonb;
+
+alter table public.recipe_imports
+  drop column if exists recipe_count;
 
 create index if not exists recipe_imports_created_at_idx
   on public.recipe_imports (created_at desc);

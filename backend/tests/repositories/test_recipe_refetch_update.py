@@ -12,7 +12,6 @@ def _record() -> RecipeImportRecord:
         submitted_url="https://old.test/source",
         final_url="https://old.test/final",
         page_title="Old Title",
-        recipe_count=1,
         times_cooked=9,
         recipes_json=[
             NormalizedRecipe(
@@ -55,7 +54,6 @@ def test_build_refetched_recipe_update_payload_replaces_raw_fields_and_prunes_ov
     )
 
     assert payload["page_title"] == "Fresh Title"
-    assert payload["recipe_count"] == 1
     assert payload["recipes_json"][0]["name"] == "Fresh Recipe"
     assert payload["image_url"] == "https://fresh.test/image.jpg"
     assert payload["servings"] == 4

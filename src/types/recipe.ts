@@ -40,7 +40,6 @@ export type RecipeImportRecord = {
   submitted_url: string;
   final_url: string;
   page_title: string | null;
-  recipe_count: number;
   times_cooked: number;
   recipes_json: NormalizedRecipe[];
   recipe_overrides_json: RecipeOverridesMap;
@@ -56,7 +55,6 @@ export type RecipeCardItem = {
   pageTitle: string | null;
   submittedUrl: string;
   createdAtLabel: string;
-  recipeCount: number;
   timesCooked: number;
   imageUrl: string | null;
   isFavorite: boolean;

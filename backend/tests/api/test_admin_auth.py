@@ -33,6 +33,7 @@ def _settings(admin_emails: tuple[str, ...] = ("admin@example.com",)) -> Setting
         user_agent="test",
         accept_header="text/html",
         accept_language_header="en-US",
+        youtube_api_key=None,
     )
 
 
@@ -88,7 +89,6 @@ def _record() -> RecipeImportRecord:
         submitted_url="https://x.test",
         final_url="https://x.test",
         page_title="Test Recipe",
-        recipe_count=1,
         times_cooked=0,
         recipes_json=[],
         recipe_overrides_json={},

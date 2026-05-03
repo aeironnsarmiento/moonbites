@@ -27,7 +27,6 @@ function renderCard() {
     pageTitle: "Miso Cookies",
     submittedUrl: "https://example.com/miso-cookies",
     createdAtLabel: "Apr 24, 2026",
-    recipeCount: 1,
     timesCooked: 0,
     imageUrl: null,
     isFavorite: false,

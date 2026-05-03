@@ -21,7 +21,7 @@ export function useExtractRecipe() {
       try {
         const response = await submitRecipeImport(url);
 
-        if (response.database_saved && response.recipe_count > 0) {
+        if (response.database_saved && response.recipes.length > 0) {
           await queryClient.invalidateQueries({ queryKey: ["recipe-list"] });
         }
 

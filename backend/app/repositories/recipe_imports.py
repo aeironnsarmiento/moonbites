@@ -28,7 +28,7 @@ from ..utils.urls import canonicalize_url
 from ..utils.yield_parser import parse_yield
 
 
-RECIPE_IMPORT_SELECT = "id, submitted_url, final_url, page_title, recipe_count, times_cooked, recipes_json, recipe_overrides_json, image_url, is_favorite, servings, created_at"
+RECIPE_IMPORT_SELECT = "id, submitted_url, final_url, page_title, times_cooked, recipes_json, recipe_overrides_json, image_url, is_favorite, servings, created_at"
 
 
 class RecipeWriteDeniedError(RuntimeError):
@@ -107,7 +107,6 @@ def _sanitize_record(record: dict) -> RecipeImportRecord:
 
     normalized_record = {
         **record,
-        "recipe_count": len(unique_recipes),
         "times_cooked": record.get("times_cooked", 0),
         "image_url": record.get("image_url"),
         "is_favorite": bool(record.get("is_favorite", False)),
@@ -375,7 +374,6 @@ def save_recipe_import(
         "submitted_url": submitted_url,
         "final_url": final_url,
         "page_title": title,
-        "recipe_count": len(unique_recipes),
         "times_cooked": 0,
         "recipes_json": [recipe.model_dump() for recipe in unique_recipes],
         "recipe_overrides_json": {},
@@ -420,7 +418,6 @@ def save_manual_recipe(
         "submitted_url": manual_url,
         "final_url": manual_url,
         "page_title": page_title,
-        "recipe_count": 1,
         "times_cooked": 0,
         "recipes_json": [recipe.model_dump()],
         "recipe_overrides_json": {},
@@ -889,7 +886,6 @@ def _build_refetched_recipe_update_payload(
 
     return {
         "page_title": title,
-        "recipe_count": len(unique_recipes),
         "recipes_json": [recipe.model_dump() for recipe in unique_recipes],
         "recipe_overrides_json": _prune_recipe_overrides_for_recipes(
             existing_record.recipe_overrides_json,

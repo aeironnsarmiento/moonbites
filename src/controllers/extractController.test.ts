@@ -8,7 +8,6 @@ function buildResponse(overrides: Partial<ExtractResponse>): ExtractResponse {
     source_url: "https://example.com/submitted",
     final_url: "https://example.com/final",
     title: "Recipe Page",
-    recipe_count: 1,
     recipes: [
       {
         name: "Soup",
@@ -46,8 +45,7 @@ describe("buildExtractStatus", () => {
 
     expect(
       buildExtractStatus(
-        buildResponse({
-          recipe_count: 0,
+      buildResponse({
           recipes: [],
           database_saved: false,
           database_message: message,

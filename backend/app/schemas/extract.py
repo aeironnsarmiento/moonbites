@@ -140,10 +140,12 @@ class ExtractResponse(BaseModel):
     source_url: str
     final_url: str
     title: Optional[str] = None
-    recipe_count: int
+    image_url: Optional[str] = None
     recipes: list[NormalizedRecipe]
     database_saved: bool
     database_message: Optional[str] = None
+    parse_status: str = "recipe"
+    parse_reason: Optional[str] = None
 
 
 class RecipeImportRecord(BaseModel):
@@ -151,7 +153,6 @@ class RecipeImportRecord(BaseModel):
     submitted_url: str
     final_url: str
     page_title: Optional[str] = None
-    recipe_count: int
     times_cooked: int = 0
     recipes_json: list[NormalizedRecipe]
     recipe_overrides_json: dict[str, RecipeTextOverrides] = Field(default_factory=dict)

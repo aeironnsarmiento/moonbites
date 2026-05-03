@@ -36,7 +36,6 @@ def _record(
         submitted_url=submitted_url,
         final_url=final_url,
         page_title="Old Title",
-        recipe_count=1,
         times_cooked=3,
         recipes_json=[_recipe()],
         recipe_overrides_json=overrides or {},

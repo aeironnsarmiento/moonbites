@@ -49,7 +49,6 @@ function mapRecipeImportToCard(record: RecipeImportRecord): RecipeCardItem {
     pageTitle: manualRecord ? record.page_title ?? "Manual recipe" : record.page_title,
     submittedUrl: manualRecord ? "Manual recipe" : record.submitted_url,
     createdAtLabel: formatDate(record.created_at),
-    recipeCount: record.recipe_count,
     timesCooked: record.times_cooked,
     imageUrl: record.image_url,
     isFavorite: record.is_favorite,

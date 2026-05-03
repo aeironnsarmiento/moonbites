@@ -92,7 +92,6 @@ export function dedupeRecipeImportRecord(record: RecipeImportRecord) {
 
   return {
     ...record,
-    recipe_count: recipes.length,
     recipes_json: recipes,
   };
 }
