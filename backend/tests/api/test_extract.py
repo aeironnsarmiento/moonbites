@@ -44,6 +44,58 @@ def test_extract_returns_incomplete_recipe_message_when_recipe_nodes_fail_to_nor
         response.json()["database_message"]
         == "Nothing was saved because recipe objects were found on that page, but they did not include enough data to extract a complete recipe."
     )
+    assert response.json()["extraction_method"] is None
+    assert response.json()["normalization_model"] is None
+    assert response.json()["warnings"] == []
+    assert response.json()["fallback_reason"] is None
+
+
+def test_extract_no_save_response_includes_metadata_when_no_recipe_nodes_found():
+    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+        email="admin@example.com",
+        access_token="admin-token",
+    )
+
+    try:
+        extraction = ExtractionResult(
+            source_url="https://example.com/submitted",
+            final_url="https://example.com/final",
+            title="Recipe Page",
+            image_url=None,
+            recipe_node_count=0,
+            recipes=[],
+            extraction_method="manual_fallback",
+            normalization_model="gemini-test",
+            warnings=["No JSON-LD recipe nodes found."],
+            fallback_reason="rate_limited",
+        )
+
+        with (
+            patch(
+                "backend.app.api.routes.extract.extract_recipes_from_url",
+                return_value=extraction,
+            ),
+            patch("backend.app.api.routes.extract.save_recipe_import") as save,
+        ):
+            response = client.post(
+                "/api/extract",
+                json={"url": "https://example.com/submitted"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["database_saved"] is False
+    assert (
+        body["database_message"]
+        == "Nothing was saved because no Recipe objects were found on that page."
+    )
+    assert body["extraction_method"] == "manual_fallback"
+    assert body["normalization_model"] == "gemini-test"
+    assert body["warnings"] == ["No JSON-LD recipe nodes found."]
+    assert body["fallback_reason"] == "rate_limited"
+    save.assert_not_called()
 
 
 def test_extract_success_message_does_not_expose_supabase_table_name():
@@ -232,6 +284,88 @@ def test_extract_recipe_response_includes_parse_status_recipe():
     assert body["normalization_model"] == "gemini-3-flash-preview"
     assert body["warnings"] == ["Trimmed raw payload to fit model limits."]
     assert body["fallback_reason"] is None
+
+
+def test_extract_recipe_response_includes_rate_limited_fallback_reason():
+    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+        email="admin@example.com",
+        access_token="admin-token",
+    )
+
+    try:
+        extraction = ExtractionResult(
+            source_url="https://example.com/soup",
+            final_url="https://example.com/soup",
+            title="Soup",
+            image_url=None,
+            recipe_node_count=1,
+            recipes=[
+                NormalizedRecipe(
+                    name="Soup",
+                    ingredients=["1 cup stock"],
+                    instructions=["Warm stock."],
+                )
+            ],
+            parse_status=ParseStatus.RECIPE,
+            extraction_method="manual_fallback",
+            normalization_model="gemini-3-flash-preview",
+            warnings=["Gemini rate limit reached."],
+            fallback_reason="rate_limited",
+        )
+
+        with (
+            patch(
+                "backend.app.api.routes.extract.extract_recipes_from_url",
+                return_value=extraction,
+            ),
+            patch(
+                "backend.app.api.routes.extract.save_recipe_import",
+                return_value=(True, "Recipe saved to your collection."),
+            ),
+        ):
+            response = client.post(
+                "/api/extract",
+                json={"url": "https://example.com/soup"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["fallback_reason"] == "rate_limited"
+
+
+def test_extract_route_passes_admin_email_as_gemini_rate_key():
+    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+        email="admin@example.com",
+        access_token="admin-token",
+    )
+
+    try:
+        extraction = ExtractionResult(
+            source_url="https://example.com/soup",
+            final_url="https://example.com/soup",
+            title="Soup",
+            image_url=None,
+            recipe_node_count=0,
+            recipes=[],
+        )
+
+        with patch(
+            "backend.app.api.routes.extract.extract_recipes_from_url",
+            return_value=extraction,
+        ) as extract:
+            response = client.post(
+                "/api/extract",
+                json={"url": "https://example.com/soup"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    extract.assert_called_once_with(
+        "https://example.com/soup",
+        gemini_rate_key="admin@example.com",
+    )
 
 
 def test_extract_success_passes_image_url_to_save_recipe_import():

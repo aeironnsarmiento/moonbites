@@ -40,7 +40,7 @@ async def extract_ld_json(
     payload: ExtractRequest,
     admin: AuthenticatedAdmin = Depends(require_admin_user),
 ) -> ExtractResponse:
-    result = await extract_recipes_from_url(payload.url)
+    result = await extract_recipes_from_url(payload.url, gemini_rate_key=admin.email)
 
     if result.parse_status == ParseStatus.NOT_RECIPE:
         return ExtractResponse(
