@@ -103,7 +103,6 @@ export function RecipePage() {
               recipeImportId={recipeImport.id}
               recipe={recipe}
               recipeIndex={index}
-              index={index + 1}
               recordTitle={recipeImport.page_title}
               timesCooked={recipeImport.times_cooked}
               imageUrl={recipeImport.image_url}

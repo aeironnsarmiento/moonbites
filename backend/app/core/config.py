@@ -26,6 +26,7 @@ class Settings:
     user_agent: str
     accept_header: str
     accept_language_header: str
+    youtube_api_key: Optional[str]
 
 
 def normalize_cors_origins(value: str) -> tuple[str, ...]:
@@ -74,4 +75,5 @@ def get_settings() -> Settings:
             "REQUEST_ACCEPT_LANGUAGE_HEADER",
             "en-US,en;q=0.9",
         ),
+        youtube_api_key=os.getenv("YOUTUBE_API_KEY"),
     )

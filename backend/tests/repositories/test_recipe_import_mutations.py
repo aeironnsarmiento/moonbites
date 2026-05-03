@@ -73,7 +73,6 @@ def _record_dict(*, is_favorite: bool) -> dict:
         "submitted_url": "https://example.com/miso-cookies",
         "final_url": "https://example.com/miso-cookies",
         "page_title": "Miso Cookies",
-        "recipe_count": 1,
         "times_cooked": 0,
         "recipes_json": [_recipe().model_dump()],
         "recipe_overrides_json": {},

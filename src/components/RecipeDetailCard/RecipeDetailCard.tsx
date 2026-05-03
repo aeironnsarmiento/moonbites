@@ -53,7 +53,6 @@ type RecipeDetailCardProps = {
   recipeImportId: string;
   recipe: NormalizedRecipe;
   recipeIndex: number;
-  index: number;
   recordTitle: string | null;
   timesCooked: number;
   imageUrl: string | null;
@@ -178,7 +177,6 @@ export function RecipeDetailCard({
   recipeImportId,
   recipe,
   recipeIndex,
-  index,
   recordTitle,
   timesCooked,
   imageUrl,
@@ -410,9 +408,7 @@ export function RecipeDetailCard({
         <Stack spacing={6}>
           <Stack spacing={2}>
             <HStack justify="space-between" align="start" wrap="wrap">
-              <Text color="brand.600" fontWeight="700" fontSize="sm">
-                Recipe {index}
-              </Text>
+              <span aria-hidden="true" />
               <HStack spacing={2} align="center" wrap="wrap" justify="flex-end">
                 {canEdit && showTimesCookedControls ? (
                   <>

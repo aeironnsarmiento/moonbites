@@ -85,6 +85,7 @@ Optional backend env vars:
 SUPABASE_TABLE_NAME=recipe_imports
 BACKEND_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 REQUEST_TIMEOUT_SECONDS=15.0
+YOUTUBE_API_KEY=your-youtube-data-api-key
 ```
 
 ## Supabase Auth and RLS

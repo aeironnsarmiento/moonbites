@@ -12,14 +12,6 @@ import type { ExtractResponse } from "../types/api";
 //   }
 // }
 //
-// function getDownloadPayload(data: ExtractResponse): DownloadPayload {
-//   if (data.recipe_count === 1) {
-//     return (data.recipes[0] as Record<string, unknown>) ?? null;
-//   }
-//
-//   return data.recipes;
-// }
-//
 // const downloadJsonFile = (data: DownloadPayload, url: string) => {
 //   const blob = new Blob([JSON.stringify(data, null, 2)], {
 //     type: "application/json",
@@ -36,9 +28,10 @@ import type { ExtractResponse } from "../types/api";
 // };
 
 export function buildExtractStatus(response: ExtractResponse) {
+  const recipeTotal = response.recipes.length;
   const importMessage =
-    response.recipe_count > 0
-      ? `Found ${response.recipe_count} unique recipe${response.recipe_count === 1 ? "" : "s"}.`
+    recipeTotal > 0
+      ? `Found ${recipeTotal} unique recipe${recipeTotal === 1 ? "" : "s"}.`
       : "No Recipe objects were found on that page, so nothing was saved.";
 
   const rawDatabaseMessage =

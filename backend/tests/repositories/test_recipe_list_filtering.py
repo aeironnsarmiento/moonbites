@@ -40,7 +40,6 @@ def _record(
         submitted_url=f"https://example.com/{recipe_id}",
         final_url=f"https://example.com/{recipe_id}",
         page_title=name,
-        recipe_count=1,
         times_cooked=times_cooked,
         recipes_json=[_recipe(name, cuisines)],
         recipe_overrides_json={},
@@ -55,7 +54,6 @@ def _record_dict(recipe_id: str = "1", *, cuisines: list[str] | None = None) -> 
         "submitted_url": f"https://example.com/{recipe_id}",
         "final_url": f"https://example.com/{recipe_id}",
         "page_title": "Pasta",
-        "recipe_count": 1,
         "times_cooked": 2,
         "recipes_json": [_recipe("Pasta", cuisines or ["Italian"]).model_dump()],
         "recipe_overrides_json": {},
@@ -263,7 +261,7 @@ def test_list_recipe_imports_applies_db_pagination_sort_and_count():
 
     assert response.total_count == 12
     assert response.total_pages == 2
-    assert ("select", (("id, submitted_url, final_url, page_title, recipe_count, times_cooked, recipes_json, recipe_overrides_json, image_url, is_favorite, servings, created_at"),), {"count": "exact"}) in query.calls
+    assert ("select", (("id, submitted_url, final_url, page_title, times_cooked, recipes_json, recipe_overrides_json, image_url, is_favorite, servings, created_at"),), {"count": "exact"}) in query.calls
     assert ("order", "times_cooked", {"desc": True}) in query.calls
     assert ("order", "created_at", {"desc": True}) in query.calls
     assert ("range", 10, 19) in query.calls

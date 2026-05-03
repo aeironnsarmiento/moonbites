@@ -4,6 +4,7 @@ from ..auth import AuthenticatedAdmin, require_admin_user
 from ...core.rate_limit import limiter
 from ...repositories.recipe_imports import save_recipe_import
 from ...schemas.extract import ExtractRequest, ExtractResponse
+from ...services.extraction_types import ParseStatus
 from ...services.extractor import extract_recipes_from_url
 
 
@@ -31,6 +32,20 @@ async def extract_ld_json(
     admin: AuthenticatedAdmin = Depends(require_admin_user),
 ) -> ExtractResponse:
     result = await extract_recipes_from_url(payload.url)
+
+    if result.parse_status == ParseStatus.NOT_RECIPE:
+        return ExtractResponse(
+            source_url=result.source_url,
+            final_url=result.final_url,
+            title=result.title,
+            image_url=result.image_url,
+            recipes=[],
+            database_saved=False,
+            database_message="Skipped — not a recipe.",
+            parse_status="not_recipe",
+            parse_reason=result.parse_reason,
+        )
+
     if result.recipes:
         database_saved, database_message = save_recipe_import(
             submitted_url=result.source_url,
@@ -57,8 +72,9 @@ async def extract_ld_json(
         source_url=result.source_url,
         final_url=result.final_url,
         title=result.title,
-        recipe_count=len(result.recipes),
+        image_url=result.image_url,
         recipes=result.recipes,
         database_saved=database_saved,
         database_message=database_message,
+        parse_status="recipe",
     )

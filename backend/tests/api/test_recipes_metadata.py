@@ -35,7 +35,6 @@ def _record() -> RecipeImportRecord:
         submitted_url="https://old.test/source",
         final_url="https://old.test/source",
         page_title="Old Title",
-        recipe_count=1,
         times_cooked=0,
         recipes_json=[
             NormalizedRecipe(
