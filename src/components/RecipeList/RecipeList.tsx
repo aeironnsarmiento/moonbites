@@ -19,6 +19,7 @@ import { type ButtonHTMLAttributes, forwardRef } from "react";
 import type { CuisineFacet, RecipeSortOption } from "../../types/api";
 import type { RecipeCardItem } from "../../types/recipe";
 import { useAuth } from "../../hooks/useAuth";
+import { FilterSortIcon, SearchGlyph } from "../Icons";
 import { RecipeCard } from "../RecipeCard/RecipeCard";
 import "./RecipeList.scss";
 
@@ -34,45 +35,6 @@ type RecipeListProps = {
   isLoading: boolean;
   error: string;
 };
-
-function SearchGlyph() {
-  return (
-    <svg
-      aria-hidden="true"
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="11" cy="11" r="7" />
-      <path d="m20 20-3.5-3.5" />
-    </svg>
-  );
-}
-
-function FilterSortIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      width="14"
-      height="14"
-      viewBox="0 0 20 20"
-      fill="none"
-    >
-      <path
-        d="M3 5h14M6 10h8M8.5 15h3"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-    </svg>
-  );
-}
 
 const SortChip = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement>>(
   function SortChip(props, ref) {

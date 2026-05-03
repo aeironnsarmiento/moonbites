@@ -63,4 +63,15 @@ describe("RecipeCard", () => {
 
     expect(navigate).toHaveBeenCalledWith("/recipes/recipe-1");
   });
+
+  it("navigates on Enter and Space key presses", () => {
+    renderCard();
+    const link = screen.getByRole("link", { name: /miso cookies/i });
+
+    fireEvent.keyDown(link, { key: "Enter" });
+    fireEvent.keyDown(link, { key: " " });
+
+    expect(navigate).toHaveBeenNthCalledWith(1, "/recipes/recipe-1");
+    expect(navigate).toHaveBeenNthCalledWith(2, "/recipes/recipe-1");
+  });
 });

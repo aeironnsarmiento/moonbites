@@ -1,0 +1,191 @@
+.recentTile {
+  position: relative;
+  overflow: hidden;
+  border-radius: 24px;
+  cursor: pointer;
+  background: var(--chakra-colors-surface-card);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 8px 24px rgba(74, 87, 60, 0.12);
+  transition: all 0.2s ease;
+
+  &:hover,
+  &:focus-visible {
+    box-shadow: 0 16px 36px rgba(74, 87, 60, 0.18);
+    transform: translateY(-4px);
+    outline: none;
+  }
+
+  &--span {
+    grid-column: span 2;
+  }
+
+  &__imageWrap {
+    position: relative;
+    overflow: hidden;
+    background: var(--chakra-colors-brand-100);
+    aspect-ratio: 4 / 3;
+
+    .recentTile--span & {
+      aspect-ratio: 16 / 9;
+    }
+  }
+
+  &__image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.4s ease;
+
+    .recentTile:hover & {
+      transform: scale(1.04);
+    }
+  }
+
+  &__heart {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 38px;
+    height: 38px;
+    border-radius: 999px;
+    border: none;
+    background: rgba(31, 41, 55, 0.36);
+    backdrop-filter: blur(8px);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    color: rgba(255, 255, 255, 0.92);
+    transition: color 0.18s ease;
+
+    &--active {
+      color: #E53E3E;
+    }
+  }
+
+  &__cuisinePill {
+    position: absolute;
+    bottom: 14px;
+    left: 14px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(8px);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--chakra-colors-brand-700);
+  }
+
+  &__body {
+    padding: 18px 22px 22px;
+  }
+
+  &__title {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--chakra-colors-brand-900);
+    line-height: 1.25;
+    letter-spacing: -0.005em;
+    font-family: inherit;
+
+    .recentTile--span & {
+      font-size: 22px;
+    }
+  }
+
+  &__meta {
+    margin-top: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    color: var(--chakra-colors-gray-500);
+  }
+}
+
+.favoriteRow {
+  display: grid;
+  grid-template-columns: 72px 1fr auto;
+  gap: 18px;
+  align-items: center;
+  padding: 14px 18px 14px 14px;
+  border-radius: 18px;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: all 0.18s ease;
+
+  &:hover,
+  &:focus-visible {
+    background: rgba(255, 255, 255, 0.6);
+    border-color: rgba(74, 87, 60, 0.18);
+    outline: none;
+  }
+
+  &:hover &__thumbImage,
+  &:focus-visible &__thumbImage {
+    transform: scale(1.06);
+  }
+
+  &__thumb {
+    width: 72px;
+    height: 72px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--chakra-colors-brand-100);
+    flex-shrink: 0;
+  }
+
+  &__thumbImage {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.3s ease;
+  }
+
+  &__info {
+    min-width: 0;
+  }
+
+  &__title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--chakra-colors-brand-900);
+    line-height: 1.3;
+    margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__meta {
+    font-size: 13px;
+    color: var(--chakra-colors-gray-500);
+  }
+
+  &__heart {
+    width: 36px;
+    height: 36px;
+    border-radius: 999px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    color: var(--chakra-colors-gray-400);
+    transition: all 0.18s ease;
+    flex-shrink: 0;
+
+    &:hover {
+      background: rgba(229, 62, 62, 0.08);
+    }
+
+    &--active {
+      color: #E53E3E;
+    }
+  }
+}
