@@ -86,7 +86,17 @@ SUPABASE_TABLE_NAME=recipe_imports
 BACKEND_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 REQUEST_TIMEOUT_SECONDS=15.0
 YOUTUBE_API_KEY=your-youtube-data-api-key
+GEMINI_API_KEY=your-gemini-api-key
+GEMINI_NORMALIZATION_ENABLED=false
+GEMINI_MODEL=gemini-3-flash-preview
+GEMINI_TIMEOUT_SECONDS=8.0
+GEMINI_RATE_LIMIT_PER_MINUTE=3
 ```
+
+Gemini-powered recipe normalization is disabled unless both
+`GEMINI_NORMALIZATION_ENABLED` is set to a truthy value (`1`, `true`, `yes`, or
+`on`) and `GEMINI_API_KEY` is present. When disabled or unavailable, extraction
+uses the existing non-Gemini parser path.
 
 ## Supabase Auth and RLS
 
