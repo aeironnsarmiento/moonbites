@@ -53,7 +53,6 @@ type RecipeDetailCardProps = {
   recipeImportId: string;
   recipe: NormalizedRecipe;
   recipeIndex: number;
-  index: number;
   recordTitle: string | null;
   timesCooked: number;
   imageUrl: string | null;
