@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
@@ -12,6 +14,8 @@ from ..blog.extractor import (
     normalize_url,
 )
 from ..extraction_types import ExtractionResult, ParseStatus
+from ..gemini.normalizer import GeminiNormalizationResult, normalize_with_gemini
+from ..gemini.types import RawExtractionPayload
 from ..normalizer import normalize_recipe
 from .description_parser import (
     ParsedYouTubeDescription,
@@ -31,6 +35,8 @@ class YouTubeSnippet:
     title: str
     description: str
     thumbnail_url: Optional[str]
+    channel_name: Optional[str]
+    published_at: Optional[str]
 
 
 def _hostname(url: str) -> str:
@@ -142,6 +148,37 @@ async def fetch_youtube_snippet(url: str) -> YouTubeSnippet:
         title=str(snippet.get("title") or "").strip(),
         description=str(snippet.get("description") or ""),
         thumbnail_url=_thumbnail_url(snippet.get("thumbnails")),
+        channel_name=(
+            str(snippet.get("channelTitle")).strip()
+            if snippet.get("channelTitle")
+            else None
+        ),
+        published_at=(
+            str(snippet.get("publishedAt")).strip()
+            if snippet.get("publishedAt")
+            else None
+        ),
+    )
+
+
+def build_youtube_raw_payload(
+    target_url: str, video: YouTubeSnippet
+) -> RawExtractionPayload:
+    metadata: dict[str, str] = {}
+    if video.channel_name:
+        metadata["channelName"] = video.channel_name
+    if video.published_at:
+        metadata["publishedAt"] = video.published_at
+    if video.thumbnail_url:
+        metadata["thumbnailUrl"] = video.thumbnail_url
+
+    return RawExtractionPayload(
+        source_type="youtube",
+        source_url=target_url,
+        final_url=target_url,
+        title=video.title,
+        description=video.description,
+        metadata=metadata,
     )
 
 
@@ -193,10 +230,9 @@ def _parse_description(
     )
 
 
-async def extract_recipe_from_youtube_url(url: str) -> ExtractionResult:
-    target_url = normalize_url(url)
-    video = await fetch_youtube_snippet(target_url)
-
+async def _parse_youtube_with_legacy_logic(
+    target_url: str, video: YouTubeSnippet
+) -> ExtractionResult:
     parsed = _parse_description(
         video.title,
         video.description,
@@ -245,3 +281,57 @@ async def extract_recipe_from_youtube_url(url: str) -> ExtractionResult:
         recipes=[],
         parse_status=ParseStatus.RECIPE,
     )
+
+
+def _build_gemini_extraction_result(
+    target_url: str,
+    video: YouTubeSnippet,
+    gemini_result: GeminiNormalizationResult,
+) -> ExtractionResult:
+    recipes = [
+        recipe.model_copy(update={"instructions": [target_url]})
+        for recipe in gemini_result.recipes
+    ]
+
+    return ExtractionResult(
+        source_url=target_url,
+        final_url=target_url,
+        title=video.title,
+        image_url=video.thumbnail_url,
+        recipe_node_count=len(recipes),
+        recipes=recipes,
+        extraction_method="gemini",
+        normalization_model=gemini_result.normalization_model,
+        warnings=list(gemini_result.warnings),
+    )
+
+
+def _apply_gemini_fallback_metadata(
+    result: ExtractionResult, gemini_result: GeminiNormalizationResult
+) -> ExtractionResult:
+    result.extraction_method = "manual_fallback"
+    result.fallback_reason = gemini_result.fallback_reason
+    result.warnings = list(gemini_result.warnings)
+    result.normalization_model = gemini_result.normalization_model
+    return result
+
+
+async def extract_recipe_from_youtube_url(
+    url: str, *, gemini_rate_key: str | None = None
+) -> ExtractionResult:
+    target_url = normalize_url(url)
+    video = await fetch_youtube_snippet(target_url)
+
+    if not gemini_rate_key:
+        return await _parse_youtube_with_legacy_logic(target_url, video)
+
+    gemini_result = await normalize_with_gemini(
+        build_youtube_raw_payload(target_url, video),
+        settings=get_settings(),
+        rate_key=gemini_rate_key,
+    )
+    if gemini_result.accepted:
+        return _build_gemini_extraction_result(target_url, video, gemini_result)
+
+    legacy_result = await _parse_youtube_with_legacy_logic(target_url, video)
+    return _apply_gemini_fallback_metadata(legacy_result, gemini_result)

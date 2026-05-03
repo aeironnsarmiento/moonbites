@@ -38,7 +38,10 @@ def test_extract_recipes_from_url_dispatches_youtube_urls():
             )
         )
 
-    youtube.assert_awaited_once_with("https://youtu.be/abc123XYZ09")
+    youtube.assert_awaited_once_with(
+        "https://youtu.be/abc123XYZ09",
+        gemini_rate_key="admin@example.com",
+    )
     blog.assert_not_called()
     assert result.source_url == "https://youtu.be/abc123XYZ09"
 
