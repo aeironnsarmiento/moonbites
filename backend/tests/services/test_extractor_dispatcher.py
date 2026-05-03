@@ -31,7 +31,12 @@ def test_extract_recipes_from_url_dispatches_youtube_urls():
         ) as youtube,
         patch("app.services.extractor.extract_blog_recipes_from_url") as blog,
     ):
-        result = asyncio.run(extract_recipes_from_url("https://youtu.be/abc123XYZ09"))
+        result = asyncio.run(
+            extract_recipes_from_url(
+                "https://youtu.be/abc123XYZ09",
+                gemini_rate_key="admin@example.com",
+            )
+        )
 
     youtube.assert_awaited_once_with("https://youtu.be/abc123XYZ09")
     blog.assert_not_called()
@@ -46,8 +51,16 @@ def test_extract_recipes_from_url_dispatches_non_youtube_urls():
             new=AsyncMock(return_value=_result("https://example.com/recipe")),
         ) as blog,
     ):
-        result = asyncio.run(extract_recipes_from_url("https://example.com/recipe"))
+        result = asyncio.run(
+            extract_recipes_from_url(
+                "https://example.com/recipe",
+                gemini_rate_key="admin@example.com",
+            )
+        )
 
-    blog.assert_awaited_once_with("https://example.com/recipe")
+    blog.assert_awaited_once_with(
+        "https://example.com/recipe",
+        gemini_rate_key="admin@example.com",
+    )
     youtube.assert_not_called()
     assert result.source_url == "https://example.com/recipe"

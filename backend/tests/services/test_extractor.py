@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from app.schemas.extract import IngredientSection
 from app.core.config import Settings
 from app.services.extractor import extract_recipes_from_url
+from app.services.gemini.normalizer import GeminiNormalizationResult
 from app.services.normalizer import collect_recipe_nodes, normalize_recipe
 
 
@@ -29,6 +30,16 @@ def _settings() -> Settings:
         gemini_model="gemini-3-flash-preview",
         gemini_timeout_seconds=8.0,
         gemini_rate_limit_per_minute=3,
+    )
+
+
+def _gemini_recipe(name: str = "Gemini Recipe"):
+    from app.schemas.extract import NormalizedRecipe
+
+    return NormalizedRecipe(
+        name=name,
+        ingredients=["1 cup gemini flour"],
+        instructions=["Bake with Gemini."],
     )
 
 
@@ -369,6 +380,168 @@ def test_extract_recipes_from_url_uses_matching_wprm_headers_for_flat_json_ld_in
             items=["1/4 cup sugar", "2 eggs"],
         ),
     ]
+
+
+def test_extract_recipes_from_url_returns_gemini_recipe_when_accepted():
+    html = """
+    <html>
+      <head>
+        <title>Legacy Title</title>
+        <script type="application/ld+json">
+          {
+            "@context":"https://schema.org",
+            "@type":"Recipe",
+            "name":"Legacy Recipe",
+            "recipeIngredient":["1 cup legacy flour"],
+            "recipeInstructions":["Bake the legacy recipe."]
+          }
+        </script>
+      </head>
+      <body></body>
+    </html>
+    """
+    response = _Response(html, "https://example.com/recipe")
+    gemini_result = GeminiNormalizationResult(
+        accepted=True,
+        recipes=[_gemini_recipe()],
+        warnings=["gemini warning"],
+        normalization_model="gemini-test",
+    )
+
+    with (
+        patch("app.services.blog.extractor.get_settings", return_value=_settings()),
+        patch(
+            "app.services.blog.extractor.httpx.AsyncClient",
+            return_value=_AsyncClientContext(),
+        ),
+        patch(
+            "app.services.blog.extractor._get_with_403_retry",
+            new=AsyncMock(return_value=response),
+        ),
+        patch(
+            "app.services.blog.extractor.normalize_with_gemini",
+            new=AsyncMock(return_value=gemini_result),
+        ) as gemini,
+    ):
+        result = asyncio.run(
+            extract_recipes_from_url(
+                "https://example.com/recipe",
+                gemini_rate_key="admin@example.com",
+            )
+        )
+
+    gemini.assert_awaited_once()
+    assert result.extraction_method == "gemini"
+    assert result.normalization_model == "gemini-test"
+    assert result.warnings == ["gemini warning"]
+    assert result.recipes == [_gemini_recipe()]
+    assert result.recipes[0].name != "Legacy Recipe"
+
+
+def test_extract_recipes_from_url_gemini_low_confidence_falls_back_to_html_sections():
+    html = """
+    <html>
+      <head>
+        <title>Fallback Title</title>
+        <script type="application/ld+json">
+          {"@context":"https://schema.org","@type":"Recipe","name":"Fallback Recipe"}
+        </script>
+      </head>
+      <body>
+        <article>
+          <h2>Ingredients</h2>
+          <ul>
+            <li>1 cup fallback flour</li>
+          </ul>
+          <h2>Instructions</h2>
+          <ol>
+            <li>Mix the fallback batter.</li>
+          </ol>
+        </article>
+      </body>
+    </html>
+    """
+    response = _Response(html, "https://example.com/fallback")
+    gemini_result = GeminiNormalizationResult(
+        accepted=False,
+        fallback_reason="low_confidence",
+        warnings=["low confidence"],
+        normalization_model="gemini-test",
+    )
+
+    with (
+        patch("app.services.blog.extractor.get_settings", return_value=_settings()),
+        patch(
+            "app.services.blog.extractor.httpx.AsyncClient",
+            return_value=_AsyncClientContext(),
+        ),
+        patch(
+            "app.services.blog.extractor._get_with_403_retry",
+            new=AsyncMock(return_value=response),
+        ) as fetch,
+        patch(
+            "app.services.blog.extractor.normalize_with_gemini",
+            new=AsyncMock(return_value=gemini_result),
+        ),
+    ):
+        result = asyncio.run(
+            extract_recipes_from_url(
+                "https://example.com/fallback",
+                gemini_rate_key="admin@example.com",
+            )
+        )
+
+    fetch.assert_awaited_once()
+    assert result.extraction_method == "manual_fallback"
+    assert result.fallback_reason == "low_confidence"
+    assert result.normalization_model == "gemini-test"
+    assert result.warnings == ["low confidence"]
+    assert result.recipe_node_count == 1
+    assert result.recipes[0].ingredients == ["1 cup fallback flour"]
+    assert result.recipes[0].instructions == ["Mix the fallback batter."]
+
+
+def test_extract_recipes_from_url_without_gemini_rate_key_keeps_legacy_flow():
+    html = """
+    <html>
+      <head>
+        <title>Legacy Only</title>
+        <script type="application/ld+json">
+          {
+            "@context":"https://schema.org",
+            "@type":"Recipe",
+            "name":"Legacy Only Recipe",
+            "recipeIngredient":["1 cup rice"],
+            "recipeInstructions":["Cook rice."]
+          }
+        </script>
+      </head>
+      <body></body>
+    </html>
+    """
+    response = _Response(html, "https://example.com/legacy")
+
+    with (
+        patch("app.services.blog.extractor.get_settings", return_value=_settings()),
+        patch(
+            "app.services.blog.extractor.httpx.AsyncClient",
+            return_value=_AsyncClientContext(),
+        ),
+        patch(
+            "app.services.blog.extractor._get_with_403_retry",
+            new=AsyncMock(return_value=response),
+        ),
+        patch(
+            "app.services.blog.extractor.normalize_with_gemini",
+            new=AsyncMock(),
+        ) as gemini,
+    ):
+        result = asyncio.run(extract_recipes_from_url("https://example.com/legacy"))
+
+    gemini.assert_not_called()
+    assert result.extraction_method is None
+    assert result.fallback_reason is None
+    assert result.recipes[0].name == "Legacy Only Recipe"
 
 
 def test_extract_recipes_from_url_rejects_redirect_to_private_url():
