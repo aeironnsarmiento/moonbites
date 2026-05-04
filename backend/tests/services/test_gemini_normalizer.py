@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import json
 import asyncio
+import json
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -23,7 +24,7 @@ def _settings(
     *,
     enabled: bool = True,
     api_key: str | None = "test-key",
-    timeout: float = 1.0,
+    timeout: float = 10.0,
     rate_limit: int = 3,
 ) -> Settings:
     return Settings(
@@ -163,7 +164,9 @@ def test_json_ld_blocks_are_capped_at_10_and_warning_added():
     prompt = build_gemini_prompt(payload)
 
     assert len(prompt.payload["json_ld_blocks"]) == 10
-    assert any("JSON-LD blocks" in warning and "10" in warning for warning in prompt.warnings)
+    assert any(
+        "JSON-LD blocks" in warning and "10" in warning for warning in prompt.warnings
+    )
 
 
 def test_long_string_inside_json_ld_block_is_truncated_and_warning_added():
@@ -210,9 +213,21 @@ def test_oversized_json_ld_payload_keeps_first_block_content():
                 "recipeIngredient": ["1 cup flour", "x" * 10_000],
             },
             {"@type": "Recipe", "name": "Drop Me", "recipeIngredient": ["y" * 10_000]},
-            {"@type": "Recipe", "name": "Drop Me Too", "recipeIngredient": ["z" * 10_000]},
-            {"@type": "Recipe", "name": "Also Drop", "recipeIngredient": ["w" * 10_000]},
-            {"@type": "Recipe", "name": "Drop Last", "recipeIngredient": ["v" * 10_000]},
+            {
+                "@type": "Recipe",
+                "name": "Drop Me Too",
+                "recipeIngredient": ["z" * 10_000],
+            },
+            {
+                "@type": "Recipe",
+                "name": "Also Drop",
+                "recipeIngredient": ["w" * 10_000],
+            },
+            {
+                "@type": "Recipe",
+                "name": "Drop Last",
+                "recipeIngredient": ["v" * 10_000],
+            },
             {"@type": "Recipe", "name": "Drop End", "recipeIngredient": ["u" * 10_000]},
         ],
     )
@@ -296,7 +311,9 @@ def test_gemini_recipe_result_validates_normalized_recipe_and_confidence_bounds(
         GeminiRecipeResult(recipes=[_recipe()], confidence=1.1)
 
 
-def test_normalize_disabled_returns_disabled_without_call(monkeypatch: pytest.MonkeyPatch):
+def test_normalize_disabled_returns_disabled_without_call(
+    monkeypatch: pytest.MonkeyPatch,
+):
     _patch_client(monkeypatch, [_response(_gemini_json())])
 
     result = _run(_payload(), settings=_settings(enabled=False), rate_key="admin")
@@ -343,7 +360,7 @@ def test_valid_response_returns_accepted_recipes_model_and_warnings(
     assert result.warnings == ["model warning"]
     assert len(_FakeClient.instances) == 1
     assert _FakeClient.instances[0].api_key == "test-key"
-    assert _FakeClient.instances[0].http_options == SimpleNamespace(timeout=1000)
+    assert _FakeClient.instances[0].http_options is None
     assert _FakeClient.instances[0].closed is True
     call = _FakeClient.instances[0].models.calls[0]
     assert call["model"] == "gemini-test"
@@ -351,6 +368,19 @@ def test_valid_response_returns_accepted_recipes_model_and_warnings(
     assert "config" in call
     assert "response_json_schema" in call["config"]
     assert "response_schema" not in call["config"]
+
+
+def test_configured_timeout_does_not_set_sdk_deadline(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    _patch_client(monkeypatch, [_response(_gemini_json())])
+
+    with caplog.at_level(logging.INFO, logger=gemini_normalizer.__name__):
+        result = _run(_payload(), settings=_settings(timeout=8.0), rate_key="admin")
+
+    assert result.accepted is True
+    assert _FakeClient.instances[0].http_options is None
+    assert "deadline=disabled" in caplog.text
 
 
 def test_prompt_truncation_warnings_are_included_with_model_warnings(
@@ -366,7 +396,10 @@ def test_prompt_truncation_warnings_are_included_with_model_warnings(
     result = _run(payload, settings=_settings(), rate_key="admin")
 
     assert result.accepted is True
-    assert any("description" in warning and "truncated" in warning for warning in result.warnings)
+    assert any(
+        "description" in warning and "truncated" in warning
+        for warning in result.warnings
+    )
     assert "model warning" in result.warnings
 
 
@@ -385,9 +418,10 @@ def test_low_confidence_then_valid_retries_and_accepts(monkeypatch: pytest.Monke
     assert result.fallback_reason is None
     assert result.confidence == 0.91
     assert len(_FakeModels.calls) == 2
-    assert "confidence must be at least 0.7" in json.dumps(
-        _FakeModels.calls[1]["contents"]
-    ).lower()
+    assert (
+        "confidence must be at least 0.7"
+        in json.dumps(_FakeModels.calls[1]["contents"]).lower()
+    )
     assert "explicit" in json.dumps(_FakeModels.calls[1]["contents"]).lower()
 
 
@@ -472,15 +506,22 @@ def test_timeout_returns_timeout(monkeypatch: pytest.MonkeyPatch):
     assert result.fallback_reason == "timeout"
 
 
-def test_provider_exception_returns_provider_error(monkeypatch: pytest.MonkeyPatch):
+def test_provider_exception_returns_provider_error_and_logs(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
     _patch_client(monkeypatch, [RuntimeError("provider down")])
 
-    result = _run(_payload(), settings=_settings(), rate_key="admin")
+    with caplog.at_level(logging.ERROR, logger=gemini_normalizer.__name__):
+        result = _run(_payload(), settings=_settings(), rate_key="admin")
 
     assert result.accepted is False
     assert result.fallback_reason == "provider_error"
     assert len(_FakeClient.instances) == 1
     assert _FakeClient.instances[0].closed is True
+    assert "Gemini normalization provider error" in caplog.text
+    assert "error_type=RuntimeError" in caplog.text
+    assert "test-key" not in caplog.text
+    assert "Garlic Noodles" not in caplog.text
 
 
 def test_rate_limited_returns_rate_limited(monkeypatch: pytest.MonkeyPatch):

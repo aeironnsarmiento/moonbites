@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -12,6 +13,7 @@ try:
     from google import genai
     from google.genai import types as genai_types
 except ModuleNotFoundError:  # pragma: no cover - exercised only without dependency.
+
     class _MissingGenAI:
         class Client:  # type: ignore[no-untyped-def]
             def __init__(self, *args: object, **kwargs: object) -> None:
@@ -31,8 +33,8 @@ from .guardrails import gemini_guardrails
 from .prompt import build_gemini_prompt
 from .types import GeminiRecipeResult, RawExtractionPayload
 
-
 MIN_CONFIDENCE = 0.7
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -52,13 +54,25 @@ async def normalize_with_gemini(
     rate_key: str | None,
 ) -> GeminiNormalizationResult:
     if not settings.gemini_normalization_enabled:
+        logger.info(
+            "Gemini normalization skipped source_type=%s reason=disabled",
+            payload.source_type,
+        )
         return _skipped("disabled")
 
     if not settings.gemini_api_key:
+        logger.warning(
+            "Gemini normalization skipped source_type=%s reason=not_configured",
+            payload.source_type,
+        )
         return _skipped("not_configured")
 
     normalized_rate_key = (rate_key or "").strip()
     if not normalized_rate_key:
+        logger.warning(
+            "Gemini normalization skipped source_type=%s reason=missing_rate_key",
+            payload.source_type,
+        )
         return _skipped("missing_rate_key")
 
     now = time.monotonic()
@@ -68,10 +82,22 @@ async def normalize_with_gemini(
         now=now,
     )
     if not allowed:
+        logger.warning(
+            "Gemini normalization skipped source_type=%s reason=%s model=%s",
+            payload.source_type,
+            guardrail_reason or "rate_limited",
+            settings.gemini_model,
+        )
         return _skipped(guardrail_reason or "rate_limited")
 
     prompt = build_gemini_prompt(payload)
     warnings = list(prompt.warnings)
+    logger.info(
+        "Gemini normalization attempt started source_type=%s attempt=initial model=%s deadline=disabled warning_count=%d",
+        payload.source_type,
+        settings.gemini_model,
+        len(warnings),
+    )
 
     try:
         first_response = await _call_gemini(
@@ -80,15 +106,42 @@ async def normalize_with_gemini(
         )
     except asyncio.TimeoutError:
         gemini_guardrails.record_failure(now=time.monotonic())
+        logger.warning(
+            "Gemini normalization timed out source_type=%s attempt=initial model=%s deadline=disabled",
+            payload.source_type,
+            settings.gemini_model,
+        )
         return _skipped("timeout", warnings=warnings)
-    except Exception:
+    except Exception as error:
         gemini_guardrails.record_failure(now=time.monotonic())
+        logger.exception(
+            "Gemini normalization provider error source_type=%s attempt=initial model=%s error_type=%s",
+            payload.source_type,
+            settings.gemini_model,
+            type(error).__name__,
+        )
         return _skipped("provider_error", warnings=warnings)
 
     first_validation = _validate_response(first_response)
     if first_validation.accepted:
         gemini_guardrails.record_success()
+        logger.info(
+            "Gemini normalization accepted source_type=%s attempt=initial model=%s confidence=%s warning_count=%d",
+            payload.source_type,
+            settings.gemini_model,
+            first_validation.confidence,
+            len(warnings) + len(first_validation.warnings),
+        )
         return _accepted(first_validation.result, settings=settings, warnings=warnings)
+
+    logger.warning(
+        "Gemini normalization retry requested source_type=%s model=%s reason=%s confidence=%s warning_count=%d",
+        payload.source_type,
+        settings.gemini_model,
+        first_validation.reason,
+        first_validation.confidence,
+        len(warnings) + len(first_validation.warnings),
+    )
 
     retry_allowed, retry_guardrail_reason = gemini_guardrails.allow_call(
         normalized_rate_key,
@@ -96,12 +149,26 @@ async def normalize_with_gemini(
         now=time.monotonic(),
     )
     if not retry_allowed:
+        logger.warning(
+            "Gemini normalization retry skipped source_type=%s reason=%s model=%s confidence=%s",
+            payload.source_type,
+            retry_guardrail_reason or "rate_limited",
+            settings.gemini_model,
+            first_validation.confidence,
+        )
         return _skipped(
             retry_guardrail_reason or "rate_limited",
             warnings=warnings + first_validation.warnings,
             confidence=first_validation.confidence,
             normalization_model=settings.gemini_model,
         )
+
+    logger.info(
+        "Gemini normalization attempt started source_type=%s attempt=retry model=%s deadline=disabled warning_count=%d",
+        payload.source_type,
+        settings.gemini_model,
+        len(warnings) + len(first_validation.warnings),
+    )
 
     try:
         retry_response = await _call_gemini(
@@ -116,17 +183,42 @@ async def normalize_with_gemini(
         )
     except asyncio.TimeoutError:
         gemini_guardrails.record_failure(now=time.monotonic())
+        logger.warning(
+            "Gemini normalization timed out source_type=%s attempt=retry model=%s deadline=disabled",
+            payload.source_type,
+            settings.gemini_model,
+        )
         return _skipped("timeout", warnings=warnings)
-    except Exception:
+    except Exception as error:
         gemini_guardrails.record_failure(now=time.monotonic())
+        logger.exception(
+            "Gemini normalization provider error source_type=%s attempt=retry model=%s error_type=%s",
+            payload.source_type,
+            settings.gemini_model,
+            type(error).__name__,
+        )
         return _skipped("provider_error", warnings=warnings)
 
     retry_validation = _validate_response(retry_response)
     if retry_validation.accepted:
         gemini_guardrails.record_success()
+        logger.info(
+            "Gemini normalization accepted source_type=%s attempt=retry model=%s confidence=%s warning_count=%d",
+            payload.source_type,
+            settings.gemini_model,
+            retry_validation.confidence,
+            len(warnings) + len(retry_validation.warnings),
+        )
         return _accepted(retry_validation.result, settings=settings, warnings=warnings)
 
     if retry_validation.reason == "low_confidence":
+        logger.warning(
+            "Gemini normalization rejected source_type=%s attempt=retry model=%s reason=low_confidence confidence=%s warning_count=%d",
+            payload.source_type,
+            settings.gemini_model,
+            retry_validation.confidence,
+            len(warnings) + len(retry_validation.warnings),
+        )
         return _skipped(
             "low_confidence",
             warnings=warnings + retry_validation.warnings,
@@ -135,6 +227,13 @@ async def normalize_with_gemini(
         )
 
     gemini_guardrails.record_failure(now=time.monotonic())
+    logger.warning(
+        "Gemini normalization rejected source_type=%s attempt=retry model=%s reason=invalid_output confidence=%s warning_count=%d",
+        payload.source_type,
+        settings.gemini_model,
+        retry_validation.confidence,
+        len(warnings) + len(retry_validation.warnings),
+    )
     return _skipped(
         "invalid_output",
         warnings=warnings + retry_validation.warnings,
@@ -145,12 +244,7 @@ async def normalize_with_gemini(
 
 async def _call_gemini(*, settings: Settings, contents: list[str]) -> Any:
     def call_sync_sdk() -> Any:
-        client = genai.Client(
-            api_key=settings.gemini_api_key,
-            http_options=genai_types.HttpOptions(
-                timeout=int(settings.gemini_timeout_seconds * 1000)
-            ),
-        )
+        client = genai.Client(api_key=settings.gemini_api_key)
         try:
             return client.models.generate_content(
                 model=settings.gemini_model,
@@ -166,10 +260,7 @@ async def _call_gemini(*, settings: Settings, contents: list[str]) -> Any:
             if callable(close):
                 close()
 
-    return await asyncio.wait_for(
-        asyncio.to_thread(call_sync_sdk),
-        timeout=settings.gemini_timeout_seconds,
-    )
+    return await asyncio.to_thread(call_sync_sdk)
 
 
 @dataclass(frozen=True)

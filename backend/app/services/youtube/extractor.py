@@ -14,6 +14,7 @@ from ..blog.extractor import (
     normalize_url,
 )
 from ..extraction_types import ExtractionResult, ParseStatus
+import logging
 from ..gemini.normalizer import GeminiNormalizationResult, normalize_with_gemini
 from ..gemini.types import RawExtractionPayload
 from ..normalizer import normalize_recipe
@@ -23,6 +24,7 @@ from .description_parser import (
     parse_youtube_description,
 )
 
+logger = logging.getLogger(__name__)
 
 YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3/videos"
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}
@@ -60,7 +62,7 @@ def extract_youtube_video_id(url: str) -> Optional[str]:
     hostname = (parsed.hostname or "").casefold()
 
     if hostname in YOUTU_BE_HOSTS:
-        return (parsed.path.strip("/").split("/", 1)[0] or None)
+        return parsed.path.strip("/").split("/", 1)[0] or None
 
     if hostname not in YOUTUBE_HOSTS:
         return None
@@ -103,7 +105,9 @@ async def fetch_youtube_snippet(url: str) -> YouTubeSnippet:
         )
 
     try:
-        async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
+        async with httpx.AsyncClient(
+            timeout=settings.request_timeout_seconds
+        ) as client:
             response = await client.get(
                 YOUTUBE_API_URL,
                 params={
@@ -331,7 +335,20 @@ async def extract_recipe_from_youtube_url(
         rate_key=gemini_rate_key,
     )
     if gemini_result.accepted:
+        logger.info(
+            "Recipe extraction used Gemini source_type=youtube source_url=%s recipe_count=%d model=%s",
+            target_url,
+            len(gemini_result.recipes),
+            gemini_result.normalization_model,
+        )
         return _build_gemini_extraction_result(target_url, video, gemini_result)
 
     legacy_result = await _parse_youtube_with_legacy_logic(target_url, video)
+    logger.warning(
+        "Recipe extraction fell back to legacy parser source_type=youtube source_url=%s fallback_reason=%s recipe_count=%d warning_count=%d",
+        target_url,
+        gemini_result.fallback_reason,
+        len(legacy_result.recipes),
+        len(gemini_result.warnings),
+    )
     return _apply_gemini_fallback_metadata(legacy_result, gemini_result)

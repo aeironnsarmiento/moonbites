@@ -6,7 +6,6 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
-
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BACKEND_DIR / ".env")
 
@@ -82,14 +81,12 @@ def get_settings() -> Settings:
         ),
         youtube_api_key=os.getenv("YOUTUBE_API_KEY"),
         gemini_api_key=os.getenv("GEMINI_API_KEY"),
-        gemini_normalization_enabled=os.getenv(
-            "GEMINI_NORMALIZATION_ENABLED", ""
-        )
+        gemini_normalization_enabled=os.getenv("GEMINI_NORMALIZATION_ENABLED", "")
         .strip()
         .casefold()
         in {"1", "true", "yes", "on"},
         gemini_model=os.getenv("GEMINI_MODEL", "gemini-3-flash-preview"),
-        gemini_timeout_seconds=float(os.getenv("GEMINI_TIMEOUT_SECONDS", "8.0")),
+        gemini_timeout_seconds=float(os.getenv("GEMINI_TIMEOUT_SECONDS", "10.0")),
         gemini_rate_limit_per_minute=int(
             os.getenv("GEMINI_RATE_LIMIT_PER_MINUTE", "3")
         ),

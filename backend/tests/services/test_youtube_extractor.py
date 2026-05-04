@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -504,7 +505,9 @@ Instructions
     assert result.normalization_model == "gemini-test"
 
 
-def test_extract_recipe_from_youtube_url_uses_ranked_recipe_link_after_gemini_skip():
+def test_extract_recipe_from_youtube_url_uses_ranked_recipe_link_after_gemini_skip(
+    caplog: pytest.LogCaptureFixture,
+):
     response = _Response(
         {
             "items": [
@@ -542,27 +545,30 @@ def test_extract_recipe_from_youtube_url_uses_ranked_recipe_link_after_gemini_sk
         ],
     )
 
-    with (
-        patch("app.services.youtube.extractor.get_settings", return_value=_settings()),
-        patch(
-            "app.services.youtube.extractor.httpx.AsyncClient",
-            return_value=client_context,
-        ),
-        patch(
-            "app.services.youtube.extractor.normalize_with_gemini",
-            new=AsyncMock(return_value=gemini_result),
-        ),
-        patch(
-            "app.services.youtube.extractor.extract_blog_recipes_from_url",
-            new=AsyncMock(return_value=blog_result),
-        ) as blog,
-    ):
-        result = asyncio.run(
-            extract_recipe_from_youtube_url(
-                "https://youtu.be/abc123XYZ09",
-                gemini_rate_key="admin@example.com",
+    with caplog.at_level(logging.WARNING, logger="app.services.youtube.extractor"):
+        with (
+            patch(
+                "app.services.youtube.extractor.get_settings", return_value=_settings()
+            ),
+            patch(
+                "app.services.youtube.extractor.httpx.AsyncClient",
+                return_value=client_context,
+            ),
+            patch(
+                "app.services.youtube.extractor.normalize_with_gemini",
+                new=AsyncMock(return_value=gemini_result),
+            ),
+            patch(
+                "app.services.youtube.extractor.extract_blog_recipes_from_url",
+                new=AsyncMock(return_value=blog_result),
+            ) as blog,
+        ):
+            result = asyncio.run(
+                extract_recipe_from_youtube_url(
+                    "https://youtu.be/abc123XYZ09",
+                    gemini_rate_key="admin@example.com",
+                )
             )
-        )
 
     blog.assert_awaited_once_with("https://example.com/soup")
     assert len(client_context.get_calls) == 1
@@ -571,6 +577,9 @@ def test_extract_recipe_from_youtube_url_uses_ranked_recipe_link_after_gemini_sk
     assert result.extraction_method == "manual_fallback"
     assert result.fallback_reason == "provider_error"
     assert result.warnings == ["provider unavailable"]
+    assert "Recipe extraction fell back to legacy parser" in caplog.text
+    assert "fallback_reason=provider_error" in caplog.text
+    assert "https://youtu.be/abc123XYZ09" in caplog.text
 
 
 def test_extract_recipe_from_youtube_url_without_rate_key_keeps_legacy_flow():

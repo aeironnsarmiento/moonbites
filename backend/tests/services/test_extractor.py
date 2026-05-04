@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -445,7 +446,9 @@ def test_extract_recipes_from_url_returns_gemini_recipe_when_accepted():
     assert result.recipes[0].name != "Legacy Recipe"
 
 
-def test_extract_recipes_from_url_gemini_low_confidence_falls_back_to_html_sections():
+def test_extract_recipes_from_url_gemini_low_confidence_falls_back_to_html_sections(
+    caplog: pytest.LogCaptureFixture,
+):
     html = """
     <html>
       <head>
@@ -476,27 +479,28 @@ def test_extract_recipes_from_url_gemini_low_confidence_falls_back_to_html_secti
         normalization_model="gemini-test",
     )
 
-    with (
-        patch("app.services.blog.extractor.get_settings", return_value=_settings()),
-        patch(
-            "app.services.blog.extractor.httpx.AsyncClient",
-            return_value=_AsyncClientContext(),
-        ),
-        patch(
-            "app.services.blog.extractor._get_with_403_retry",
-            new=AsyncMock(return_value=response),
-        ) as fetch,
-        patch(
-            "app.services.blog.extractor.normalize_with_gemini",
-            new=AsyncMock(return_value=gemini_result),
-        ),
-    ):
-        result = asyncio.run(
-            extract_recipes_from_url(
-                "https://example.com/fallback",
-                gemini_rate_key="admin@example.com",
+    with caplog.at_level(logging.WARNING, logger="app.services.blog.extractor"):
+        with (
+            patch("app.services.blog.extractor.get_settings", return_value=_settings()),
+            patch(
+                "app.services.blog.extractor.httpx.AsyncClient",
+                return_value=_AsyncClientContext(),
+            ),
+            patch(
+                "app.services.blog.extractor._get_with_403_retry",
+                new=AsyncMock(return_value=response),
+            ) as fetch,
+            patch(
+                "app.services.blog.extractor.normalize_with_gemini",
+                new=AsyncMock(return_value=gemini_result),
+            ),
+        ):
+            result = asyncio.run(
+                extract_recipes_from_url(
+                    "https://example.com/fallback",
+                    gemini_rate_key="admin@example.com",
+                )
             )
-        )
 
     fetch.assert_awaited_once()
     assert result.extraction_method == "manual_fallback"
@@ -506,6 +510,9 @@ def test_extract_recipes_from_url_gemini_low_confidence_falls_back_to_html_secti
     assert result.recipe_node_count == 1
     assert result.recipes[0].ingredients == ["1 cup fallback flour"]
     assert result.recipes[0].instructions == ["Mix the fallback batter."]
+    assert "Recipe extraction fell back to legacy parser" in caplog.text
+    assert "fallback_reason=low_confidence" in caplog.text
+    assert "https://example.com/fallback" in caplog.text
 
 
 def test_extract_recipes_from_url_without_gemini_rate_key_keeps_legacy_flow():
