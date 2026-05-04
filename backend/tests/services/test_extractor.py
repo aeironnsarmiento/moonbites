@@ -55,8 +55,15 @@ class _Response:
     def __init__(self, text: str, url: str):
         self.text = text
         self.url = url
+        self.extensions: dict = {}
 
     def raise_for_status(self) -> None:
+        return None
+
+    async def aread(self) -> bytes:
+        return self.text.encode()
+
+    async def aclose(self) -> None:
         return None
 
 
@@ -556,24 +563,23 @@ def test_extract_recipes_from_url_rejects_redirect_to_private_url():
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        async def get(self, url: str, **kwargs):
-            self.requested_urls.append(str(url))
-            if str(url) == "https://example.com/recipe":
-                response = httpx.Response(
+        def build_request(self, method: str, url: str, **kwargs):
+            return httpx.Request(method, str(url), **kwargs)
+
+        async def send(self, request: httpx.Request, **kwargs):
+            url = str(request.url)
+            self.requested_urls.append(url)
+            if url == "https://example.com/recipe":
+                return httpx.Response(
                     status_code=302,
                     headers={"Location": "http://127.0.0.1/private"},
-                    request=httpx.Request("GET", str(url)),
+                    request=request,
                 )
-                if self.follow_redirects:
-                    return await self.get(
-                        str(response.url.join(response.headers["Location"]))
-                    )
-                return response
 
             return httpx.Response(
                 status_code=200,
                 text="<html></html>",
-                request=httpx.Request("GET", str(url)),
+                request=request,
             )
 
     client = RedirectingClient()
@@ -608,3 +614,50 @@ def test_extract_recipes_from_url_rejects_non_http_url_with_public_url_detail():
 
     assert error.value.status_code == 400
     assert error.value.detail == "Enter a public http(s) URL"
+
+
+def test_extract_recipes_from_url_rejects_dns_rebinding_to_private_peer():
+    class _PrivatePeerStream:
+        def get_extra_info(self, name):
+            if name == "server_addr":
+                return ("127.0.0.1", 443)
+            return None
+
+    class PrivatePeerClient:
+        def __init__(self, **kwargs):
+            self.closed = False
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def build_request(self, method, url, **kwargs):
+            return httpx.Request(method, str(url), **kwargs)
+
+        async def send(self, request, **kwargs):
+            response = httpx.Response(
+                status_code=200,
+                text="<html></html>",
+                request=request,
+            )
+            response.extensions["network_stream"] = _PrivatePeerStream()
+            return response
+
+    with (
+        patch("app.services.blog.extractor.get_settings", return_value=_settings()),
+        patch(
+            "app.utils.url_safety.socket.getaddrinfo",
+            return_value=[(None, None, None, "", ("93.184.216.34", 443))],
+        ),
+        patch(
+            "app.services.blog.extractor.httpx.AsyncClient",
+            side_effect=lambda **kwargs: PrivatePeerClient(**kwargs),
+        ),
+    ):
+        with pytest.raises(HTTPException) as error:
+            asyncio.run(extract_recipes_from_url("https://example.com/recipe"))
+
+    assert error.value.status_code == 400
+    assert error.value.detail == "Private or localhost URLs are not supported"

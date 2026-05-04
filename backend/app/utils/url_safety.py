@@ -68,3 +68,21 @@ def validate_public_http_url(url: str) -> str:
         raise _private_url_error()
 
     return normalized
+
+
+def assert_public_peer(response: object) -> None:
+    extensions = getattr(response, "extensions", None)
+    if not extensions:
+        return
+    stream = extensions.get("network_stream") if isinstance(extensions, dict) else None
+    if stream is None:
+        return
+    try:
+        info = stream.get_extra_info("server_addr")
+    except Exception:
+        return
+    if not info:
+        return
+    peer_ip = info[0]
+    if _is_blocked_ip(peer_ip):
+        raise _private_url_error()

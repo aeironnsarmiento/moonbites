@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from ...core.config import Settings, get_settings
 from ...schemas.extract import IngredientSection, JsonLdBlock, NormalizedRecipe
 from ...utils.text import clean_text, unique_strings
-from ...utils.url_safety import validate_public_http_url
+from ...utils.url_safety import assert_public_peer, validate_public_http_url
 from ..extraction_types import ExtractionResult
 from ..gemini.normalizer import GeminiNormalizationResult, normalize_with_gemini
 from ..gemini.types import RawExtractionPayload
@@ -416,13 +416,30 @@ def _should_retry_403(response: httpx.Response, *, retried: bool) -> bool:
     return not retried and response.status_code == 403
 
 
+async def _send_streamed(
+    client: httpx.AsyncClient, request: httpx.Request
+) -> httpx.Response:
+    response = await client.send(request, stream=True)
+    try:
+        assert_public_peer(response)
+    except BaseException:
+        await response.aclose()
+        raise
+    return response
+
+
 async def _get_with_403_retry(
     client: httpx.AsyncClient, url: str, settings: Settings
 ) -> httpx.Response:
-    response = await client.get(url)
+    request = client.build_request("GET", url)
+    response = await _send_streamed(client, request)
 
     if _should_retry_403(response, retried=False):
-        response = await client.get(url, headers=_build_403_retry_headers(settings))
+        await response.aclose()
+        retry_request = client.build_request(
+            "GET", url, headers=_build_403_retry_headers(settings)
+        )
+        response = await _send_streamed(client, retry_request)
 
     return response
 
@@ -441,9 +458,12 @@ async def _get_with_safe_redirects(
         if not location:
             return response
 
-        current_url = normalize_url(
-            validate_public_http_url(str(response.url.join(location)))
-        )
+        try:
+            current_url = normalize_url(
+                validate_public_http_url(str(response.url.join(location)))
+            )
+        finally:
+            await response.aclose()
 
     raise HTTPException(
         status_code=502,
@@ -455,6 +475,7 @@ async def _fetch_blog_page(url: str) -> FetchedBlogPage:
     settings = get_settings()
     target_url = normalize_url(validate_public_http_url(url))
 
+    response: Optional[httpx.Response] = None
     try:
         async with httpx.AsyncClient(
             headers=_build_request_headers(settings),
@@ -463,6 +484,7 @@ async def _fetch_blog_page(url: str) -> FetchedBlogPage:
         ) as client:
             response = await _get_with_safe_redirects(client, target_url, settings)
             validate_public_http_url(str(response.url))
+            await response.aread()
             response.raise_for_status()
     except httpx.TimeoutException as error:
         raise HTTPException(
@@ -479,6 +501,9 @@ async def _fetch_blog_page(url: str) -> FetchedBlogPage:
             status_code=502,
             detail="Unable to fetch the target URL",
         ) from error
+    finally:
+        if response is not None:
+            await response.aclose()
 
     title, blocks = extract_json_ld_blocks(response.text)
     return FetchedBlogPage(
