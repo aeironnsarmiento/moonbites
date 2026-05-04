@@ -383,6 +383,32 @@ def test_configured_timeout_does_not_set_sdk_deadline(
     assert "deadline=disabled" in caplog.text
 
 
+def test_call_gemini_enforces_configured_timeout(monkeypatch: pytest.MonkeyPatch):
+    captured: dict[str, object] = {}
+
+    async def _fake_to_thread(func: object) -> object:
+        captured["thread_func"] = func
+        return "gemini-response"
+
+    async def _fake_wait_for(awaitable: object, *, timeout: float) -> object:
+        captured["timeout"] = timeout
+        return await awaitable
+
+    monkeypatch.setattr(gemini_normalizer.asyncio, "to_thread", _fake_to_thread)
+    monkeypatch.setattr(gemini_normalizer.asyncio, "wait_for", _fake_wait_for)
+
+    result = asyncio.run(
+        gemini_normalizer._call_gemini(
+            settings=_settings(timeout=2.5),
+            contents=["prompt"],
+        )
+    )
+
+    assert result == "gemini-response"
+    assert captured["timeout"] == 2.5
+    assert callable(captured["thread_func"])
+
+
 def test_prompt_truncation_warnings_are_included_with_model_warnings(
     monkeypatch: pytest.MonkeyPatch,
 ):

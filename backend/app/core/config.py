@@ -86,7 +86,7 @@ def get_settings() -> Settings:
         .casefold()
         in {"1", "true", "yes", "on"},
         gemini_model=os.getenv("GEMINI_MODEL", "gemini-3-flash-preview"),
-        gemini_timeout_seconds=float(os.getenv("GEMINI_TIMEOUT_SECONDS", "10.0")),
+        gemini_timeout_seconds=float(os.getenv("GEMINI_TIMEOUT_SECONDS", "30.0")),
         gemini_rate_limit_per_minute=int(
             os.getenv("GEMINI_RATE_LIMIT_PER_MINUTE", "3")
         ),

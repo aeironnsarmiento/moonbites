@@ -58,5 +58,5 @@ def test_gemini_defaults(monkeypatch):
     settings = get_settings()
 
     assert settings.gemini_model == "gemini-3-flash-preview"
-    assert settings.gemini_timeout_seconds == 10.0
+    assert settings.gemini_timeout_seconds == 30.0
     assert settings.gemini_rate_limit_per_minute == 3

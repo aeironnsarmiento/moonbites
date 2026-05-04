@@ -260,7 +260,10 @@ async def _call_gemini(*, settings: Settings, contents: list[str]) -> Any:
             if callable(close):
                 close()
 
-    return await asyncio.to_thread(call_sync_sdk)
+    return await asyncio.wait_for(
+        asyncio.to_thread(call_sync_sdk),
+        timeout=settings.gemini_timeout_seconds,
+    )
 
 
 @dataclass(frozen=True)

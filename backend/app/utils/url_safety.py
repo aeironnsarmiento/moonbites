@@ -23,13 +23,7 @@ def _is_blocked_ip(value: str) -> bool:
     except ValueError:
         return False
 
-    return (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_multicast
-        or ip.is_unspecified
-    )
+    return ip.is_multicast or not ip.is_global
 
 
 def _is_localhost(hostname: str) -> bool:

@@ -76,6 +76,26 @@ def test_validate_public_http_url_rejects_host_resolving_to_private_ip():
     assert error.value.detail == "Private or localhost URLs are not supported"
 
 
+def test_validate_public_http_url_rejects_carrier_nat_literal_ip():
+    with pytest.raises(HTTPException) as error:
+        validate_public_http_url("http://100.64.0.1/recipe")
+
+    assert error.value.status_code == 400
+    assert error.value.detail == "Private or localhost URLs are not supported"
+
+
+def test_validate_public_http_url_rejects_host_resolving_to_carrier_nat_ip():
+    with patch(
+        "app.utils.url_safety.socket.getaddrinfo",
+        return_value=_addrinfo_for("100.64.0.1"),
+    ):
+        with pytest.raises(HTTPException) as error:
+            validate_public_http_url("https://carrier-nat.example/recipe")
+
+    assert error.value.status_code == 400
+    assert error.value.detail == "Private or localhost URLs are not supported"
+
+
 def test_assert_public_peer_passes_for_public_ip():
     assert_public_peer(_FakeResponse(("93.184.216.34", 443)))
 
@@ -83,6 +103,14 @@ def test_assert_public_peer_passes_for_public_ip():
 def test_assert_public_peer_rejects_private_ip():
     with pytest.raises(HTTPException) as error:
         assert_public_peer(_FakeResponse(("127.0.0.1", 443)))
+
+    assert error.value.status_code == 400
+    assert error.value.detail == "Private or localhost URLs are not supported"
+
+
+def test_assert_public_peer_rejects_carrier_nat_ip():
+    with pytest.raises(HTTPException) as error:
+        assert_public_peer(_FakeResponse(("100.64.0.1", 443)))
 
     assert error.value.status_code == 400
     assert error.value.detail == "Private or localhost URLs are not supported"
