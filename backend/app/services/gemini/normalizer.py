@@ -25,11 +25,11 @@ except ModuleNotFoundError:  # pragma: no cover - exercised only without depende
     genai = _MissingGenAI()  # type: ignore[assignment]
     genai_types = _MissingGenAITypes()  # type: ignore[assignment]
 
-from app.core.config import Settings
-from app.schemas.extract import NormalizedRecipe
-from app.services.gemini.guardrails import gemini_guardrails
-from app.services.gemini.prompt import build_gemini_prompt
-from app.services.gemini.types import GeminiRecipeResult, RawExtractionPayload
+from ...core.config import Settings
+from ...schemas.extract import NormalizedRecipe
+from .guardrails import gemini_guardrails
+from .prompt import build_gemini_prompt
+from .types import GeminiRecipeResult, RawExtractionPayload
 
 
 MIN_CONFIDENCE = 0.7

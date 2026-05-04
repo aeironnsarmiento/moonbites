@@ -2,7 +2,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from app.services.gemini.types import RawExtractionPayload
+from .types import RawExtractionPayload
 
 MAX_SERIALIZED_PAYLOAD_CHARS = 60_000
 MAX_JSON_LD_BLOCKS = 10

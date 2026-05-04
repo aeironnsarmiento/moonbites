@@ -1,13 +1,13 @@
-from app.services.gemini.prompt import (
+from .prompt import (
     GeminiPrompt,
     build_gemini_prompt,
 )
-from app.services.gemini.guardrails import GeminiGuardrails, gemini_guardrails
-from app.services.gemini.normalizer import (
+from .guardrails import GeminiGuardrails, gemini_guardrails
+from .normalizer import (
     GeminiNormalizationResult,
     normalize_with_gemini,
 )
-from app.services.gemini.types import GeminiRecipeResult, RawExtractionPayload
+from .types import GeminiRecipeResult, RawExtractionPayload
 
 __all__ = [
     "GeminiGuardrails",

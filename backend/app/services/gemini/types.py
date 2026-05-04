@@ -2,7 +2,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from app.schemas.extract import NormalizedRecipe
+from ...schemas.extract import NormalizedRecipe
 
 
 class RawExtractionPayload(BaseModel):
