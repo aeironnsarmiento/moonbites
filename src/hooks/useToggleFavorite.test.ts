@@ -33,7 +33,6 @@ function recipe(overrides: Partial<RecipeCardItem>): RecipeCardItem {
 function highlighted(overrides: Partial<HighlightedRecipes> = {}): HighlightedRecipes {
   return {
     favorites: [],
-    mostCooked: [],
     recent: [],
     totalCount: 0,
     favoriteCount: 0,

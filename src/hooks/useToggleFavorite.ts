@@ -91,7 +91,6 @@ function isHighlightedRecipes(data: unknown): data is HighlightedRecipes {
     data &&
       typeof data === "object" &&
       "favorites" in data &&
-      "mostCooked" in data &&
       "recent" in data,
   );
 }
@@ -101,7 +100,7 @@ function findHighlightedItem(
   recipeImportId: string,
 ): RecipeCardItem | null {
   return (
-    [...data.favorites, ...data.mostCooked, ...data.recent].find(
+    [...data.favorites, ...data.recent].find(
       (item) => item.id === recipeImportId,
     ) ?? null
   );
@@ -156,7 +155,6 @@ export function toggleHighlightedRecipesData(
   return {
     ...data,
     favorites,
-    mostCooked: toggleHighlightedList(data.mostCooked, recipeImportId),
     recent: toggleHighlightedList(data.recent, recipeImportId),
     favoriteCount: Math.max(
       0,
@@ -196,11 +194,6 @@ function setHighlightedRecipesFavorite(
   return {
     ...data,
     favorites,
-    mostCooked: setHighlightedListFavorite(
-      data.mostCooked,
-      recipeImportId,
-      isFavorite,
-    ),
     recent: setHighlightedListFavorite(
       data.recent,
       recipeImportId,
