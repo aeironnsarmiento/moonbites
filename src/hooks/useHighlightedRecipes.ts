@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { getRecipeListPage } from "../controllers/recipeController";
+import { HIGHLIGHTED_RECIPES_KEY } from "./recipeQueryKeys";
 import type { RecipeCardItem } from "../types/recipe";
 
 export type HighlightedRecipes = {
@@ -12,7 +13,7 @@ export type HighlightedRecipes = {
 
 export function useHighlightedRecipes() {
   const query = useQuery<HighlightedRecipes>({
-    queryKey: ["highlighted-recipes"],
+    queryKey: HIGHLIGHTED_RECIPES_KEY,
     queryFn: async () => {
       const [favorites, recent] = await Promise.all([
         getRecipeListPage({ page: 1, limit: 4, sort: "recent", cuisine: null, favorite: true }),
