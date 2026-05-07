@@ -32,7 +32,7 @@ function isManualRecipeUrl(value: string) {
   return value.trim().toLowerCase().startsWith("manual://");
 }
 
-function mapRecipeImportToCard(record: RecipeImportRecord): RecipeCardItem {
+export function mapRecipeImportToCard(record: RecipeImportRecord): RecipeCardItem {
   const primaryRecipe = record.recipes_json[0] ?? null;
   const manualRecord = isManualRecipeUrl(record.submitted_url);
 
