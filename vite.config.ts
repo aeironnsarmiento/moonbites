@@ -12,4 +12,25 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) {
+            return undefined
+          }
+          if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) {
+            return 'vendor-react'
+          }
+          if (/[\\/]node_modules[\\/](@chakra-ui|@emotion|framer-motion)[\\/]/.test(id)) {
+            return 'vendor-chakra'
+          }
+          if (/[\\/]node_modules[\\/](@tanstack[\\/]react-query|@supabase[\\/]supabase-js)[\\/]/.test(id)) {
+            return 'vendor-data'
+          }
+          return undefined
+        },
+      },
+    },
+  },
 })
