@@ -5,6 +5,7 @@ import {
   buildExtractStatus,
   submitRecipeImport,
 } from "../controllers/extractController";
+import { invalidateRecipeQueries } from "./recipeQueryKeys";
 
 export function useExtractRecipe() {
   const queryClient = useQueryClient();
@@ -22,7 +23,7 @@ export function useExtractRecipe() {
         const response = await submitRecipeImport(url);
 
         if (response.database_saved && response.recipes.length > 0) {
-          await queryClient.invalidateQueries({ queryKey: ["recipe-list"] });
+          await invalidateRecipeQueries(queryClient);
         }
 
         setStatus(buildExtractStatus(response));
