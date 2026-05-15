@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -10,7 +11,10 @@ from fastapi import HTTPException
 from app.core.config import Settings
 from app.schemas.extract import NormalizedRecipe
 from app.services.extraction_types import ExtractionResult, ParseStatus
+from app.services.gemini.normalizer import GeminiNormalizationResult
 from app.services.youtube.extractor import (
+    YouTubeSnippet,
+    build_youtube_raw_payload,
     extract_recipe_from_youtube_url,
     extract_youtube_video_id,
     is_youtube_url,
@@ -30,12 +34,18 @@ def _settings(api_key: str | None = "youtube-key") -> Settings:
         accept_header="text/html",
         accept_language_header="en-US",
         youtube_api_key=api_key,
+        gemini_api_key=None,
+        gemini_normalization_enabled=False,
+        gemini_model="gemini-3-flash-preview",
+        gemini_timeout_seconds=8.0,
+        gemini_rate_limit_per_minute=3,
     )
 
 
 class _AsyncClientContext:
     def __init__(self, response):
         self.response = response
+        self.get_calls = []
 
     async def __aenter__(self):
         return self
@@ -44,6 +54,7 @@ class _AsyncClientContext:
         return False
 
     async def get(self, url, params=None):
+        self.get_calls.append((url, params))
         self.url = url
         self.params = params
         return self.response
@@ -323,6 +334,317 @@ def test_extract_recipe_from_youtube_url_returns_partial_metadata_without_recipe
     assert result.image_url == "https://img.youtube.com/medium.jpg"
     assert result.recipe_node_count == 0
     assert result.recipes == []
+
+
+def test_extract_recipe_from_youtube_url_uses_gemini_when_rate_key_present():
+    response = _Response(
+        {
+            "items": [
+                {
+                    "id": "abc123XYZ09",
+                    "snippet": {
+                        "title": "Gemini Noodles",
+                        "description": "A video recipe for noodles.",
+                        "thumbnails": {
+                            "high": {"url": "https://img.youtube.com/high.jpg"}
+                        },
+                    },
+                }
+            ]
+        }
+    )
+    client_context = _AsyncClientContext(response)
+    gemini_result = GeminiNormalizationResult(
+        accepted=True,
+        recipes=[
+            NormalizedRecipe(
+                name="Gemini Noodles",
+                ingredients=["8 oz noodles"],
+                instructions=["Boil noodles."],
+            )
+        ],
+        warnings=["from prompt"],
+        normalization_model="gemini-test",
+    )
+
+    with (
+        patch("app.services.youtube.extractor.get_settings", return_value=_settings()),
+        patch(
+            "app.services.youtube.extractor.httpx.AsyncClient",
+            return_value=client_context,
+        ),
+        patch(
+            "app.services.youtube.extractor.normalize_with_gemini",
+            new=AsyncMock(return_value=gemini_result),
+        ) as gemini,
+        patch("app.services.youtube.extractor.extract_blog_recipes_from_url") as blog,
+    ):
+        result = asyncio.run(
+            extract_recipe_from_youtube_url(
+                "https://youtu.be/abc123XYZ09",
+                gemini_rate_key="admin@example.com",
+            )
+        )
+
+    gemini.assert_awaited_once()
+    blog.assert_not_called()
+    assert len(client_context.get_calls) == 1
+    assert result.source_url == "https://youtu.be/abc123XYZ09"
+    assert result.final_url == "https://youtu.be/abc123XYZ09"
+    assert result.title == "Gemini Noodles"
+    assert result.image_url == "https://img.youtube.com/high.jpg"
+    assert result.recipe_node_count == 1
+    assert result.recipes[0].instructions == ["https://youtu.be/abc123XYZ09"]
+    assert result.extraction_method == "gemini"
+    assert result.normalization_model == "gemini-test"
+    assert result.warnings == ["from prompt"]
+
+
+def test_extract_recipe_from_youtube_url_overwrites_gemini_instructions_with_video_url():
+    response = _Response(
+        {
+            "items": [
+                {
+                    "id": "abc123XYZ09",
+                    "snippet": {
+                        "title": "Gemini Rice",
+                        "description": "Ingredients and steps are in the video.",
+                        "thumbnails": {},
+                    },
+                }
+            ]
+        }
+    )
+    gemini_result = GeminiNormalizationResult(
+        accepted=True,
+        recipes=[
+            NormalizedRecipe(
+                name="Gemini Rice",
+                ingredients=["1 cup rice"],
+                instructions=["Rinse rice.", "Cook rice."],
+            )
+        ],
+        normalization_model="gemini-test",
+    )
+
+    with (
+        patch("app.services.youtube.extractor.get_settings", return_value=_settings()),
+        patch(
+            "app.services.youtube.extractor.httpx.AsyncClient",
+            return_value=_AsyncClientContext(response),
+        ),
+        patch(
+            "app.services.youtube.extractor.normalize_with_gemini",
+            new=AsyncMock(return_value=gemini_result),
+        ),
+    ):
+        result = asyncio.run(
+            extract_recipe_from_youtube_url(
+                "https://youtu.be/abc123XYZ09",
+                gemini_rate_key="admin@example.com",
+            )
+        )
+
+    assert result.recipes[0].instructions == ["https://youtu.be/abc123XYZ09"]
+
+
+def test_extract_recipe_from_youtube_url_uses_legacy_description_after_low_confidence():
+    response = _Response(
+        {
+            "items": [
+                {
+                    "id": "abc123XYZ09",
+                    "snippet": {
+                        "title": "Garlic Noodles",
+                        "description": """
+Ingredients
+- 8 oz noodles
+- 2 tbsp butter
+
+Instructions
+1. Boil noodles for 8 minutes.
+2. Toss noodles with butter.
+""",
+                        "thumbnails": {},
+                    },
+                }
+            ]
+        }
+    )
+    gemini_result = GeminiNormalizationResult(
+        accepted=False,
+        fallback_reason="low_confidence",
+        warnings=["too uncertain"],
+        normalization_model="gemini-test",
+    )
+
+    with (
+        patch("app.services.youtube.extractor.get_settings", return_value=_settings()),
+        patch(
+            "app.services.youtube.extractor.httpx.AsyncClient",
+            return_value=_AsyncClientContext(response),
+        ),
+        patch(
+            "app.services.youtube.extractor.normalize_with_gemini",
+            new=AsyncMock(return_value=gemini_result),
+        ),
+        patch("app.services.youtube.extractor.extract_blog_recipes_from_url") as blog,
+    ):
+        result = asyncio.run(
+            extract_recipe_from_youtube_url(
+                "https://youtu.be/abc123XYZ09",
+                gemini_rate_key="admin@example.com",
+            )
+        )
+
+    blog.assert_not_called()
+    assert result.recipes[0].name == "Garlic Noodles"
+    assert result.extraction_method == "manual_fallback"
+    assert result.fallback_reason == "low_confidence"
+    assert result.warnings == ["too uncertain"]
+    assert result.normalization_model == "gemini-test"
+
+
+def test_extract_recipe_from_youtube_url_uses_ranked_recipe_link_after_gemini_skip(
+    caplog: pytest.LogCaptureFixture,
+):
+    response = _Response(
+        {
+            "items": [
+                {
+                    "id": "abc123XYZ09",
+                    "snippet": {
+                        "title": "Video Soup",
+                        "description": "Full recipe: https://example.com/soup",
+                        "thumbnails": {
+                            "default": {"url": "https://img.youtube.com/default.jpg"}
+                        },
+                    },
+                }
+            ]
+        }
+    )
+    client_context = _AsyncClientContext(response)
+    gemini_result = GeminiNormalizationResult(
+        accepted=False,
+        fallback_reason="provider_error",
+        warnings=["provider unavailable"],
+    )
+    blog_result = ExtractionResult(
+        source_url="https://example.com/soup",
+        final_url="https://example.com/soup/",
+        title="Blog Soup",
+        image_url="https://example.com/soup.jpg",
+        recipe_node_count=1,
+        recipes=[
+            NormalizedRecipe(
+                name="Blog Soup",
+                ingredients=["2 cups stock"],
+                instructions=["Warm stock."],
+            )
+        ],
+    )
+
+    with caplog.at_level(logging.WARNING, logger="app.services.youtube.extractor"):
+        with (
+            patch(
+                "app.services.youtube.extractor.get_settings", return_value=_settings()
+            ),
+            patch(
+                "app.services.youtube.extractor.httpx.AsyncClient",
+                return_value=client_context,
+            ),
+            patch(
+                "app.services.youtube.extractor.normalize_with_gemini",
+                new=AsyncMock(return_value=gemini_result),
+            ),
+            patch(
+                "app.services.youtube.extractor.extract_blog_recipes_from_url",
+                new=AsyncMock(return_value=blog_result),
+            ) as blog,
+        ):
+            result = asyncio.run(
+                extract_recipe_from_youtube_url(
+                    "https://youtu.be/abc123XYZ09",
+                    gemini_rate_key="admin@example.com",
+                )
+            )
+
+    blog.assert_awaited_once_with("https://example.com/soup")
+    assert len(client_context.get_calls) == 1
+    assert result.final_url == "https://example.com/soup/"
+    assert result.recipes == blog_result.recipes
+    assert result.extraction_method == "manual_fallback"
+    assert result.fallback_reason == "provider_error"
+    assert result.warnings == ["provider unavailable"]
+    assert "Recipe extraction fell back to legacy parser" in caplog.text
+    assert "fallback_reason=provider_error" in caplog.text
+    assert "https://youtu.be/abc123XYZ09" in caplog.text
+
+
+def test_extract_recipe_from_youtube_url_without_rate_key_keeps_legacy_flow():
+    response = _Response(
+        {
+            "items": [
+                {
+                    "id": "abc123XYZ09",
+                    "snippet": {
+                        "title": "Rice Bowl",
+                        "description": """
+Ingredients
+Rice -
+1 cup rice
+2 tbsp soy sauce
+""",
+                        "thumbnails": {},
+                    },
+                }
+            ]
+        }
+    )
+    client_context = _AsyncClientContext(response)
+
+    with (
+        patch("app.services.youtube.extractor.get_settings", return_value=_settings()),
+        patch(
+            "app.services.youtube.extractor.httpx.AsyncClient",
+            return_value=client_context,
+        ),
+        patch("app.services.youtube.extractor.normalize_with_gemini") as gemini,
+    ):
+        result = asyncio.run(
+            extract_recipe_from_youtube_url("https://youtu.be/abc123XYZ09")
+        )
+
+    gemini.assert_not_called()
+    assert len(client_context.get_calls) == 1
+    assert result.extraction_method is None
+    assert result.fallback_reason is None
+    assert result.recipes[0].instructions == ["https://youtu.be/abc123XYZ09"]
+
+
+def test_build_youtube_raw_payload_includes_snippet_metadata():
+    video = YouTubeSnippet(
+        video_id="abc123XYZ09",
+        title="Rice Bowl",
+        description="A video description",
+        thumbnail_url="https://img.youtube.com/high.jpg",
+        channel_name="Moon Bites",
+        published_at="2026-05-03T12:00:00Z",
+    )
+
+    payload = build_youtube_raw_payload("https://youtu.be/abc123XYZ09", video)
+
+    assert payload.source_type == "youtube"
+    assert payload.source_url == "https://youtu.be/abc123XYZ09"
+    assert payload.final_url == "https://youtu.be/abc123XYZ09"
+    assert payload.title == "Rice Bowl"
+    assert payload.description == "A video description"
+    assert payload.metadata == {
+        "channelName": "Moon Bites",
+        "publishedAt": "2026-05-03T12:00:00Z",
+        "thumbnailUrl": "https://img.youtube.com/high.jpg",
+    }
 
 
 def test_extract_recipe_from_youtube_url_requires_api_key():

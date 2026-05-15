@@ -146,6 +146,10 @@ class ExtractResponse(BaseModel):
     database_message: Optional[str] = None
     parse_status: str = "recipe"
     parse_reason: Optional[str] = None
+    extraction_method: Optional[str] = None
+    normalization_model: Optional[str] = None
+    warnings: list[str] = Field(default_factory=list)
+    fallback_reason: Optional[str] = None
 
 
 class RecipeImportRecord(BaseModel):

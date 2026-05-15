@@ -1,4 +1,6 @@
 import json
+import logging
+from dataclasses import dataclass
 from typing import Optional
 
 import httpx
@@ -8,7 +10,10 @@ from fastapi import HTTPException
 from ...core.config import Settings, get_settings
 from ...schemas.extract import IngredientSection, JsonLdBlock, NormalizedRecipe
 from ...utils.text import clean_text, unique_strings
+from ...utils.url_safety import assert_public_peer, validate_public_http_url
 from ..extraction_types import ExtractionResult
+from ..gemini.normalizer import GeminiNormalizationResult, normalize_with_gemini
+from ..gemini.types import RawExtractionPayload
 from ..image_extraction import extract_image_url
 from ..normalizer import (
     collect_recipe_nodes,
@@ -16,6 +21,7 @@ from ..normalizer import (
     normalize_recipe,
 )
 
+logger = logging.getLogger(__name__)
 
 INGREDIENT_HEADING_KEYWORDS = {"ingredient", "ingredients"}
 INSTRUCTION_HEADING_KEYWORDS = {
@@ -67,6 +73,17 @@ CONTAINER_SELECTORS = (
     "[class*='recipe']",
     "[id*='recipe']",
 )
+REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
+MAX_REDIRECTS = 10
+
+
+@dataclass(frozen=True)
+class FetchedBlogPage:
+    source_url: str
+    final_url: str
+    html: str
+    title: Optional[str]
+    json_ld_blocks: list[JsonLdBlock]
 
 
 def normalize_url(value: str) -> str:
@@ -401,28 +418,75 @@ def _should_retry_403(response: httpx.Response, *, retried: bool) -> bool:
     return not retried and response.status_code == 403
 
 
+async def _send_streamed(
+    client: httpx.AsyncClient, request: httpx.Request
+) -> httpx.Response:
+    response = await client.send(request, stream=True)
+    try:
+        assert_public_peer(response)
+    except BaseException:
+        await response.aclose()
+        raise
+    return response
+
+
 async def _get_with_403_retry(
     client: httpx.AsyncClient, url: str, settings: Settings
 ) -> httpx.Response:
-    response = await client.get(url)
+    request = client.build_request("GET", url)
+    response = await _send_streamed(client, request)
 
     if _should_retry_403(response, retried=False):
-        response = await client.get(url, headers=_build_403_retry_headers(settings))
+        await response.aclose()
+        retry_request = client.build_request(
+            "GET", url, headers=_build_403_retry_headers(settings)
+        )
+        response = await _send_streamed(client, retry_request)
 
     return response
 
 
-async def extract_recipes_from_url(url: str) -> ExtractionResult:
-    settings = get_settings()
-    target_url = normalize_url(url)
+async def _get_with_safe_redirects(
+    client: httpx.AsyncClient, url: str, settings: Settings
+) -> httpx.Response:
+    current_url = url
 
+    for _ in range(MAX_REDIRECTS + 1):
+        response = await _get_with_403_retry(client, current_url, settings)
+        if getattr(response, "status_code", None) not in REDIRECT_STATUS_CODES:
+            return response
+
+        location = response.headers.get("Location")
+        if not location:
+            return response
+
+        try:
+            current_url = normalize_url(
+                validate_public_http_url(str(response.url.join(location)))
+            )
+        finally:
+            await response.aclose()
+
+    raise HTTPException(
+        status_code=502,
+        detail="Target site redirected too many times",
+    )
+
+
+async def _fetch_blog_page(url: str) -> FetchedBlogPage:
+    settings = get_settings()
+    target_url = normalize_url(validate_public_http_url(url))
+
+    response: Optional[httpx.Response] = None
     try:
         async with httpx.AsyncClient(
             headers=_build_request_headers(settings),
-            follow_redirects=True,
+            follow_redirects=False,
             timeout=settings.request_timeout_seconds,
         ) as client:
-            response = await _get_with_403_retry(client, target_url, settings)
+            response = await _get_with_safe_redirects(client, target_url, settings)
+            validate_public_http_url(str(response.url))
+            await response.aread()
             response.raise_for_status()
     except httpx.TimeoutException as error:
         raise HTTPException(
@@ -439,20 +503,83 @@ async def extract_recipes_from_url(url: str) -> ExtractionResult:
             status_code=502,
             detail="Unable to fetch the target URL",
         ) from error
+    finally:
+        if response is not None:
+            await response.aclose()
 
     title, blocks = extract_json_ld_blocks(response.text)
-    html_ingredient_sections = extract_html_ingredient_sections(response.text)
-    html_instruction_lines = extract_html_instruction_lines(response.text)
-    recipes: list[NormalizedRecipe] = []
+    return FetchedBlogPage(
+        source_url=target_url,
+        final_url=str(response.url),
+        html=response.text,
+        title=title,
+        json_ld_blocks=blocks,
+    )
+
+
+def _collect_page_recipe_nodes(page: FetchedBlogPage) -> list[dict]:
     recipe_nodes: list[dict] = []
 
-    for block in blocks:
+    for block in page.json_ld_blocks:
         if block.parsed is not None:
             recipe_nodes.extend(collect_recipe_nodes(block.parsed))
 
+    return recipe_nodes
+
+
+def _extract_meta_content(soup: BeautifulSoup, *, name: str) -> Optional[str]:
+    tag = soup.find("meta", attrs={"name": name})
+    if tag is None:
+        tag = soup.find("meta", attrs={"property": name})
+
+    content = tag.get("content") if tag is not None else None
+    if not isinstance(content, str):
+        return None
+
+    return clean_text(content) or None
+
+
+def _extract_canonical_url(soup: BeautifulSoup) -> Optional[str]:
+    tag = soup.find("link", attrs={"rel": lambda value: value and "canonical" in value})
+    href = tag.get("href") if tag is not None else None
+    if not isinstance(href, str):
+        return None
+
+    return clean_text(href) or None
+
+
+def build_blog_raw_payload(page: FetchedBlogPage) -> RawExtractionPayload:
+    soup = BeautifulSoup(page.html, "html.parser")
+    description = _extract_meta_content(soup, name="description")
+
+    return RawExtractionPayload(
+        source_type="json_ld",
+        source_url=page.source_url,
+        final_url=page.final_url,
+        title=page.title,
+        description=description,
+        canonical_url=_extract_canonical_url(soup),
+        json_ld_blocks=[
+            {
+                "index": block.index,
+                "raw": block.raw,
+                "parsed": block.parsed,
+                "parse_error": block.parse_error,
+            }
+            for block in page.json_ld_blocks
+        ],
+    )
+
+
+def _parse_blog_page_with_legacy_logic(page: FetchedBlogPage) -> ExtractionResult:
+    html_ingredient_sections = extract_html_ingredient_sections(page.html)
+    html_instruction_lines = extract_html_instruction_lines(page.html)
+    recipes: list[NormalizedRecipe] = []
+    recipe_nodes = _collect_page_recipe_nodes(page)
+
     fallback_sections = html_ingredient_sections if len(recipe_nodes) == 1 else None
     fallback_instructions = html_instruction_lines if len(recipe_nodes) == 1 else None
-    image_url = extract_image_url(response.text, recipe_nodes)
+    image_url = extract_image_url(page.html, recipe_nodes)
 
     for recipe in recipe_nodes:
         normalized = normalize_recipe(
@@ -466,10 +593,76 @@ async def extract_recipes_from_url(url: str) -> ExtractionResult:
     recipes = dedupe_normalized_recipes(recipes)
 
     return ExtractionResult(
-        source_url=target_url,
-        final_url=str(response.url),
-        title=title,
+        source_url=page.source_url,
+        final_url=page.final_url,
+        title=page.title,
         image_url=image_url,
         recipe_node_count=len(recipe_nodes),
         recipes=recipes,
     )
+
+
+def _build_gemini_extraction_result(
+    page: FetchedBlogPage, gemini_result: GeminiNormalizationResult
+) -> ExtractionResult:
+    recipe_nodes = _collect_page_recipe_nodes(page)
+
+    return ExtractionResult(
+        source_url=page.source_url,
+        final_url=page.final_url,
+        title=page.title,
+        image_url=extract_image_url(page.html, recipe_nodes),
+        recipe_node_count=(
+            len(recipe_nodes) if recipe_nodes else len(gemini_result.recipes)
+        ),
+        recipes=gemini_result.recipes,
+        extraction_method="gemini",
+        normalization_model=gemini_result.normalization_model,
+        warnings=list(gemini_result.warnings),
+    )
+
+
+def _apply_gemini_fallback_metadata(
+    result: ExtractionResult, gemini_result: GeminiNormalizationResult
+) -> ExtractionResult:
+    result.extraction_method = "manual_fallback"
+    result.fallback_reason = gemini_result.fallback_reason
+    result.warnings = list(gemini_result.warnings)
+    result.normalization_model = gemini_result.normalization_model
+    return result
+
+
+async def extract_recipes_from_url(
+    url: str, *, gemini_rate_key: Optional[str] = None
+) -> ExtractionResult:
+    settings = get_settings()
+    page = await _fetch_blog_page(url)
+
+    if not gemini_rate_key:
+        return _parse_blog_page_with_legacy_logic(page)
+
+    gemini_result = await normalize_with_gemini(
+        build_blog_raw_payload(page),
+        settings=settings,
+        rate_key=gemini_rate_key,
+    )
+    if gemini_result.accepted:
+        logger.info(
+            "Recipe extraction used Gemini source_type=json_ld source_url=%s final_url=%s recipe_count=%d model=%s",
+            page.source_url,
+            page.final_url,
+            len(gemini_result.recipes),
+            gemini_result.normalization_model,
+        )
+        return _build_gemini_extraction_result(page, gemini_result)
+
+    legacy_result = _parse_blog_page_with_legacy_logic(page)
+    logger.warning(
+        "Recipe extraction fell back to legacy parser source_type=json_ld source_url=%s final_url=%s fallback_reason=%s recipe_count=%d warning_count=%d",
+        page.source_url,
+        page.final_url,
+        gemini_result.fallback_reason,
+        len(legacy_result.recipes),
+        len(gemini_result.warnings),
+    )
+    return _apply_gemini_fallback_metadata(legacy_result, gemini_result)
