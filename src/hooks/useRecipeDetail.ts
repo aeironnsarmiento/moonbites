@@ -13,11 +13,15 @@ import type {
   UpdateRecipeMetadataPayload,
   UpdateRecipeOverridesPayload,
 } from "../types/recipe";
+import {
+  invalidateRecipeQueries,
+  recipeDetailKey,
+} from "./recipeQueryKeys";
 
 export function useRecipeDetail(recipeImportId: string | undefined) {
   const queryClient = useQueryClient();
   const query = useQuery<RecipeImportRecord>({
-    queryKey: ["recipe-detail", recipeImportId],
+    queryKey: recipeDetailKey(recipeImportId ?? ""),
     queryFn: async () => {
       if (!recipeImportId) {
         throw new Error("Missing recipe id.");
@@ -38,12 +42,7 @@ export function useRecipeDetail(recipeImportId: string | undefined) {
       return adjustRecipeImportTimesCooked(recipeImportId, delta);
     },
     onSuccess: async (record) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["recipe-list"] }),
-        queryClient.invalidateQueries({
-          queryKey: ["recipe-detail", record.id],
-        }),
-      ]);
+      await invalidateRecipeQueries(queryClient, { detailId: record.id });
     },
   });
 
@@ -56,11 +55,8 @@ export function useRecipeDetail(recipeImportId: string | undefined) {
       return deleteRecipeImport(recipeImportId);
     },
     onSuccess: async ({ id }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["recipe-list"] }),
-        queryClient.invalidateQueries({ queryKey: ["highlighted-recipes"] }),
-      ]);
-      queryClient.removeQueries({ queryKey: ["recipe-detail", id], exact: true });
+      await invalidateRecipeQueries(queryClient);
+      queryClient.removeQueries({ queryKey: recipeDetailKey(id), exact: true });
     },
   });
 
@@ -73,12 +69,7 @@ export function useRecipeDetail(recipeImportId: string | undefined) {
       return updateRecipeImportOverrides(recipeImportId, payload);
     },
     onSuccess: async (record) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["recipe-list"] }),
-        queryClient.invalidateQueries({
-          queryKey: ["recipe-detail", record.id],
-        }),
-      ]);
+      await invalidateRecipeQueries(queryClient, { detailId: record.id });
     },
   });
 
@@ -91,12 +82,7 @@ export function useRecipeDetail(recipeImportId: string | undefined) {
       return updateRecipeServings(recipeImportId, servings);
     },
     onSuccess: async (record) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["recipe-list"] }),
-        queryClient.invalidateQueries({
-          queryKey: ["recipe-detail", record.id],
-        }),
-      ]);
+      await invalidateRecipeQueries(queryClient, { detailId: record.id });
     },
   });
 
@@ -109,13 +95,7 @@ export function useRecipeDetail(recipeImportId: string | undefined) {
       return updateRecipeImportMetadata(recipeImportId, payload);
     },
     onSuccess: async (record) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["recipe-list"] }),
-        queryClient.invalidateQueries({ queryKey: ["highlighted-recipes"] }),
-        queryClient.invalidateQueries({
-          queryKey: ["recipe-detail", record.id],
-        }),
-      ]);
+      await invalidateRecipeQueries(queryClient, { detailId: record.id });
     },
   });
 

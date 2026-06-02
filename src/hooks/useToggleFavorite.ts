@@ -1,6 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { toggleFavorite } from "../controllers/recipeController";
+import {
+  HIGHLIGHTED_RECIPES_KEY,
+  RECIPE_LIST_KEY,
+  invalidateRecipeQueries,
+  recipeDetailKey,
+} from "./recipeQueryKeys";
 import type { HighlightedRecipes } from "./useHighlightedRecipes";
 import type { RecipeCardItem, RecipeImportRecord } from "../types/recipe";
 
@@ -91,7 +97,6 @@ function isHighlightedRecipes(data: unknown): data is HighlightedRecipes {
     data &&
       typeof data === "object" &&
       "favorites" in data &&
-      "mostCooked" in data &&
       "recent" in data,
   );
 }
@@ -101,7 +106,7 @@ function findHighlightedItem(
   recipeImportId: string,
 ): RecipeCardItem | null {
   return (
-    [...data.favorites, ...data.mostCooked, ...data.recent].find(
+    [...data.favorites, ...data.recent].find(
       (item) => item.id === recipeImportId,
     ) ?? null
   );
@@ -156,7 +161,6 @@ export function toggleHighlightedRecipesData(
   return {
     ...data,
     favorites,
-    mostCooked: toggleHighlightedList(data.mostCooked, recipeImportId),
     recent: toggleHighlightedList(data.recent, recipeImportId),
     favoriteCount: Math.max(
       0,
@@ -196,11 +200,6 @@ function setHighlightedRecipesFavorite(
   return {
     ...data,
     favorites,
-    mostCooked: setHighlightedListFavorite(
-      data.mostCooked,
-      recipeImportId,
-      isFavorite,
-    ),
     recent: setHighlightedListFavorite(
       data.recent,
       recipeImportId,
@@ -216,32 +215,31 @@ export function useToggleFavorite(recipeImportId: string) {
   return useMutation({
     mutationFn: () => toggleFavorite(recipeImportId),
     onMutate: async () => {
-      await queryClient.cancelQueries({ queryKey: ["recipe-list"] });
-      await queryClient.cancelQueries({ queryKey: ["highlighted-recipes"] });
+      await queryClient.cancelQueries({ queryKey: RECIPE_LIST_KEY });
+      await queryClient.cancelQueries({ queryKey: HIGHLIGHTED_RECIPES_KEY });
       await queryClient.cancelQueries({
-        queryKey: ["recipe-detail", recipeImportId],
+        queryKey: recipeDetailKey(recipeImportId),
       });
 
       const listSnapshots = queryClient
-        .getQueriesData({ queryKey: ["recipe-list"] })
+        .getQueriesData({ queryKey: RECIPE_LIST_KEY })
         .map(([queryKey, data]) => ({ queryKey, data }));
-      const detailSnapshot = queryClient.getQueryData([
-        "recipe-detail",
-        recipeImportId,
-      ]);
-      const highlightedSnapshot = queryClient.getQueryData([
-        "highlighted-recipes",
-      ]);
+      const detailSnapshot = queryClient.getQueryData(
+        recipeDetailKey(recipeImportId),
+      );
+      const highlightedSnapshot = queryClient.getQueryData(
+        HIGHLIGHTED_RECIPES_KEY,
+      );
 
       for (const { queryKey, data } of listSnapshots) {
         queryClient.setQueryData(queryKey, toggleListItem(data, recipeImportId));
       }
       queryClient.setQueryData(
-        ["recipe-detail", recipeImportId],
+        recipeDetailKey(recipeImportId),
         toggleDetailRecord(detailSnapshot, recipeImportId),
       );
       queryClient.setQueryData(
-        ["highlighted-recipes"],
+        HIGHLIGHTED_RECIPES_KEY,
         toggleHighlightedRecipesData(highlightedSnapshot, recipeImportId),
       );
 
@@ -252,11 +250,11 @@ export function useToggleFavorite(recipeImportId: string) {
         queryClient.setQueryData(snapshot.queryKey, snapshot.data);
       }
       queryClient.setQueryData(
-        ["recipe-detail", recipeImportId],
+        recipeDetailKey(recipeImportId),
         context?.detailSnapshot,
       );
       queryClient.setQueryData(
-        ["highlighted-recipes"],
+        HIGHLIGHTED_RECIPES_KEY,
         context?.highlightedSnapshot,
       );
     },
@@ -264,7 +262,7 @@ export function useToggleFavorite(recipeImportId: string) {
       const updatedRecipeImportId = record.id;
       const isFavorite = record.is_favorite;
       const listSnapshots = queryClient.getQueriesData({
-        queryKey: ["recipe-list"],
+        queryKey: RECIPE_LIST_KEY,
       });
 
       for (const [queryKey, data] of listSnapshots) {
@@ -274,30 +272,26 @@ export function useToggleFavorite(recipeImportId: string) {
         );
       }
       queryClient.setQueryData(
-        ["recipe-detail", updatedRecipeImportId],
+        recipeDetailKey(updatedRecipeImportId),
         setDetailRecordFavorite(
-          queryClient.getQueryData(["recipe-detail", updatedRecipeImportId]),
+          queryClient.getQueryData(recipeDetailKey(updatedRecipeImportId)),
           updatedRecipeImportId,
           isFavorite,
         ),
       );
       queryClient.setQueryData(
-        ["highlighted-recipes"],
+        HIGHLIGHTED_RECIPES_KEY,
         setHighlightedRecipesFavorite(
-          queryClient.getQueryData(["highlighted-recipes"]),
+          queryClient.getQueryData(HIGHLIGHTED_RECIPES_KEY),
           updatedRecipeImportId,
           isFavorite,
         ),
       );
     },
     onSettled: async (record) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["recipe-list"] }),
-        queryClient.invalidateQueries({ queryKey: ["highlighted-recipes"] }),
-        queryClient.invalidateQueries({
-          queryKey: ["recipe-detail", record?.id ?? recipeImportId],
-        }),
-      ]);
+      await invalidateRecipeQueries(queryClient, {
+        detailId: record?.id ?? recipeImportId,
+      });
     },
   });
 }

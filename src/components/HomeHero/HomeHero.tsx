@@ -45,9 +45,13 @@ export function HomeHero({
         <div className="homeHero__ring" />
         <div className="homeHero__shadow" />
         <img
-          src="/homepagelogo.png"
+          src="/homepagelogo.webp"
           alt="Moonbites chef duck"
           className="homeHero__mascot"
+          width={1024}
+          height={1024}
+          fetchPriority="high"
+          decoding="async"
         />
       </div>
 
