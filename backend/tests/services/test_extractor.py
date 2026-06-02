@@ -390,7 +390,7 @@ def test_extract_recipes_from_url_uses_matching_wprm_headers_for_flat_json_ld_in
     ]
 
 
-def test_extract_recipes_from_url_returns_gemini_recipe_when_accepted():
+def test_extract_recipes_from_url_keeps_legacy_when_recipes_found_with_rate_key():
     html = """
     <html>
       <head>
@@ -404,6 +404,45 @@ def test_extract_recipes_from_url_returns_gemini_recipe_when_accepted():
             "recipeInstructions":["Bake the legacy recipe."]
           }
         </script>
+      </head>
+      <body></body>
+    </html>
+    """
+    response = _Response(html, "https://example.com/recipe")
+    with (
+        patch("app.services.blog.extractor.get_settings", return_value=_settings()),
+        patch(
+            "app.services.blog.extractor.httpx.AsyncClient",
+            return_value=_AsyncClientContext(),
+        ),
+        patch(
+            "app.services.blog.extractor._get_with_403_retry",
+            new=AsyncMock(return_value=response),
+        ),
+        patch(
+            "app.services.blog.extractor.normalize_with_gemini",
+            new=AsyncMock(),
+        ) as gemini,
+    ):
+        result = asyncio.run(
+            extract_recipes_from_url(
+                "https://example.com/recipe",
+                gemini_rate_key="admin@example.com",
+            )
+        )
+
+    gemini.assert_not_called()
+    assert result.extraction_method is None
+    assert result.normalization_model is None
+    assert result.warnings == []
+    assert result.recipes[0].name == "Legacy Recipe"
+
+
+def test_extract_recipes_from_url_uses_gemini_when_legacy_has_no_recipes():
+    html = """
+    <html>
+      <head>
+        <title>Gemini Fallback</title>
       </head>
       <body></body>
     </html>
@@ -443,10 +482,9 @@ def test_extract_recipes_from_url_returns_gemini_recipe_when_accepted():
     assert result.normalization_model == "gemini-test"
     assert result.warnings == ["gemini warning"]
     assert result.recipes == [_gemini_recipe()]
-    assert result.recipes[0].name != "Legacy Recipe"
 
 
-def test_extract_recipes_from_url_gemini_low_confidence_falls_back_to_html_sections(
+def test_extract_recipes_from_url_gemini_low_confidence_keeps_legacy_empty_result(
     caplog: pytest.LogCaptureFixture,
 ):
     html = """
@@ -458,16 +496,7 @@ def test_extract_recipes_from_url_gemini_low_confidence_falls_back_to_html_secti
         </script>
       </head>
       <body>
-        <article>
-          <h2>Ingredients</h2>
-          <ul>
-            <li>1 cup fallback flour</li>
-          </ul>
-          <h2>Instructions</h2>
-          <ol>
-            <li>Mix the fallback batter.</li>
-          </ol>
-        </article>
+        <article></article>
       </body>
     </html>
     """
@@ -503,14 +532,13 @@ def test_extract_recipes_from_url_gemini_low_confidence_falls_back_to_html_secti
             )
 
     fetch.assert_awaited_once()
-    assert result.extraction_method == "manual_fallback"
+    assert result.extraction_method is None
     assert result.fallback_reason == "low_confidence"
     assert result.normalization_model == "gemini-test"
     assert result.warnings == ["low confidence"]
     assert result.recipe_node_count == 1
-    assert result.recipes[0].ingredients == ["1 cup fallback flour"]
-    assert result.recipes[0].instructions == ["Mix the fallback batter."]
-    assert "Recipe extraction fell back to legacy parser" in caplog.text
+    assert result.recipes == []
+    assert "Gemini recipe extraction fallback failed" in caplog.text
     assert "fallback_reason=low_confidence" in caplog.text
     assert "https://example.com/fallback" in caplog.text
 

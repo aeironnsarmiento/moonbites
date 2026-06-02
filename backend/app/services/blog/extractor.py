@@ -625,7 +625,6 @@ def _build_gemini_extraction_result(
 def _apply_gemini_fallback_metadata(
     result: ExtractionResult, gemini_result: GeminiNormalizationResult
 ) -> ExtractionResult:
-    result.extraction_method = "manual_fallback"
     result.fallback_reason = gemini_result.fallback_reason
     result.warnings = list(gemini_result.warnings)
     result.normalization_model = gemini_result.normalization_model
@@ -637,9 +636,10 @@ async def extract_recipes_from_url(
 ) -> ExtractionResult:
     settings = get_settings()
     page = await _fetch_blog_page(url)
+    legacy_result = _parse_blog_page_with_legacy_logic(page)
 
-    if not gemini_rate_key:
-        return _parse_blog_page_with_legacy_logic(page)
+    if legacy_result.recipes or not gemini_rate_key:
+        return legacy_result
 
     gemini_result = await normalize_with_gemini(
         build_blog_raw_payload(page),
@@ -656,9 +656,8 @@ async def extract_recipes_from_url(
         )
         return _build_gemini_extraction_result(page, gemini_result)
 
-    legacy_result = _parse_blog_page_with_legacy_logic(page)
     logger.warning(
-        "Recipe extraction fell back to legacy parser source_type=json_ld source_url=%s final_url=%s fallback_reason=%s recipe_count=%d warning_count=%d",
+        "Gemini recipe extraction fallback failed source_type=json_ld source_url=%s final_url=%s fallback_reason=%s recipe_count=%d warning_count=%d",
         page.source_url,
         page.final_url,
         gemini_result.fallback_reason,
