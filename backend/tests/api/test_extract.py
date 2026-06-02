@@ -254,7 +254,7 @@ def test_extract_recipe_response_includes_parse_status_recipe():
             ],
             parse_status=ParseStatus.RECIPE,
             extraction_method="gemini",
-            normalization_model="gemini-3-flash-preview",
+            normalization_model="gemini-3.1-flash-lite",
             warnings=["Trimmed raw payload to fit model limits."],
             fallback_reason=None,
         )
@@ -281,7 +281,7 @@ def test_extract_recipe_response_includes_parse_status_recipe():
     assert body["parse_status"] == "recipe"
     assert body["parse_reason"] is None
     assert body["extraction_method"] == "gemini"
-    assert body["normalization_model"] == "gemini-3-flash-preview"
+    assert body["normalization_model"] == "gemini-3.1-flash-lite"
     assert body["warnings"] == ["Trimmed raw payload to fit model limits."]
     assert body["fallback_reason"] is None
 
@@ -308,7 +308,7 @@ def test_extract_recipe_response_includes_rate_limited_fallback_reason():
             ],
             parse_status=ParseStatus.RECIPE,
             extraction_method="manual_fallback",
-            normalization_model="gemini-3-flash-preview",
+            normalization_model="gemini-3.1-flash-lite",
             warnings=["Gemini rate limit reached."],
             fallback_reason="rate_limited",
         )

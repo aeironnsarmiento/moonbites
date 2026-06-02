@@ -12,6 +12,7 @@ from app.core.config import Settings
 from app.schemas.extract import NormalizedRecipe
 from app.services.extraction_types import ExtractionResult, ParseStatus
 from app.services.gemini.normalizer import GeminiNormalizationResult
+from app.services.youtube.description_parser import filter_youtube_description_for_gemini
 from app.services.youtube.extractor import (
     YouTubeSnippet,
     build_youtube_raw_payload,
@@ -36,7 +37,7 @@ def _settings(api_key: str | None = "youtube-key") -> Settings:
         youtube_api_key=api_key,
         gemini_api_key=None,
         gemini_normalization_enabled=False,
-        gemini_model="gemini-3-flash-preview",
+        gemini_model="gemini-3.1-flash-lite",
         gemini_timeout_seconds=8.0,
         gemini_rate_limit_per_minute=3,
     )
@@ -623,11 +624,48 @@ Rice -
     assert result.recipes[0].instructions == ["https://youtu.be/abc123XYZ09"]
 
 
-def test_build_youtube_raw_payload_includes_snippet_metadata():
+def test_filter_youtube_description_for_gemini_keeps_ingredients_and_drops_junk():
+    description = "\n".join(
+        [
+            "Full recipe below!",
+            "Ingredients:",
+            "- 1 cup rice",
+            "- 2 tbsp soy sauce",
+            "Instructions:",
+            "Cook rice for 20 minutes.",
+            "Nutrition:",
+            "Calories: 220",
+            "Follow me on Instagram",
+            "https://amazon.com/example",
+        ]
+    )
+
+    filtered = filter_youtube_description_for_gemini(description)
+
+    assert "Ingredients:" in filtered
+    assert "- 1 cup rice" in filtered
+    assert "- 2 tbsp soy sauce" in filtered
+    assert "Cook rice" not in filtered
+    assert "Calories" not in filtered
+    assert "Instagram" not in filtered
+    assert "amazon.com" not in filtered
+
+
+def test_build_youtube_raw_payload_includes_snippet_metadata_and_filtered_description():
     video = YouTubeSnippet(
         video_id="abc123XYZ09",
         title="Rice Bowl",
-        description="A video description",
+        description="\n".join(
+            [
+                "Buy my cookbook",
+                "Ingredients:",
+                "- 1 cup rice",
+                "- 2 tbsp soy sauce",
+                "Instructions:",
+                "Cook rice.",
+                "Follow me on TikTok",
+            ]
+        ),
         thumbnail_url="https://img.youtube.com/high.jpg",
         channel_name="Moon Bites",
         published_at="2026-05-03T12:00:00Z",
@@ -639,7 +677,7 @@ def test_build_youtube_raw_payload_includes_snippet_metadata():
     assert payload.source_url == "https://youtu.be/abc123XYZ09"
     assert payload.final_url == "https://youtu.be/abc123XYZ09"
     assert payload.title == "Rice Bowl"
-    assert payload.description == "A video description"
+    assert payload.description == "Ingredients:\n- 1 cup rice\n- 2 tbsp soy sauce"
     assert payload.metadata == {
         "channelName": "Moon Bites",
         "publishedAt": "2026-05-03T12:00:00Z",

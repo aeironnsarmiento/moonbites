@@ -14,6 +14,7 @@ from app.services.gemini.guardrails import GeminiGuardrails
 import app.services.gemini.normalizer as gemini_normalizer
 from app.services.gemini.prompt import (
     MAX_SERIALIZED_PAYLOAD_CHARS,
+    MAX_YOUTUBE_DESCRIPTION_CHARS,
     build_gemini_prompt,
 )
 from app.services.gemini.normalizer import normalize_with_gemini
@@ -142,12 +143,12 @@ def test_overlong_youtube_description_is_truncated_and_warning_added():
     payload = RawExtractionPayload(
         source_type="youtube",
         source_url="https://www.youtube.com/watch?v=abc123",
-        description="a" * 20_100,
+        description="a" * 5_100,
     )
 
     prompt = build_gemini_prompt(payload)
 
-    assert len(prompt.payload["description"]) == 20_000
+    assert len(prompt.payload["description"]) == MAX_YOUTUBE_DESCRIPTION_CHARS
     assert any(
         "description" in warning and "truncated" in warning
         for warning in prompt.warnings
@@ -286,7 +287,7 @@ def test_prompt_text_marks_raw_data_as_untrusted_input():
     assert "untrusted input" in "\n".join(prompt.parts).lower()
 
 
-def test_youtube_prompt_includes_source_url_instruction_rule():
+def test_youtube_prompt_focuses_on_ingredients_without_source_url_instruction_rule():
     payload = RawExtractionPayload(
         source_type="youtube",
         source_url="https://www.youtube.com/watch?v=abc123",
@@ -296,7 +297,11 @@ def test_youtube_prompt_includes_source_url_instruction_rule():
     prompt = build_gemini_prompt(payload)
 
     text = "\n".join(prompt.parts)
-    assert "instructions must be exactly [source_url]" in text
+    lowered = text.lower()
+    assert "pre-filtered youtube description" in lowered
+    assert "focus exclusively" in lowered
+    assert "ingredient list" in lowered
+    assert "instructions must be exactly [source_url]" not in text
     assert "https://www.youtube.com/watch?v=abc123" in text
 
 
@@ -366,6 +371,9 @@ def test_valid_response_returns_accepted_recipes_model_and_warnings(
     assert call["model"] == "gemini-test"
     assert "contents" in call
     assert "config" in call
+    assert call["config"]["temperature"] == 0.0
+    assert call["config"]["max_output_tokens"] == 700
+    assert call["config"]["response_mime_type"] == "application/json"
     assert "response_json_schema" in call["config"]
     assert "response_schema" not in call["config"]
 
@@ -416,7 +424,7 @@ def test_prompt_truncation_warnings_are_included_with_model_warnings(
     payload = _payload(
         source_type="youtube",
         source_url="https://www.youtube.com/watch?v=abc123",
-        description="x" * 20_100,
+        description="x" * 5_100,
     )
 
     result = _run(payload, settings=_settings(), rate_key="admin")

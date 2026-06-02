@@ -12,7 +12,7 @@ from pydantic import ValidationError
 try:
     from google import genai
     from google.genai import types as genai_types
-except ModuleNotFoundError:  # pragma: no cover - exercised only without dependency.
+except (ImportError, ModuleNotFoundError):  # pragma: no cover - without dependency.
 
     class _MissingGenAI:
         class Client:  # type: ignore[no-untyped-def]
@@ -250,7 +250,8 @@ async def _call_gemini(*, settings: Settings, contents: list[str]) -> Any:
                 model=settings.gemini_model,
                 contents=contents,
                 config={
-                    "temperature": 0,
+                    "temperature": 0.0,
+                    "max_output_tokens": 700,
                     "response_mime_type": "application/json",
                     "response_json_schema": GeminiRecipeResult.model_json_schema(),
                 },

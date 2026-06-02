@@ -21,6 +21,7 @@ from ..normalizer import normalize_recipe
 from .description_parser import (
     ParsedYouTubeDescription,
     extract_ranked_recipe_urls,
+    filter_youtube_description_for_gemini,
     parse_youtube_description,
 )
 
@@ -181,7 +182,7 @@ def build_youtube_raw_payload(
         source_url=target_url,
         final_url=target_url,
         title=video.title,
-        description=video.description,
+        description=filter_youtube_description_for_gemini(video.description),
         metadata=metadata,
     )
 

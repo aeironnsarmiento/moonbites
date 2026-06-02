@@ -36,7 +36,7 @@ def _settings(admin_emails: tuple[str, ...] = ("admin@example.com",)) -> Setting
         youtube_api_key=None,
         gemini_api_key=None,
         gemini_normalization_enabled=False,
-        gemini_model="gemini-3-flash-preview",
+        gemini_model="gemini-3.1-flash-lite",
         gemini_timeout_seconds=8.0,
         gemini_rate_limit_per_minute=3,
     )

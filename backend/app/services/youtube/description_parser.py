@@ -330,6 +330,54 @@ def _scored_description_lines(description: str) -> list[ScoredLine]:
     ]
 
 
+def filter_youtube_description_for_gemini(description: str) -> str:
+    """Keep recipe ingredient lines while dropping YouTube promo/junk content."""
+    scored_lines = _scored_description_lines(description)
+    filtered_lines: list[str] = []
+    region: Optional[str] = None
+
+    for index, line in enumerate(scored_lines):
+        if line.junk_score >= 5:
+            region = "junk"
+            continue
+
+        if _nutrition_value(line.text)[0]:
+            continue
+
+        if anchor := _classify_region_anchor(line):
+            region = anchor
+            if anchor == "ingredient":
+                filtered_lines.append(line.raw.strip())
+            continue
+
+        if region in {"nutrition", "junk"}:
+            continue
+
+        if _parse_yield(line.text):
+            filtered_lines.append(line.raw.strip())
+            continue
+
+        if _is_ingredient_context_heading(scored_lines, index):
+            region = "ingredient"
+            filtered_lines.append(line.raw.strip())
+            continue
+
+        if region == "instruction" or (
+            line.instruction_score > line.ingredient_score and line.instruction_score >= 3
+        ):
+            continue
+
+        if region == "ingredient":
+            if line.ingredient_score >= 2:
+                filtered_lines.append(line.raw.strip())
+            continue
+
+        if line.ingredient_score > line.instruction_score and line.ingredient_score >= 3:
+            filtered_lines.append(line.raw.strip())
+
+    return "\n".join(filtered_lines)
+
+
 def count_recipe_signals(description: str) -> int:
     return sum(
         1
