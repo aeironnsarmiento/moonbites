@@ -21,13 +21,21 @@ type RecipeItemLayoutProps = {
   variant: "recent-tile" | "favorite-row" | "recipe-card";
   canToggleFavorite?: boolean;
   span?: boolean;
+  entranceIndex?: number;
 };
+
+const entranceFade = (index: number) => ({
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  transition: { delay: index * 0.06, duration: 0.35, ease: "easeOut" as const },
+});
 
 export function RecipeItemLayout({
   item,
   variant,
   canToggleFavorite = true,
   span = false,
+  entranceIndex = 0,
 }: RecipeItemLayoutProps) {
   const toggleFavorite = useToggleFavorite(item.id);
   const navigationLink = useNavigationLink(`/recipes/${item.id}`);
@@ -39,7 +47,8 @@ export function RecipeItemLayout({
     const cuisine = item.primaryRecipe?.recipeCuisine?.[0] ?? null;
 
     return (
-      <article
+      <motion.article
+        {...entranceFade(entranceIndex)}
         className={`recentTile${span ? " recentTile--span" : ""}`}
         onClick={navigationLink.onClick}
         role="link"
@@ -52,6 +61,8 @@ export function RecipeItemLayout({
               src={item.imageUrl}
               alt={item.title}
               className="recentTile__image"
+              loading="lazy"
+              decoding="async"
             />
           ) : null}
           {canToggleFavorite ? (
@@ -75,7 +86,7 @@ export function RecipeItemLayout({
             <span>{item.createdAtLabel}</span>
           </div>
         </div>
-      </article>
+      </motion.article>
     );
   }
 
@@ -83,7 +94,8 @@ export function RecipeItemLayout({
     const cuisine = item.primaryRecipe?.recipeCuisine?.join(", ") ?? null;
 
     return (
-      <div
+      <motion.div
+        {...entranceFade(entranceIndex)}
         className="favoriteRow"
         onClick={navigationLink.onClick}
         role="link"
@@ -96,6 +108,8 @@ export function RecipeItemLayout({
               src={item.imageUrl}
               alt={item.title}
               className="favoriteRow__thumbImage"
+              loading="lazy"
+              decoding="async"
             />
           ) : null}
         </div>
@@ -115,14 +129,24 @@ export function RecipeItemLayout({
             activeClassName="favoriteRow__heart--active"
           />
         ) : null}
-      </div>
+      </motion.div>
     );
   }
 
+  const cardCuisine = item.primaryRecipe?.recipeCuisine?.[0] ?? null;
+
   return (
     <motion.article
-      whileHover={{ y: -4 }}
-      transition={{ duration: 0.2, ease: "easeOut" }}
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileHover={{ y: -4, rotate: -0.5, scale: 1.02 }}
+      whileTap={{ scale: 0.97 }}
+      transition={{
+        type: "spring",
+        stiffness: 300,
+        damping: 20,
+        delay: entranceIndex * 0.06,
+      }}
       className="recipeCard"
       role="link"
       tabIndex={0}
@@ -146,11 +170,31 @@ export function RecipeItemLayout({
             </Stack>
 
             <HStack justify="space-between" align="center" minH="1.5rem">
-              {item.timesCooked > 0 ? (
-                <Badge colorScheme="brand">Cooked {item.timesCooked}x</Badge>
-              ) : (
-                <span />
-              )}
+              <HStack spacing={2}>
+                {item.timesCooked > 0 ? (
+                  <Badge
+                    bg="brand.500"
+                    color="white"
+                    borderRadius="full"
+                    px={3}
+                    py={0.5}
+                  >
+                    Cooked {item.timesCooked}x
+                  </Badge>
+                ) : null}
+                {cardCuisine ? (
+                  <Badge
+                    bg="brand.100"
+                    color="brand.700"
+                    borderRadius="full"
+                    px={3}
+                    py={0.5}
+                  >
+                    {cardCuisine}
+                  </Badge>
+                ) : null}
+                {item.timesCooked === 0 && !cardCuisine ? <span /> : null}
+              </HStack>
               <Text fontSize="sm" color="gray.600">
                 {item.createdAtLabel}
               </Text>

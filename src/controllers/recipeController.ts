@@ -2,6 +2,7 @@ import {
   createManualRecipeImport,
   deleteRecipeImport as deleteRecipeImportRequest,
   fetchCuisineFacets,
+  fetchHighlightedRecipes,
   fetchRecipeImportById,
   fetchRecipeImports,
   patchRecipeImportMetadata,
@@ -61,6 +62,34 @@ export async function getRecipeListPage(query: RecipeListQuery) {
   return {
     ...response,
     items: items.map(mapRecipeImportToCard),
+  };
+}
+
+export type HighlightedRecipes = {
+  favorites: RecipeCardItem[];
+  recent: RecipeCardItem[];
+  totalCount: number;
+  favoriteCount: number;
+};
+
+export async function getHighlightedRecipes(
+  recentLimit = 5,
+  favoriteLimit = 4,
+): Promise<HighlightedRecipes> {
+  const response = await fetchHighlightedRecipes(recentLimit, favoriteLimit);
+  if (
+    !response ||
+    !Array.isArray(response.recent) ||
+    !Array.isArray(response.favorites)
+  ) {
+    throw new Error("Recipes API returned an invalid highlights response.");
+  }
+
+  return {
+    recent: dedupeRecipeImports(response.recent).map(mapRecipeImportToCard),
+    favorites: dedupeRecipeImports(response.favorites).map(mapRecipeImportToCard),
+    totalCount: response.total_count,
+    favoriteCount: response.favorite_count,
   };
 }
 

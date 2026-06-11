@@ -10,7 +10,6 @@ import {
   PopoverTrigger,
   Select,
   SimpleGrid,
-  Spinner,
   Stack,
   Text,
 } from "@chakra-ui/react";
@@ -19,8 +18,9 @@ import { type ButtonHTMLAttributes, forwardRef } from "react";
 import type { CuisineFacet, RecipeSortOption } from "../../types/api";
 import type { RecipeCardItem } from "../../types/recipe";
 import { useAuth } from "../../hooks/useAuth";
-import { FilterSortIcon, SearchGlyph } from "../Icons";
+import { BowlDoodle, FilterSortIcon, SearchGlyph } from "../Icons";
 import { RecipeCard } from "../RecipeCard/RecipeCard";
+import { RecipeCardSkeleton } from "../RecipeCard/RecipeCardSkeleton";
 import "./RecipeList.scss";
 
 type RecipeListProps = {
@@ -127,10 +127,11 @@ export function RecipeList({
       </Box>
 
       {isLoading ? (
-        <Stack align="center" justify="center" py={16}>
-          <Spinner size="xl" color="brand.600" />
-          <Text color="gray.500">Loading saved recipes…</Text>
-        </Stack>
+        <SimpleGrid columns={{ base: 1, md: 2 }} spacing={5}>
+          {Array.from({ length: 6 }, (_, index) => (
+            <RecipeCardSkeleton key={index} />
+          ))}
+        </SimpleGrid>
       ) : null}
 
       {!isLoading && error ? (
@@ -141,7 +142,10 @@ export function RecipeList({
       ) : null}
 
       {!isLoading && !error && items.length === 0 ? (
-        <Box className="recipeList__empty">
+        <Box className="recipeList__empty" textAlign="center">
+          <Box color="brand.600" display="inline-flex" mb={3}>
+            <BowlDoodle />
+          </Box>
           <Text fontWeight="600">No recipes match these filters.</Text>
           <Text color="gray.500">
             Try a different search term, sort, or cuisine.
@@ -151,8 +155,13 @@ export function RecipeList({
 
       {!isLoading && !error && items.length > 0 ? (
         <SimpleGrid columns={{ base: 1, md: 2 }} spacing={5}>
-          {items.map((item) => (
-            <RecipeCard key={item.id} item={item} canToggleFavorite={isAdmin} />
+          {items.map((item, index) => (
+            <RecipeCard
+              key={item.id}
+              item={item}
+              canToggleFavorite={isAdmin}
+              entranceIndex={index}
+            />
           ))}
         </SimpleGrid>
       ) : null}

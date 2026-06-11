@@ -23,12 +23,13 @@ export function HomeRecentGrid({
         span={rest.length > 0}
         canToggleFavorite={canToggleFavorite}
       />
-      {rest.map((item) => (
+      {rest.map((item, index) => (
         <RecipeItemLayout
           key={item.id}
           item={item}
           variant="recent-tile"
           canToggleFavorite={canToggleFavorite}
+          entranceIndex={index + 1}
         />
       ))}
     </div>

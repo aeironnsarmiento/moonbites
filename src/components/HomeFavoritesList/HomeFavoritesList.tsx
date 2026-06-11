@@ -1,4 +1,5 @@
 import type { RecipeCardItem } from "../../types/recipe";
+import { BowlDoodle } from "../Icons";
 import { RecipeItemLayout } from "../RecipeItemLayout/RecipeItemLayout";
 import "./HomeFavoritesList.scss";
 
@@ -13,20 +14,22 @@ export function HomeFavoritesList({
 }: HomeFavoritesListProps) {
   if (items.length === 0) {
     return (
-      <p className="homeFavoritesList__empty">
-        No favorites yet. Tap the heart on any recipe.
-      </p>
+      <div className="homeFavoritesList__empty">
+        <BowlDoodle />
+        <p>No favorites yet. Tap the heart on any recipe to pin it here.</p>
+      </div>
     );
   }
 
   return (
     <div className="homeFavoritesList">
-      {items.map((item) => (
+      {items.map((item, index) => (
         <RecipeItemLayout
           key={item.id}
           item={item}
           variant="favorite-row"
           canToggleFavorite={canToggleFavorite}
+          entranceIndex={index}
         />
       ))}
     </div>

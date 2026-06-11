@@ -71,3 +71,23 @@ export function FilterSortIcon() {
     </svg>
   );
 }
+
+export function BowlDoodle({ size = 56 }: { size?: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M10 32h44a22 22 0 0 1-44 0Z" />
+      <path d="M22 32c1-7 4-12 10-15M36 30c0-5 3-9 8-11" />
+      <path d="M26 54h12M30 54v4M34 54v4" />
+    </svg>
+  );
+}

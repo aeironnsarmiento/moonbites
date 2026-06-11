@@ -21,7 +21,13 @@ export function CardImage({
   return (
     <div className="cardImage">
       {imageUrl ? (
-        <img className="cardImage__image" src={imageUrl} alt={title} loading="lazy" />
+        <img
+          className="cardImage__image"
+          src={imageUrl}
+          alt={title}
+          loading="lazy"
+          decoding="async"
+        />
       ) : (
         <div className="cardImage__placeholder" aria-hidden="true">
           <Icon viewBox="0 0 24 24" boxSize={12}>

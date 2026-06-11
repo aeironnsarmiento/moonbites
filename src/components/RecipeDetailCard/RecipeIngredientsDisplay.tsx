@@ -1,9 +1,4 @@
-import {
-  ListItem,
-  Stack,
-  Text,
-  UnorderedList,
-} from "@chakra-ui/react";
+import { Checkbox, Stack, Text } from "@chakra-ui/react";
 
 import type { IngredientSection } from "../../types/recipe";
 import { RecipeDiffText } from "./RecipeDiffText";
@@ -35,6 +30,37 @@ function renderIngredientText(
   );
 }
 
+function IngredientCheckboxRow({
+  children,
+  rowKey,
+}: {
+  children: React.ReactNode;
+  rowKey: string;
+}) {
+  return (
+    <Checkbox
+      key={rowKey}
+      size="lg"
+      colorScheme="brand"
+      alignItems="flex-start"
+      sx={{
+        ".chakra-checkbox__control": {
+          borderRadius: "8px",
+          marginTop: "2px",
+        },
+        "&[data-checked] .chakra-checkbox__label": {
+          opacity: 0.55,
+          textDecoration: "line-through",
+        },
+      }}
+    >
+      <Text as="span" fontSize="md">
+        {children}
+      </Text>
+    </Checkbox>
+  );
+}
+
 export function RecipeIngredientsDisplay({
   originalRows,
   scaledVisibleIngredients,
@@ -54,22 +80,25 @@ export function RecipeIngredientsDisplay({
           return (
             <Stack key={`${section.title ?? "ingredients"}-${sectionIndex}`} spacing={2}>
               {section.title ? <Text fontWeight="700">{section.title}</Text> : null}
-              <UnorderedList spacing={2} className="recipeDetailCard__list">
+              <Stack spacing={2} className="recipeDetailCard__list">
                 {section.items.map((ingredient, itemIndex) => {
                   const rowIndex = sectionStart + itemIndex;
 
                   return (
-                    <ListItem key={`ingredient-${rowIndex}`}>
+                    <IngredientCheckboxRow
+                      key={`ingredient-${rowIndex}`}
+                      rowKey={`ingredient-${rowIndex}`}
+                    >
                       {renderIngredientText(
                         originalRows[rowIndex] ?? "",
                         ingredient,
                         `ingredient-${rowIndex}`,
                         scaleFactor,
                       )}
-                    </ListItem>
+                    </IngredientCheckboxRow>
                   );
                 })}
-              </UnorderedList>
+              </Stack>
             </Stack>
           );
         })}
@@ -78,17 +107,20 @@ export function RecipeIngredientsDisplay({
   }
 
   return (
-    <UnorderedList spacing={2} className="recipeDetailCard__list">
+    <Stack spacing={2} className="recipeDetailCard__list">
       {scaledVisibleIngredients.map((ingredient, rowIndex) => (
-        <ListItem key={`ingredient-${rowIndex}`}>
+        <IngredientCheckboxRow
+          key={`ingredient-${rowIndex}`}
+          rowKey={`ingredient-${rowIndex}`}
+        >
           {renderIngredientText(
             originalRows[rowIndex] ?? "",
             ingredient,
             `ingredient-${rowIndex}`,
             scaleFactor,
           )}
-        </ListItem>
+        </IngredientCheckboxRow>
       ))}
-    </UnorderedList>
+    </Stack>
   );
 }
