@@ -3,24 +3,14 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getRecipeListPage } from "../controllers/recipeController";
+import { getHighlightedRecipes } from "../controllers/recipeController";
 import { useHighlightedRecipes } from "./useHighlightedRecipes";
 
 vi.mock("../controllers/recipeController", () => ({
-  getRecipeListPage: vi.fn(),
+  getHighlightedRecipes: vi.fn(),
 }));
 
-const mockedGetRecipeListPage = vi.mocked(getRecipeListPage);
-
-function emptyPage(totalCount: number) {
-  return {
-    items: [],
-    page: 1,
-    page_size: 10,
-    total_count: totalCount,
-    total_pages: 1,
-  };
-}
+const mockedGetHighlightedRecipes = vi.mocked(getHighlightedRecipes);
 
 function createQueryClient() {
   return new QueryClient({
@@ -38,13 +28,16 @@ function wrapper(queryClient: QueryClient) {
 
 describe("useHighlightedRecipes", () => {
   beforeEach(() => {
-    mockedGetRecipeListPage.mockReset();
+    mockedGetHighlightedRecipes.mockReset();
   });
 
-  it("issues exactly 2 list requests (favorites + recent)", async () => {
-    mockedGetRecipeListPage.mockImplementation(async (query) =>
-      query.favorite ? emptyPage(7) : emptyPage(42),
-    );
+  it("issues a single highlights request", async () => {
+    mockedGetHighlightedRecipes.mockResolvedValue({
+      recent: [],
+      favorites: [],
+      totalCount: 42,
+      favoriteCount: 7,
+    });
 
     const { result } = renderHook(() => useHighlightedRecipes(), {
       wrapper: wrapper(createQueryClient()),
@@ -52,13 +45,16 @@ describe("useHighlightedRecipes", () => {
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect(mockedGetRecipeListPage).toHaveBeenCalledTimes(2);
+    expect(mockedGetHighlightedRecipes).toHaveBeenCalledTimes(1);
   });
 
-  it("derives totalCount from recent and favoriteCount from favorites", async () => {
-    mockedGetRecipeListPage.mockImplementation(async (query) =>
-      query.favorite ? emptyPage(7) : emptyPage(42),
-    );
+  it("exposes counts from the highlights response", async () => {
+    mockedGetHighlightedRecipes.mockResolvedValue({
+      recent: [],
+      favorites: [],
+      totalCount: 42,
+      favoriteCount: 7,
+    });
 
     const { result } = renderHook(() => useHighlightedRecipes(), {
       wrapper: wrapper(createQueryClient()),
@@ -68,5 +64,21 @@ describe("useHighlightedRecipes", () => {
 
     expect(result.current.data.totalCount).toBe(42);
     expect(result.current.data.favoriteCount).toBe(7);
+  });
+
+  it("surfaces an error message when the request fails", async () => {
+    mockedGetHighlightedRecipes.mockRejectedValue(
+      new Error("Recipes API returned an invalid highlights response."),
+    );
+
+    const { result } = renderHook(() => useHighlightedRecipes(), {
+      wrapper: wrapper(createQueryClient()),
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.error).toBe(
+      "Recipes API returned an invalid highlights response.",
+    );
   });
 });

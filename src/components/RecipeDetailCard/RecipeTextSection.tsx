@@ -1,8 +1,7 @@
 import {
+  Flex,
   Heading,
   HStack,
-  ListItem,
-  OrderedList,
   SimpleGrid,
   Stack,
   Text,
@@ -86,17 +85,38 @@ export function RecipeTextSection(props: RecipeTextSectionProps) {
       {props.isEditing ? (
         props.editorRows
       ) : (
-        <OrderedList spacing={3} className="recipeDetailCard__list">
+        <Stack as="ol" spacing={4} listStyleType="none" m={0} p={0}>
           {props.visibleRows.map((instruction, rowIndex) => (
-            <ListItem key={`instruction-${rowIndex}`}>
-              <RecipeDiffText
-                originalValue={props.originalRows[rowIndex] ?? ""}
-                editedValue={instruction}
-                keyPrefix={`instruction-${rowIndex}`}
-              />
-            </ListItem>
+            <HStack
+              as="li"
+              key={`instruction-${rowIndex}`}
+              align="flex-start"
+              spacing={4}
+            >
+              <Flex
+                boxSize="28px"
+                borderRadius="full"
+                bg="brand.500"
+                color="white"
+                fontSize="sm"
+                fontWeight="700"
+                align="center"
+                justify="center"
+                flexShrink={0}
+                aria-hidden="true"
+              >
+                {rowIndex + 1}
+              </Flex>
+              <Text pt="2px">
+                <RecipeDiffText
+                  originalValue={props.originalRows[rowIndex] ?? ""}
+                  editedValue={instruction}
+                  keyPrefix={`instruction-${rowIndex}`}
+                />
+              </Text>
+            </HStack>
           ))}
-        </OrderedList>
+        </Stack>
       )}
     </Stack>
   );

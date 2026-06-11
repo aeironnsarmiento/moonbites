@@ -170,6 +170,13 @@ class PaginatedRecipeImportsResponse(BaseModel):
     total_pages: int
 
 
+class HighlightedRecipesResponse(BaseModel):
+    recent: list[RecipeImportRecord]
+    favorites: list[RecipeImportRecord]
+    total_count: int
+    favorite_count: int
+
+
 class JsonLdBlock(BaseModel):
     index: int
     raw: str

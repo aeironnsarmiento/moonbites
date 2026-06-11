@@ -9,6 +9,7 @@ from ...repositories.recipe_imports import (
     delete_recipe_import,
     get_recipe_import,
     list_cuisine_facets,
+    list_highlighted_recipes,
     list_recipe_imports,
     save_manual_recipe,
     toggle_favorite,
@@ -22,6 +23,7 @@ from ...schemas.extract import (
     CreateManualRecipeRequest,
     CuisineFacetsResponse,
     DeleteRecipeImportResponse,
+    HighlightedRecipesResponse,
     PaginatedRecipeImportsResponse,
     RecipeImportRecord,
     RecipeSortOption,
@@ -91,6 +93,22 @@ async def get_saved_recipes(
 async def get_recipe_cuisines(request: Request) -> CuisineFacetsResponse:
     try:
         return list_cuisine_facets()
+    except RuntimeError as error:
+        _raise_repository_http_error(error)
+
+
+@router.get("/recipes/highlights", response_model=HighlightedRecipesResponse)
+@limiter.limit("60/minute")
+async def get_recipe_highlights(
+    request: Request,
+    recent_limit: int = Query(default=5, ge=1, le=20),
+    favorite_limit: int = Query(default=4, ge=1, le=20),
+) -> HighlightedRecipesResponse:
+    try:
+        return list_highlighted_recipes(
+            recent_limit=recent_limit,
+            favorite_limit=favorite_limit,
+        )
     except RuntimeError as error:
         _raise_repository_http_error(error)
 

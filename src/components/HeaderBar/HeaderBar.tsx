@@ -45,7 +45,13 @@ export function HeaderBar() {
     >
       <Flex align="center" justify="space-between" className="headerBar__inner">
         <Box as={Link} to="/" className="headerBar__brand">
-          <Image src="/favicon.png" alt="" className="headerBar__brandIcon" />
+          <motion.span
+            whileHover={{ rotate: [0, -8, 8, -4, 0] }}
+            transition={{ duration: 0.5, ease: "easeInOut" }}
+            style={{ display: "inline-flex" }}
+          >
+            <Image src="/favicon.png" alt="" className="headerBar__brandIcon" />
+          </motion.span>
           <Box className="headerBar__brandText">
             <Text as="span">Moonbites</Text>
             <Text as="span">Cookbook</Text>

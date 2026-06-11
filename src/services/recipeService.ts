@@ -2,6 +2,7 @@ import { apiRequest } from "./apiClient";
 import type {
   CuisineFacetsResponse,
   DeleteRecipeImportResponse,
+  HighlightedRecipesResponse,
   PaginatedRecipeImportsResponse,
   RecipeListQuery,
 } from "../types/api";
@@ -43,6 +44,20 @@ export function fetchRecipeImports({
 
   return apiRequest<PaginatedRecipeImportsResponse>(
     `/api/recipes?${searchParams.toString()}`,
+  );
+}
+
+export function fetchHighlightedRecipes(
+  recentLimit: number,
+  favoriteLimit: number,
+): Promise<HighlightedRecipesResponse> {
+  const searchParams = new URLSearchParams({
+    recent_limit: String(recentLimit),
+    favorite_limit: String(favoriteLimit),
+  });
+
+  return apiRequest<HighlightedRecipesResponse>(
+    `/api/recipes/highlights?${searchParams.toString()}`,
   );
 }
 

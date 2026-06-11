@@ -10,6 +10,7 @@ from ..core.config import get_settings
 from ..schemas.extract import (
     CuisineFacet,
     CuisineFacetsResponse,
+    HighlightedRecipesResponse,
     NormalizedRecipe,
     PaginatedRecipeImportsResponse,
     RecipeImportRecord,
@@ -488,6 +489,30 @@ def list_recipe_imports(
         page_size=page_size,
         total_count=total_count,
         total_pages=total_pages,
+    )
+
+
+def list_highlighted_recipes(
+    recent_limit: int,
+    favorite_limit: int,
+) -> HighlightedRecipesResponse:
+    recent = list_recipe_imports(
+        page=1,
+        page_size=recent_limit,
+        sort=RecipeSortOption.recent,
+    )
+    favorites = list_recipe_imports(
+        page=1,
+        page_size=favorite_limit,
+        sort=RecipeSortOption.recent,
+        favorite=True,
+    )
+
+    return HighlightedRecipesResponse(
+        recent=recent.items,
+        favorites=favorites.items,
+        total_count=recent.total_count,
+        favorite_count=favorites.total_count,
     )
 
 

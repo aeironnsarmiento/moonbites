@@ -17,6 +17,13 @@ export type PaginatedRecipeImportsResponse = {
   total_pages: number;
 };
 
+export type HighlightedRecipesResponse = {
+  recent: RecipeImportRecord[];
+  favorites: RecipeImportRecord[];
+  total_count: number;
+  favorite_count: number;
+};
+
 export type RecipeSortOption = "recent" | "az" | "za" | "times_cooked" | "favorites";
 
 export type RecipeListQuery = {
