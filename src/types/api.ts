@@ -4,9 +4,16 @@ export type ExtractResponse = {
   source_url: string;
   final_url: string;
   title: string | null;
+  image_url?: string | null;
   recipes: NormalizedRecipe[];
   database_saved: boolean;
   database_message: string | null;
+  parse_status?: string;
+  parse_reason?: string | null;
+  extraction_method?: "gemini" | "manual_fallback" | null;
+  normalization_model?: string | null;
+  warnings?: string[];
+  fallback_reason?: string | null;
 };
 
 export type PaginatedRecipeImportsResponse = {

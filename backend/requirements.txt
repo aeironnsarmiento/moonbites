@@ -5,3 +5,4 @@ httpx
 supabase
 python-dotenv
 slowapi>=0.1.9
+google-genai
