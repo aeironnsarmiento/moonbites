@@ -1,31 +1,64 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
-import { Heading, Stack, Text } from "@chakra-ui/react";
+import { Button, Heading, HStack, Stack, Text } from "@chakra-ui/react";
 import { useSearchParams } from "react-router-dom";
 
 import { PaginationControls } from "../../components/PaginationControls/PaginationControls";
 import { RecipeList } from "../../components/RecipeList/RecipeList";
 import { useCuisineFacets } from "../../hooks/useCuisineFacets";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useRecipeList } from "../../hooks/useRecipeList";
 import { useRecipeListPreferences } from "../../hooks/useRecipeListPreferences";
 import type { RecipeSortOption } from "../../types/api";
+import { normalizeSearchTerm } from "../../utils/searchTerm";
 import "./RecipeListPage.scss";
 
 const PAGE_SIZE = 10;
+const SEARCH_DEBOUNCE_MS = 300;
 
 export function RecipeListPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [page, setPage] = useState(1);
-  const [searchTerm, setSearchTerm] = useState("");
+  const [searchTerm, setSearchTerm] = useState(
+    () => searchParams.get("q") ?? "",
+  );
   const { sort, cuisine, setSort, setCuisine } = useRecipeListPreferences();
-  const { data, error, isLoading } = useRecipeList({
+
+  const favoriteOnly = searchParams.get("favorite") === "true";
+  const debouncedSearchTerm = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS);
+  const activeSearch = normalizeSearchTerm(debouncedSearchTerm);
+
+  const [previousSearch, setPreviousSearch] = useState(activeSearch);
+  if (previousSearch !== activeSearch) {
+    setPreviousSearch(activeSearch);
+    setPage(1);
+  }
+
+  const { data, error, isLoading, isFetching } = useRecipeList({
     page,
     pageSize: PAGE_SIZE,
     sort,
     cuisine: cuisine || null,
-    favorite: searchParams.get("favorite") === "true" ? true : null,
+    favorite: favoriteOnly ? true : null,
+    search: activeSearch,
   });
   const { facets: cuisineFacets } = useCuisineFacets();
+
+  const handleSearchTermChange = (value: string) => {
+    setSearchTerm(value);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value.trim()) {
+          next.set("q", value);
+        } else {
+          next.delete("q");
+        }
+        return next;
+      },
+      { replace: true },
+    );
+  };
 
   const handleSortChange = (nextSort: RecipeSortOption) => {
     setSort(nextSort);
@@ -37,30 +70,27 @@ export function RecipeListPage() {
     setPage(1);
   };
 
-  const filteredItems = useMemo(() => {
-    if (!data) {
-      return [];
-    }
+  const hasRestrictingFilters = Boolean(cuisine) || favoriteOnly;
 
-    const normalizedQuery = searchTerm.trim().toLowerCase();
-    if (!normalizedQuery) {
-      return data.items;
-    }
+  const handleClearFilters = () => {
+    setCuisine("");
+    setPage(1);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("favorite");
+        return next;
+      },
+      { replace: true },
+    );
+  };
 
-    return data.items.filter((item) => {
-      const haystacks = [
-        item.title,
-        item.pageTitle ?? "",
-        item.submittedUrl,
-        item.primaryRecipe?.cookTime ?? "",
-        item.primaryRecipe?.recipeYield ?? "",
-      ];
-
-      return haystacks.some((value) =>
-        value.toLowerCase().includes(normalizedQuery),
-      );
-    });
-  }, [data, searchTerm]);
+  const restrictionLabel = [
+    cuisine ? `${cuisine} cuisine` : null,
+    favoriteOnly ? "favorites" : null,
+  ]
+    .filter(Boolean)
+    .join(" and ");
 
   return (
     <Stack spacing={8} className="recipeListPage">
@@ -72,17 +102,40 @@ export function RecipeListPage() {
         <Text color="gray.600">All your saved recipes.</Text>
       </Stack>
 
+      {activeSearch && hasRestrictingFilters ? (
+        <HStack
+          className="recipeListPage__restriction"
+          justify="space-between"
+          flexWrap="wrap"
+        >
+          <Text color="gray.600">
+            Searching within {restrictionLabel} — {data?.total_count ?? 0}{" "}
+            matching recipes
+          </Text>
+          <Button
+            size="sm"
+            variant="ghost"
+            colorScheme="brand"
+            onClick={handleClearFilters}
+          >
+            Clear filters
+          </Button>
+        </HStack>
+      ) : null}
+
       <RecipeList
-        items={filteredItems}
+        items={data?.items ?? []}
         searchTerm={searchTerm}
-        onSearchTermChange={setSearchTerm}
+        onSearchTermChange={handleSearchTermChange}
         sort={sort}
         onSortChange={handleSortChange}
         cuisine={cuisine}
         onCuisineChange={handleCuisineChange}
         cuisineFacets={cuisineFacets}
         isLoading={isLoading}
+        isRefreshing={isFetching && !isLoading}
         error={error}
+        onClearFilters={hasRestrictingFilters ? handleClearFilters : undefined}
       />
 
       <PaginationControls

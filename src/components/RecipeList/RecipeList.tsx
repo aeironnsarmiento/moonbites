@@ -3,6 +3,8 @@ import {
   AlertDescription,
   AlertIcon,
   Box,
+  Button,
+  HStack,
   Popover,
   PopoverArrow,
   PopoverBody,
@@ -10,6 +12,7 @@ import {
   PopoverTrigger,
   Select,
   SimpleGrid,
+  Spinner,
   Stack,
   Text,
 } from "@chakra-ui/react";
@@ -23,7 +26,7 @@ import { RecipeCard } from "../RecipeCard/RecipeCard";
 import { RecipeCardSkeleton } from "../RecipeCard/RecipeCardSkeleton";
 import "./RecipeList.scss";
 
-type RecipeListProps = {
+export type RecipeListProps = {
   items: RecipeCardItem[];
   searchTerm: string;
   onSearchTermChange: (value: string) => void;
@@ -33,7 +36,9 @@ type RecipeListProps = {
   onCuisineChange: (value: string) => void;
   cuisineFacets: CuisineFacet[];
   isLoading: boolean;
+  isRefreshing?: boolean;
   error: string;
+  onClearFilters?: () => void;
 };
 
 const SortChip = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement>>(
@@ -63,7 +68,9 @@ export function RecipeList({
   onCuisineChange,
   cuisineFacets,
   isLoading,
+  isRefreshing = false,
   error,
+  onClearFilters,
 }: RecipeListProps) {
   const { isAdmin } = useAuth();
 
@@ -76,10 +83,29 @@ export function RecipeList({
           </span>
           <input
             className="recipeList__searchInput"
-            placeholder="Filter recipes on this page"
+            placeholder="Search all recipes"
             value={searchTerm}
             onChange={(event) => onSearchTermChange(event.target.value)}
           />
+          {isRefreshing ? (
+            <span
+              className="recipeList__refreshIndicator"
+              role="status"
+              aria-label="Updating results"
+            >
+              <Spinner size="sm" color="brand.500" />
+            </span>
+          ) : null}
+          {searchTerm ? (
+            <button
+              type="button"
+              className="recipeList__clearSearch"
+              aria-label="Clear search"
+              onClick={() => onSearchTermChange("")}
+            >
+              ×
+            </button>
+          ) : null}
           <span className="recipeList__searchDivider" aria-hidden="true" />
           <Popover placement="bottom-end">
             <PopoverTrigger>
@@ -150,6 +176,30 @@ export function RecipeList({
           <Text color="gray.500">
             Try a different search term, sort, or cuisine.
           </Text>
+          {searchTerm || onClearFilters ? (
+            <HStack justify="center" spacing={3} mt={4}>
+              {searchTerm ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  colorScheme="brand"
+                  onClick={() => onSearchTermChange("")}
+                >
+                  Clear search
+                </Button>
+              ) : null}
+              {onClearFilters ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  colorScheme="brand"
+                  onClick={onClearFilters}
+                >
+                  Clear filters
+                </Button>
+              ) : null}
+            </HStack>
+          ) : null}
         </Box>
       ) : null}
 
