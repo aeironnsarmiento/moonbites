@@ -10,6 +10,7 @@ import {
   type RecipeListPageData,
 } from "../controllers/recipeController";
 import type { RecipeSortOption } from "../types/api";
+import { normalizeSearchTerm } from "../utils/searchTerm";
 
 type UseRecipeListParams = {
   page: number;
@@ -17,7 +18,20 @@ type UseRecipeListParams = {
   sort: RecipeSortOption;
   cuisine: string | null;
   favorite?: boolean | null;
+  search?: string | null;
 };
+
+function recipeListQueryKey(
+  page: number,
+  pageSize: number,
+  sort: RecipeSortOption,
+  cuisine: string | null,
+  favorite: boolean | null,
+  search: string | null,
+) {
+  const key = ["recipe-list", page, pageSize, sort, cuisine, favorite];
+  return search ? [...key, search] : key;
+}
 
 export function useRecipeList({
   page,
@@ -25,11 +39,20 @@ export function useRecipeList({
   sort,
   cuisine,
   favorite = null,
+  search = null,
 }: UseRecipeListParams) {
   const queryClient = useQueryClient();
   const normalizedCuisine = cuisine && cuisine.length > 0 ? cuisine : null;
+  const normalizedSearch = normalizeSearchTerm(search);
   const query = useQuery<RecipeListPageData>({
-    queryKey: ["recipe-list", page, pageSize, sort, normalizedCuisine, favorite],
+    queryKey: recipeListQueryKey(
+      page,
+      pageSize,
+      sort,
+      normalizedCuisine,
+      favorite,
+      normalizedSearch,
+    ),
     queryFn: () =>
       getRecipeListPage({
         page,
@@ -37,6 +60,7 @@ export function useRecipeList({
         sort,
         cuisine: normalizedCuisine,
         favorite,
+        search: normalizedSearch,
       }),
     placeholderData: keepPreviousData,
   });
@@ -50,14 +74,14 @@ export function useRecipeList({
     }
 
     void queryClient.prefetchQuery({
-      queryKey: [
-        "recipe-list",
+      queryKey: recipeListQueryKey(
         nextPage,
         pageSize,
         sort,
         normalizedCuisine,
         favorite,
-      ],
+        normalizedSearch,
+      ),
       queryFn: () =>
         getRecipeListPage({
           page: nextPage,
@@ -65,6 +89,7 @@ export function useRecipeList({
           sort,
           cuisine: normalizedCuisine,
           favorite,
+          search: normalizedSearch,
         }),
       staleTime: 1000 * 60 * 5,
     });
@@ -74,6 +99,7 @@ export function useRecipeList({
     queryClient,
     sort,
     normalizedCuisine,
+    normalizedSearch,
     totalPages,
     favorite,
   ]);
