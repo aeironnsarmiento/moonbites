@@ -399,3 +399,142 @@ $$;
 grant execute on function public.increment_times_cooked(uuid, int) to authenticated;
 grant execute on function public.toggle_recipe_favorite(uuid) to authenticated;
 grant execute on function public.set_recipe_override(uuid, text, jsonb) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Global recipe search: ranked, filtered, paginated search RPC.
+-- Dropped before create because "create or replace" cannot change the
+-- signature of a table-returning function on schema re-apply.
+-- ---------------------------------------------------------------------------
+
+drop function if exists public.search_recipe_imports(text, text, boolean, text, integer, integer);
+
+create function public.search_recipe_imports(
+  p_term text,
+  p_cuisine text default null,
+  p_favorite boolean default null,
+  p_sort text default 'recent',
+  p_limit integer default 10,
+  p_offset integer default 0
+) returns table (
+  id uuid,
+  submitted_url text,
+  final_url text,
+  page_title text,
+  times_cooked integer,
+  recipes_json jsonb,
+  recipe_overrides_json jsonb,
+  image_url text,
+  is_favorite boolean,
+  servings integer,
+  created_at timestamptz,
+  total_count bigint
+)
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  with patterns as (
+    select
+      lower(btrim(coalesce(p_term, ''))) as exact_term,
+      replace(replace(replace(btrim(coalesce(p_term, '')), '\', '\\'), '%', '\%'), '_', '\_') as escaped_term
+  ),
+  matched as (
+    select
+      r.id,
+      r.submitted_url,
+      r.final_url,
+      r.page_title,
+      r.times_cooked,
+      r.recipes_json,
+      r.recipe_overrides_json,
+      r.image_url,
+      r.is_favorite,
+      r.servings,
+      r.created_at,
+      case
+        when lower(coalesce(r.recipes_json->0->>'name', '')) = p.exact_term
+          or lower(coalesce(r.page_title, '')) = p.exact_term
+          then 1
+        when coalesce(r.recipes_json->0->>'name', '') ilike p.escaped_term || '%'
+          or coalesce(r.page_title, '') ilike p.escaped_term || '%'
+          then 2
+        when coalesce(r.recipes_json->0->>'name', '') ilike '%' || p.escaped_term || '%'
+          or coalesce(r.page_title, '') ilike '%' || p.escaped_term || '%'
+          then 3
+        else 4
+      end as match_rank
+    from public.recipe_imports r, patterns p
+    where (
+        coalesce(r.recipes_json->0->>'name', '') ilike '%' || p.escaped_term || '%'
+        or coalesce(r.page_title, '') ilike '%' || p.escaped_term || '%'
+        or exists (
+          select 1
+          from jsonb_array_elements(
+            case jsonb_typeof(r.recipes_json)
+              when 'array' then r.recipes_json
+              else '[]'::jsonb
+            end
+          ) recipe(node),
+          lateral jsonb_array_elements_text(
+            case jsonb_typeof(recipe.node->'ingredients')
+              when 'array' then recipe.node->'ingredients'
+              else '[]'::jsonb
+            end
+          ) ingredient(value)
+          where ingredient.value ilike '%' || p.escaped_term || '%'
+        )
+        or exists (
+          select 1
+          from jsonb_array_elements(
+            case jsonb_typeof(r.recipes_json)
+              when 'array' then r.recipes_json
+              else '[]'::jsonb
+            end
+          ) recipe(node),
+          lateral jsonb_array_elements_text(
+            case jsonb_typeof(recipe.node->'recipeCuisine')
+              when 'array' then recipe.node->'recipeCuisine'
+              when 'string' then jsonb_build_array(recipe.node->'recipeCuisine')
+              else '[]'::jsonb
+            end
+          ) cuisine(value)
+          where cuisine.value ilike '%' || p.escaped_term || '%'
+        )
+        or exists (
+          select 1
+          from unnest(r.cuisines) bucket(label)
+          where bucket.label ilike '%' || p.escaped_term || '%'
+        )
+        or substring(lower(r.submitted_url) from '^[a-z][a-z0-9+.-]*://([^/]+)') ilike '%' || p.escaped_term || '%'
+        or substring(lower(r.final_url) from '^[a-z][a-z0-9+.-]*://([^/]+)') ilike '%' || p.escaped_term || '%'
+      )
+      and (p_cuisine is null or r.cuisines @> array[p_cuisine])
+      and (p_favorite is not true or r.is_favorite)
+  )
+  select
+    m.id,
+    m.submitted_url,
+    m.final_url,
+    m.page_title,
+    m.times_cooked,
+    m.recipes_json,
+    m.recipe_overrides_json,
+    m.image_url,
+    m.is_favorite,
+    m.servings,
+    m.created_at,
+    count(*) over () as total_count
+  from matched m
+  order by m.match_rank,
+    case when p_sort = 'times_cooked' then m.times_cooked end desc nulls last,
+    case when p_sort = 'favorites' then m.is_favorite end desc nulls last,
+    case when p_sort = 'az' then m.page_title end asc nulls last,
+    case when p_sort = 'za' then m.page_title end desc nulls last,
+    case when p_sort = 'za' then m.created_at end asc nulls last,
+    m.created_at desc
+  limit greatest(p_limit, 0)
+  offset greatest(p_offset, 0)
+$$;
+
+grant execute on function public.search_recipe_imports(text, text, boolean, text, integer, integer) to anon, authenticated;
