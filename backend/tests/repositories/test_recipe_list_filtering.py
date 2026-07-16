@@ -133,9 +133,15 @@ class _FailingRpcQuery:
 
 
 class _SearchClient:
-    def __init__(self, data: list[dict], fail: bool = False):
+    def __init__(
+        self,
+        data: list[dict],
+        fail: bool = False,
+        responses: list[list[dict]] | None = None,
+    ):
         self.data = data
         self.fail = fail
+        self.responses = list(responses) if responses is not None else None
         self.rpc_calls: list[tuple[str, dict | None]] = []
         self.table_calls = 0
 
@@ -143,6 +149,8 @@ class _SearchClient:
         self.rpc_calls.append((fn_name, params))
         if self.fail:
             return _FailingRpcQuery()
+        if self.responses is not None:
+            return _ListQuery(_Response(self.responses.pop(0)))
         return _ListQuery(_Response(self.data))
 
     def table(self, _table_name: str):
@@ -436,6 +444,34 @@ def test_list_recipe_imports_search_dedupes_rows_by_url():
         )
 
     assert [item.id for item in response.items] == ["1"]
+
+
+def test_list_recipe_imports_search_beyond_end_page_keeps_real_total_count():
+    client = _SearchClient(
+        [],
+        responses=[[], [_search_row("1", total_count=27)]],
+    )
+
+    with (
+        patch("app.repositories.recipe_imports.get_settings") as get_settings,
+        patch("app.repositories.recipe_imports._get_read_client") as get_read_client,
+    ):
+        get_settings.return_value.supabase_table_name = "recipe_imports"
+        get_read_client.return_value = client
+
+        response = list_recipe_imports(
+            page=5,
+            page_size=10,
+            sort=RecipeSortOption.recent,
+            search="curry",
+        )
+
+    assert response.items == []
+    assert response.total_count == 27
+    assert response.total_pages == 3
+    assert len(client.rpc_calls) == 2
+    assert client.rpc_calls[1][1]["p_limit"] == 1
+    assert client.rpc_calls[1][1]["p_offset"] == 0
 
 
 def test_list_recipe_imports_search_empty_page_reports_zero_count():

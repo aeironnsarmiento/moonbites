@@ -3,7 +3,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import {
   getRecipeListPage,
@@ -66,11 +66,20 @@ export function useRecipeList({
     placeholderData: keepPreviousData,
   });
 
+  const [lastGoodData, setLastGoodData] = useState<RecipeListPageData | null>(
+    null,
+  );
+  if (query.data && query.data !== lastGoodData) {
+    setLastGoodData(query.data);
+  }
+  const data = query.data ?? (query.error ? lastGoodData : null);
+
   const totalPages = query.data?.total_pages ?? 0;
   const nextPage = page + 1;
+  const isPlaceholder = query.isPlaceholderData;
 
   useEffect(() => {
-    if (nextPage > totalPages) {
+    if (isPlaceholder || nextPage > totalPages) {
       return;
     }
 
@@ -95,6 +104,7 @@ export function useRecipeList({
       staleTime: 1000 * 60 * 5,
     });
   }, [
+    isPlaceholder,
     nextPage,
     pageSize,
     queryClient,
@@ -114,7 +124,7 @@ export function useRecipeList({
   }
 
   return {
-    data: query.data ?? null,
+    data,
     isLoading: query.isLoading,
     isFetching: query.isFetching,
     error,

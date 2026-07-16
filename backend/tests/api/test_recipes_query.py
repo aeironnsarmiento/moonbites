@@ -63,6 +63,12 @@ def test_recipes_query_rejects_over_length_search():
     assert response.status_code == 422
 
 
+def test_recipes_query_rejects_page_beyond_upper_bound():
+    response = client.get("/api/recipes?page=2000000")
+
+    assert response.status_code == 422
+
+
 def test_recipes_query_treats_search_under_two_chars_after_strip_as_no_search():
     with patch(
         "backend.app.api.routes.recipes.list_recipe_imports",

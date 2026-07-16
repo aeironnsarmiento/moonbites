@@ -10,6 +10,14 @@ vi.mock("../../hooks/useAuth", () => ({
   useAuth: () => ({ isAdmin: false }),
 }));
 
+vi.mock("react-router-dom", () => ({
+  useNavigate: () => vi.fn(),
+}));
+
+vi.mock("../../hooks/useToggleFavorite", () => ({
+  useToggleFavorite: () => ({ isPending: false, mutateAsync: vi.fn() }),
+}));
+
 function renderList(overrides: Partial<RecipeListProps> = {}): RecipeListProps {
   const props: RecipeListProps = {
     items: [],
@@ -68,6 +76,31 @@ describe("RecipeList", () => {
     renderList({ isRefreshing: true });
 
     expect(screen.getByRole("status")).toBeInTheDocument();
+  });
+
+  it("keeps previous results on screen alongside a search error", () => {
+    renderList({
+      searchTerm: "curry",
+      error: "Supabase read failed: schema not applied",
+      items: [
+        {
+          id: "recipe-1",
+          title: "Miso Cookies",
+          pageTitle: "Miso Cookies",
+          submittedUrl: "https://example.com/miso-cookies",
+          createdAtLabel: "Apr 24, 2026",
+          timesCooked: 0,
+          imageUrl: null,
+          isFavorite: false,
+          servings: null,
+          primaryRecipe: null,
+        },
+      ],
+    });
+
+    expect(screen.getByText(/schema not applied/i)).toBeInTheDocument();
+    expect(screen.getByText("Miso Cookies")).toBeInTheDocument();
+    expect(screen.queryByText(/no recipes match/i)).not.toBeInTheDocument();
   });
 
   it("offers clearing filters from the no-results state", () => {

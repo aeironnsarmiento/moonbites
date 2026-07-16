@@ -503,8 +503,8 @@ as $$
           from unnest(r.cuisines) bucket(label)
           where bucket.label ilike '%' || p.escaped_term || '%'
         )
-        or substring(lower(r.submitted_url) from '^[a-z][a-z0-9+.-]*://([^/]+)') ilike '%' || p.escaped_term || '%'
-        or substring(lower(r.final_url) from '^[a-z][a-z0-9+.-]*://([^/]+)') ilike '%' || p.escaped_term || '%'
+        or substring(lower(r.submitted_url) from '^https?://([^/]+)') ilike '%' || p.escaped_term || '%'
+        or substring(lower(r.final_url) from '^https?://([^/]+)') ilike '%' || p.escaped_term || '%'
       )
       and (p_cuisine is null or r.cuisines @> array[p_cuisine])
       and (p_favorite is not true or r.is_favorite)
@@ -529,7 +529,8 @@ as $$
     case when p_sort = 'az' then m.page_title end asc nulls last,
     case when p_sort = 'za' then m.page_title end desc nulls last,
     case when p_sort = 'za' then m.created_at end asc nulls last,
-    m.created_at desc
+    m.created_at desc,
+    m.id
   limit greatest(p_limit, 0)
   offset greatest(p_offset, 0)
 $$;

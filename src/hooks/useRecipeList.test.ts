@@ -156,6 +156,52 @@ describe("useRecipeList", () => {
     );
   });
 
+  it("does not prefetch the next page while previous results are placeholders", async () => {
+    mockedGetRecipeListPage.mockResolvedValue(
+      pageData({ total_count: 20, total_pages: 2 }),
+    );
+    const queryClient = createQueryClient();
+    const { result, rerender } = renderHook(
+      ({ search }) => useRecipeList({ ...baseParams, search }),
+      { wrapper: wrapper(queryClient), initialProps: { search: "curry" } },
+    );
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await waitFor(() =>
+      expect(mockedGetRecipeListPage).toHaveBeenCalledWith(
+        expect.objectContaining({ page: 2, search: "curry" }),
+      ),
+    );
+
+    mockedGetRecipeListPage.mockImplementation(() => new Promise(() => {}));
+    rerender({ search: "adobo" });
+
+    await waitFor(() => expect(result.current.isFetching).toBe(true));
+
+    expect(mockedGetRecipeListPage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ page: 2, search: "adobo" }),
+    );
+  });
+
+  it("keeps the last successful results available when a refetch errors", async () => {
+    const populated = pageData({ total_count: 1 });
+    mockedGetRecipeListPage.mockResolvedValueOnce(populated);
+
+    const queryClient = createQueryClient();
+    const { result, rerender } = renderHook(
+      ({ search }) => useRecipeList({ ...baseParams, search }),
+      { wrapper: wrapper(queryClient), initialProps: { search: "curry" } },
+    );
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    mockedGetRecipeListPage.mockRejectedValue(new Error("Search exploded."));
+    rerender({ search: "adobo" });
+
+    await waitFor(() => expect(result.current.error).toBe("Search exploded."));
+    expect(result.current.data).toEqual(populated);
+  });
+
   it("keeps previous results visible while a new search resolves", async () => {
     const populated = pageData({ total_count: 1 });
     mockedGetRecipeListPage.mockResolvedValueOnce(populated);

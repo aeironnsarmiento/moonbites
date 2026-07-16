@@ -463,6 +463,34 @@ def _build_paginated_response(
     )
 
 
+def _execute_search_rpc(
+    client,
+    search_term: str,
+    sort: RecipeSortOption,
+    cuisine_key: Optional[str],
+    favorite: Optional[bool],
+    *,
+    limit: int,
+    offset: int,
+) -> list[dict]:
+    try:
+        response = client.rpc(
+            "search_recipe_imports",
+            {
+                "p_term": search_term,
+                "p_cuisine": cuisine_key,
+                "p_favorite": favorite,
+                "p_sort": sort.value,
+                "p_limit": limit,
+                "p_offset": offset,
+            },
+        ).execute()
+    except Exception as error:
+        raise RuntimeError(f"Supabase read failed: {error}") from error
+
+    return response.data or []
+
+
 def _search_recipe_imports(
     client,
     search_term: str,
@@ -474,23 +502,37 @@ def _search_recipe_imports(
 ) -> PaginatedRecipeImportsResponse:
     offset = (page - 1) * page_size
 
-    try:
-        response = client.rpc(
-            "search_recipe_imports",
-            {
-                "p_term": search_term,
-                "p_cuisine": cuisine_key,
-                "p_favorite": favorite,
-                "p_sort": sort.value,
-                "p_limit": page_size,
-                "p_offset": offset,
-            },
-        ).execute()
-    except Exception as error:
-        raise RuntimeError(f"Supabase read failed: {error}") from error
+    raw_records = _execute_search_rpc(
+        client,
+        search_term,
+        sort,
+        cuisine_key,
+        favorite,
+        limit=page_size,
+        offset=offset,
+    )
 
-    raw_records = response.data or []
-    total_count = int(raw_records[0].get("total_count") or 0) if raw_records else 0
+    if raw_records:
+        total_count = int(raw_records[0].get("total_count") or 0)
+    elif page > 1:
+        # The window count only rides on returned rows, so a page beyond the
+        # end of the matched set would otherwise misreport a real match total
+        # as zero; probe the first row for the true count.
+        probe_records = _execute_search_rpc(
+            client,
+            search_term,
+            sort,
+            cuisine_key,
+            favorite,
+            limit=1,
+            offset=0,
+        )
+        total_count = (
+            int(probe_records[0].get("total_count") or 0) if probe_records else 0
+        )
+    else:
+        total_count = 0
+
     return _build_paginated_response(raw_records, page, page_size, total_count)
 
 

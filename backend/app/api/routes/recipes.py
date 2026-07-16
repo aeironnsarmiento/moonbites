@@ -69,7 +69,7 @@ async def create_manual_recipe(
 @limiter.limit("60/minute")
 async def get_saved_recipes(
     request: Request,
-    page: int = Query(default=1, ge=1),
+    page: int = Query(default=1, ge=1, le=1_000_000),
     page_size: int = Query(default=10, ge=1, le=50),
     limit: Optional[int] = Query(default=None, ge=1, le=50),
     sort: RecipeSortOption = Query(default=RecipeSortOption.recent),

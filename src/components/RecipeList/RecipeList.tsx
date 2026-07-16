@@ -201,7 +201,7 @@ export function RecipeList({
         </Box>
       ) : null}
 
-      {!isLoading && !error && items.length > 0 ? (
+      {!isLoading && items.length > 0 ? (
         <SimpleGrid columns={{ base: 1, md: 2 }} spacing={5}>
           {items.map((item, index) => (
             <RecipeCard

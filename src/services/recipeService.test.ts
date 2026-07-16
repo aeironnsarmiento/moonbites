@@ -64,6 +64,18 @@ describe("fetchRecipeImports", () => {
     expect(requestedParams().has("search")).toBe(false);
   });
 
+  it("truncates search terms longer than 100 characters", async () => {
+    await fetchRecipeImports({
+      page: 1,
+      pageSize: 10,
+      sort: "recent",
+      cuisine: null,
+      search: "a".repeat(150),
+    });
+
+    expect(requestedParams().get("search")).toBe("a".repeat(100));
+  });
+
   it("trims the search term before sending", async () => {
     await fetchRecipeImports({
       page: 1,

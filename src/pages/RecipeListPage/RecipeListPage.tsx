@@ -19,9 +19,13 @@ const SEARCH_DEBOUNCE_MS = 300;
 export function RecipeListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [page, setPage] = useState(1);
-  const [searchTerm, setSearchTerm] = useState(
-    () => searchParams.get("q") ?? "",
-  );
+  const urlSearchTerm = searchParams.get("q") ?? "";
+  const [searchTerm, setSearchTerm] = useState(urlSearchTerm);
+  const [syncedSearchTerm, setSyncedSearchTerm] = useState(urlSearchTerm);
+  if (syncedSearchTerm !== urlSearchTerm) {
+    setSyncedSearchTerm(urlSearchTerm);
+    setSearchTerm(urlSearchTerm);
+  }
   const { sort, cuisine, setSort, setCuisine } = useRecipeListPreferences();
 
   const favoriteOnly = searchParams.get("favorite") === "true";
@@ -49,7 +53,7 @@ export function RecipeListPage() {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
-        if (value.trim()) {
+        if (value) {
           next.set("q", value);
         } else {
           next.delete("q");
@@ -109,8 +113,8 @@ export function RecipeListPage() {
           flexWrap="wrap"
         >
           <Text color="gray.600">
-            Searching within {restrictionLabel} — {data?.total_count ?? 0}{" "}
-            matching recipes
+            Searching within {restrictionLabel} —{" "}
+            {isFetching ? "…" : (data?.total_count ?? 0)} matching recipes
           </Text>
           <Button
             size="sm"

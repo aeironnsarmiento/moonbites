@@ -110,8 +110,10 @@ def test_search_recipe_imports_matches_only_the_contracted_fields():
     assert "recipe.node->'ingredients'" in function_sql
     assert "recipe.node->'recipecuisine'" in function_sql
     assert "unnest(r.cuisines)" in function_sql
-    assert "lower(r.submitted_url)" in function_sql
-    assert "lower(r.final_url)" in function_sql
+    assert (
+        "substring(lower(r.submitted_url) from '^https?://([^/]+)')" in function_sql
+    )
+    assert "substring(lower(r.final_url) from '^https?://([^/]+)')" in function_sql
     assert "'instructions'" not in function_sql
     assert "'nutrition'" not in function_sql
 
@@ -126,6 +128,23 @@ def test_search_recipe_imports_ranks_exact_prefix_substring_then_other_fields():
 
     assert tier_one < tier_two < tier_three < fallback
     assert "= p.exact_term" in function_sql[:tier_one]
+
+
+def test_search_recipe_imports_tier_two_is_prefix_and_tier_three_is_substring():
+    function_sql = _search_function_sql()
+
+    tier_one = function_sql.index("then 1")
+    tier_two = function_sql.index("then 2")
+    tier_three = function_sql.index("then 3")
+
+    prefix_pattern = "ilike p.escaped_term || '%'"
+    substring_pattern = "ilike '%' || p.escaped_term || '%'"
+    tier_two_clause = function_sql[tier_one:tier_two]
+    tier_three_clause = function_sql[tier_two:tier_three]
+
+    assert prefix_pattern in tier_two_clause
+    assert substring_pattern not in tier_two_clause
+    assert substring_pattern in tier_three_clause
 
 
 def test_search_recipe_imports_matches_case_insensitively():
@@ -160,7 +179,7 @@ def test_search_recipe_imports_orders_by_rank_then_requested_sort():
     assert "case when p_sort = 'az' then m.page_title end asc" in function_sql
     assert "case when p_sort = 'za' then m.page_title end desc" in function_sql
     assert "case when p_sort = 'za' then m.created_at end asc" in function_sql
-    assert "m.created_at desc" in function_sql
+    assert "m.created_at desc, m.id" in function_sql
 
 
 def test_search_recipe_imports_grants_execute():

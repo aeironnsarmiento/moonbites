@@ -1,6 +1,6 @@
 import { ChakraProvider } from "@chakra-ui/react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { Link, MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { chakraTheme } from "../../styles/chakraTheme";
@@ -64,6 +64,7 @@ function renderPage(initialEntry = "/recipes") {
       <MemoryRouter initialEntries={[initialEntry]}>
         <RecipeListPage />
         <LocationSpy />
+        <Link to="/recipes">Recipe List nav</Link>
       </MemoryRouter>
     </ChakraProvider>,
   );
@@ -170,6 +171,50 @@ describe("RecipeListPage", () => {
     );
 
     expect(setCuisine).toHaveBeenCalledWith("");
+  });
+
+  it("removes q from the URL and reverts to no search when cleared", () => {
+    vi.useFakeTimers();
+    renderPage("/recipes?q=soup");
+
+    expect(lastListCall()).toMatchObject({ search: "soup" });
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /clear search/i })[0],
+    );
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    const location = screen.getByTestId("location").textContent ?? "";
+    expect(location).not.toContain("q=");
+    expect(lastListCall()).toMatchObject({ search: null });
+  });
+
+  it("resyncs the search input when navigation strips q from the URL", () => {
+    vi.useFakeTimers();
+    renderPage("/recipes?q=adobo");
+
+    expect(screen.getByDisplayValue("adobo")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: /recipe list nav/i }));
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(screen.queryByDisplayValue("adobo")).not.toBeInTheDocument();
+    expect(lastListCall()).toMatchObject({ search: null });
+  });
+
+  it("shows a placeholder count in the restriction banner while fetching", () => {
+    preferences = { sort: "recent", cuisine: "Italian" };
+    mockedUseRecipeList.mockReturnValue(
+      listResult({ total_count: 3, total_pages: 1 }, { isFetching: true }),
+    );
+    renderPage("/recipes?q=soup");
+
+    expect(screen.queryByText(/3 matching/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/matching recipes/i)).toBeInTheDocument();
   });
 
   it("keeps previous results visible with a refresh indicator while fetching", () => {
