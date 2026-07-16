@@ -68,3 +68,125 @@ def test_recipe_imports_has_cuisine_facets_rpc():
     assert "create or replace function public.cuisine_facets()" in normalized_sql
     assert "returns table(label text, count bigint)" in normalized_sql
     assert "grant execute on function public.cuisine_facets() to anon, authenticated" in normalized_sql
+
+
+def _search_function_sql() -> str:
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+    start = normalized_sql.index("create function public.search_recipe_imports")
+    end = normalized_sql.index(
+        "grant execute on function public.search_recipe_imports"
+    )
+    return normalized_sql[start:end]
+
+
+def test_search_recipe_imports_drops_before_create():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    drop_index = normalized_sql.index(
+        "drop function if exists public.search_recipe_imports"
+    )
+    create_index = normalized_sql.index(
+        "create function public.search_recipe_imports"
+    )
+
+    assert drop_index < create_index
+
+
+def test_search_recipe_imports_returns_record_columns_with_window_count():
+    function_sql = _search_function_sql()
+
+    assert "returns table" in function_sql
+    assert "total_count bigint" in function_sql
+    assert "count(*) over () as total_count" in function_sql
+    assert "limit greatest(p_limit, 0)" in function_sql
+    assert "offset greatest(p_offset, 0)" in function_sql
+
+
+def test_search_recipe_imports_matches_only_the_contracted_fields():
+    function_sql = _search_function_sql()
+
+    assert "recipes_json->0->>'name'" in function_sql
+    assert "r.page_title" in function_sql
+    assert "recipe.node->'ingredients'" in function_sql
+    assert "recipe.node->'recipecuisine'" in function_sql
+    assert "unnest(r.cuisines)" in function_sql
+    assert (
+        "substring(lower(r.submitted_url) from '^https?://([^/]+)')" in function_sql
+    )
+    assert "substring(lower(r.final_url) from '^https?://([^/]+)')" in function_sql
+    assert "'instructions'" not in function_sql
+    assert "'nutrition'" not in function_sql
+
+
+def test_search_recipe_imports_ranks_exact_prefix_substring_then_other_fields():
+    function_sql = _search_function_sql()
+
+    tier_one = function_sql.index("then 1")
+    tier_two = function_sql.index("then 2")
+    tier_three = function_sql.index("then 3")
+    fallback = function_sql.index("else 4")
+
+    assert tier_one < tier_two < tier_three < fallback
+    assert "= p.exact_term" in function_sql[:tier_one]
+
+
+def test_search_recipe_imports_tier_two_is_prefix_and_tier_three_is_substring():
+    function_sql = _search_function_sql()
+
+    tier_one = function_sql.index("then 1")
+    tier_two = function_sql.index("then 2")
+    tier_three = function_sql.index("then 3")
+
+    prefix_pattern = "ilike p.escaped_term || '%'"
+    substring_pattern = "ilike '%' || p.escaped_term || '%'"
+    tier_two_clause = function_sql[tier_one:tier_two]
+    tier_three_clause = function_sql[tier_two:tier_three]
+
+    assert prefix_pattern in tier_two_clause
+    assert substring_pattern not in tier_two_clause
+    assert substring_pattern in tier_three_clause
+
+
+def test_search_recipe_imports_matches_case_insensitively():
+    function_sql = _search_function_sql()
+
+    assert "ilike" in function_sql
+    assert " like " not in function_sql
+
+
+def test_search_recipe_imports_escapes_ilike_wildcards():
+    function_sql = _search_function_sql()
+
+    assert (
+        r"replace(replace(replace(btrim(coalesce(p_term, '')), '\', '\\'), '%', '\%'), '_', '\_')"
+        in function_sql
+    )
+
+
+def test_search_recipe_imports_composes_filters_in_where():
+    function_sql = _search_function_sql()
+
+    assert "and (p_cuisine is null or r.cuisines @> array[p_cuisine])" in function_sql
+    assert "and (p_favorite is not true or r.is_favorite)" in function_sql
+
+
+def test_search_recipe_imports_orders_by_rank_then_requested_sort():
+    function_sql = _search_function_sql()
+
+    assert "order by m.match_rank," in function_sql
+    assert "case when p_sort = 'times_cooked' then m.times_cooked end desc" in function_sql
+    assert "case when p_sort = 'favorites' then m.is_favorite end desc" in function_sql
+    assert "case when p_sort = 'az' then m.page_title end asc" in function_sql
+    assert "case when p_sort = 'za' then m.page_title end desc" in function_sql
+    assert "case when p_sort = 'za' then m.created_at end asc" in function_sql
+    assert "m.created_at desc, m.id" in function_sql
+
+
+def test_search_recipe_imports_grants_execute():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    assert (
+        "grant execute on function public.search_recipe_imports"
+        "(text, text, boolean, text, integer, integer) to anon, authenticated"
+        in normalized_sql
+    )

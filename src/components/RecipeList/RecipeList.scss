@@ -45,6 +45,13 @@
     }
   }
 
+  &__refreshIndicator {
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    padding: 0 6px;
+  }
+
   &__searchDivider {
     width: 1px;
     height: 22px;

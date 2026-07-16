@@ -69,13 +69,15 @@ async def create_manual_recipe(
 @limiter.limit("60/minute")
 async def get_saved_recipes(
     request: Request,
-    page: int = Query(default=1, ge=1),
+    page: int = Query(default=1, ge=1, le=1_000_000),
     page_size: int = Query(default=10, ge=1, le=50),
     limit: Optional[int] = Query(default=None, ge=1, le=50),
     sort: RecipeSortOption = Query(default=RecipeSortOption.recent),
     cuisine: Optional[str] = Query(default=None),
     favorite: Optional[bool] = Query(default=None),
+    search: Optional[str] = Query(default=None, min_length=2, max_length=100),
 ) -> PaginatedRecipeImportsResponse:
+    stripped_search = (search or "").strip()
     try:
         return list_recipe_imports(
             page=page,
@@ -83,6 +85,7 @@ async def get_saved_recipes(
             sort=sort,
             cuisine=cuisine,
             favorite=favorite,
+            search=stripped_search if len(stripped_search) >= 2 else None,
         )
     except RuntimeError as error:
         _raise_repository_http_error(error)

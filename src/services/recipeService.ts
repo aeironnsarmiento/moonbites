@@ -1,4 +1,5 @@
 import { apiRequest } from "./apiClient";
+import { normalizeSearchTerm } from "../utils/searchTerm";
 import type {
   CuisineFacetsResponse,
   DeleteRecipeImportResponse,
@@ -20,6 +21,7 @@ export function fetchRecipeImports({
   sort,
   cuisine,
   favorite,
+  search,
 }: RecipeListQuery): Promise<PaginatedRecipeImportsResponse> {
   const searchParams = new URLSearchParams({
     page: String(page),
@@ -40,6 +42,11 @@ export function fetchRecipeImports({
 
   if (favorite != null) {
     searchParams.set("favorite", String(favorite));
+  }
+
+  const normalizedSearch = normalizeSearchTerm(search);
+  if (normalizedSearch) {
+    searchParams.set("search", normalizedSearch);
   }
 
   return apiRequest<PaginatedRecipeImportsResponse>(

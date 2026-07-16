@@ -439,12 +439,110 @@ def save_manual_recipe(
     return created_record
 
 
+def _build_paginated_response(
+    raw_records: list[dict],
+    page: int,
+    page_size: int,
+    total_count: Optional[int],
+) -> PaginatedRecipeImportsResponse:
+    items = _dedupe_recipe_import_records(
+        [_sanitize_record(record) for record in raw_records]
+    )
+    if total_count is None:
+        total_count = len(items)
+    total_pages = (
+        max(1, (total_count + page_size - 1) // page_size) if total_count else 1
+    )
+
+    return PaginatedRecipeImportsResponse(
+        items=items,
+        page=page,
+        page_size=page_size,
+        total_count=total_count,
+        total_pages=total_pages,
+    )
+
+
+def _execute_search_rpc(
+    client,
+    search_term: str,
+    sort: RecipeSortOption,
+    cuisine_key: Optional[str],
+    favorite: Optional[bool],
+    *,
+    limit: int,
+    offset: int,
+) -> list[dict]:
+    try:
+        response = client.rpc(
+            "search_recipe_imports",
+            {
+                "p_term": search_term,
+                "p_cuisine": cuisine_key,
+                "p_favorite": favorite,
+                "p_sort": sort.value,
+                "p_limit": limit,
+                "p_offset": offset,
+            },
+        ).execute()
+    except Exception as error:
+        raise RuntimeError(f"Supabase read failed: {error}") from error
+
+    return response.data or []
+
+
+def _search_recipe_imports(
+    client,
+    search_term: str,
+    page: int,
+    page_size: int,
+    sort: RecipeSortOption,
+    cuisine_key: Optional[str],
+    favorite: Optional[bool],
+) -> PaginatedRecipeImportsResponse:
+    offset = (page - 1) * page_size
+
+    raw_records = _execute_search_rpc(
+        client,
+        search_term,
+        sort,
+        cuisine_key,
+        favorite,
+        limit=page_size,
+        offset=offset,
+    )
+
+    if raw_records:
+        total_count = int(raw_records[0].get("total_count") or 0)
+    elif page > 1:
+        # The window count only rides on returned rows, so a page beyond the
+        # end of the matched set would otherwise misreport a real match total
+        # as zero; probe the first row for the true count.
+        probe_records = _execute_search_rpc(
+            client,
+            search_term,
+            sort,
+            cuisine_key,
+            favorite,
+            limit=1,
+            offset=0,
+        )
+        total_count = (
+            int(probe_records[0].get("total_count") or 0) if probe_records else 0
+        )
+    else:
+        total_count = 0
+
+    return _build_paginated_response(raw_records, page, page_size, total_count)
+
+
 def list_recipe_imports(
     page: int,
     page_size: int,
     sort: RecipeSortOption = RecipeSortOption.recent,
     cuisine: Optional[str] = None,
     favorite: Optional[bool] = None,
+    search: Optional[str] = None,
 ) -> PaginatedRecipeImportsResponse:
     settings = get_settings()
     client = _get_read_client(settings)
@@ -457,6 +555,18 @@ def list_recipe_imports(
     offset = (page - 1) * page_size
 
     cuisine_key = _cuisine_db_key(cuisine)
+
+    search_term = (search or "").strip()
+    if search_term:
+        return _search_recipe_imports(
+            client,
+            search_term,
+            page,
+            page_size,
+            sort,
+            cuisine_key,
+            favorite,
+        )
 
     try:
         query = client.table(table_name).select(
@@ -473,23 +583,8 @@ def list_recipe_imports(
         raise RuntimeError(f"Supabase read failed: {error}") from error
 
     raw_records = response.data or []
-    items = [_sanitize_record(record) for record in raw_records]
-    items = _dedupe_recipe_import_records(items)
-
     total_count = getattr(response, "count", None)
-    if total_count is None:
-        total_count = len(items)
-    total_pages = (
-        max(1, (total_count + page_size - 1) // page_size) if total_count else 1
-    )
-
-    return PaginatedRecipeImportsResponse(
-        items=items,
-        page=page,
-        page_size=page_size,
-        total_count=total_count,
-        total_pages=total_pages,
-    )
+    return _build_paginated_response(raw_records, page, page_size, total_count)
 
 
 def list_highlighted_recipes(

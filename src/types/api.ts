@@ -35,6 +35,7 @@ export type RecipeListQuery = {
   sort: RecipeSortOption;
   cuisine: string | null;
   favorite?: boolean | null;
+  search?: string | null;
 };
 
 export type CuisineFacet = {

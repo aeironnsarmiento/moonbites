@@ -1,14 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getHighlightedRecipes } from "./recipeController";
-import { fetchHighlightedRecipes } from "../services/recipeService";
+import { getHighlightedRecipes, getRecipeListPage } from "./recipeController";
+import {
+  fetchHighlightedRecipes,
+  fetchRecipeImports,
+} from "../services/recipeService";
 import type { RecipeImportRecord } from "../types/recipe";
 
 vi.mock("../services/recipeService", () => ({
   fetchHighlightedRecipes: vi.fn(),
+  fetchRecipeImports: vi.fn(),
 }));
 
 const mockedFetchHighlightedRecipes = vi.mocked(fetchHighlightedRecipes);
+const mockedFetchRecipeImports = vi.mocked(fetchRecipeImports);
 
 function record(id: string, url: string): RecipeImportRecord {
   return {
@@ -56,6 +61,35 @@ describe("getHighlightedRecipes", () => {
 
     await expect(getHighlightedRecipes()).rejects.toThrow(
       "Recipes API returned an invalid highlights response.",
+    );
+  });
+});
+
+describe("getRecipeListPage", () => {
+  beforeEach(() => {
+    mockedFetchRecipeImports.mockReset();
+  });
+
+  it("forwards the search term to the service", async () => {
+    mockedFetchRecipeImports.mockResolvedValue({
+      items: [],
+      page: 1,
+      page_size: 10,
+      total_count: 0,
+      total_pages: 1,
+    });
+
+    await getRecipeListPage({
+      page: 1,
+      pageSize: 10,
+      sort: "recent",
+      cuisine: null,
+      favorite: null,
+      search: "curry",
+    });
+
+    expect(mockedFetchRecipeImports).toHaveBeenCalledWith(
+      expect.objectContaining({ search: "curry" }),
     );
   });
 });
