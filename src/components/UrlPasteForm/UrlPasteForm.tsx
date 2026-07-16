@@ -35,8 +35,9 @@ export function UrlPasteForm({
             <Text className="urlPasteForm__eyebrow">Import recipe</Text>
             <Heading size="xl">Paste a recipe URL</Heading>
             <Text color="gray.600">
-              Submit any public recipe page to normalize the JSON-LD, save it to
-              Supabase, and keep the cleaned result in your saved recipe list.
+              Submit any public recipe page — or a TikTok or YouTube link with
+              the recipe in its caption — and keep the cleaned result in your
+              saved recipe list.
             </Text>
           </Stack>
 
@@ -46,7 +47,7 @@ export function UrlPasteForm({
               <Input
                 id="recipe-url"
                 size="lg"
-                placeholder="https://example.com/recipe"
+                placeholder="https://example.com/recipe or a TikTok link"
                 value={url}
                 onChange={(event) => onUrlChange(event.target.value)}
               />

@@ -7,6 +7,8 @@ export type ExtractResponse = {
   recipes: NormalizedRecipe[];
   database_saved: boolean;
   database_message: string | null;
+  parse_status?: "recipe" | "not_recipe";
+  parse_reason?: string | null;
 };
 
 export type PaginatedRecipeImportsResponse = {

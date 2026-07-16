@@ -80,6 +80,72 @@ def test_refetch_skips_manual_recipe_imports():
     extract.assert_not_called()
 
 
+def test_refetch_skips_caption_parsed_tiktok_imports():
+    tiktok_record = _record(
+        submitted_url="https://vm.tiktok.com/ZTabc123/",
+        final_url="https://www.tiktok.com/@cook/video/123",
+    )
+
+    with (
+        patch(
+            "app.services.recipe_refresher.iter_recipe_import_records_for_refresh",
+            return_value=[tiktok_record],
+        ),
+        patch("app.services.recipe_refresher.extract_recipes_from_url") as extract,
+    ):
+        summary = asyncio.run(refetch_recipe_imports())
+
+    assert summary.skipped == 1
+    assert summary.updated == 0
+    extract.assert_not_called()
+
+
+def test_refetch_skips_caption_parsed_youtube_imports():
+    youtube_record = _record(
+        submitted_url="https://youtu.be/abc123XYZ09",
+        final_url="https://youtu.be/abc123XYZ09",
+    )
+
+    with (
+        patch(
+            "app.services.recipe_refresher.iter_recipe_import_records_for_refresh",
+            return_value=[youtube_record],
+        ),
+        patch("app.services.recipe_refresher.extract_recipes_from_url") as extract,
+    ):
+        summary = asyncio.run(refetch_recipe_imports())
+
+    assert summary.skipped == 1
+    extract.assert_not_called()
+
+
+def test_refetch_link_followed_video_import_uses_blog_url_only():
+    record = _record(
+        submitted_url="https://youtu.be/abc123XYZ09",
+        final_url="https://blog.test/soup",
+    )
+    extraction = _extraction(source_url="https://blog.test/soup")
+
+    with (
+        patch(
+            "app.services.recipe_refresher.iter_recipe_import_records_for_refresh",
+            return_value=[record],
+        ),
+        patch(
+            "app.services.recipe_refresher.extract_recipes_from_url",
+            new=AsyncMock(side_effect=HTTPException(status_code=502, detail="down")),
+        ) as extract,
+        patch(
+            "app.services.recipe_refresher.update_recipe_import_from_extraction"
+        ) as update,
+    ):
+        summary = asyncio.run(refetch_recipe_imports())
+
+    extract.assert_awaited_once_with("https://blog.test/soup")
+    update.assert_not_called()
+    assert summary.failed == 1
+
+
 def test_refetch_updates_url_recipe_and_preserves_user_fields():
     record = _record(
         overrides={

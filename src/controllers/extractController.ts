@@ -29,10 +29,13 @@ import type { ExtractResponse } from "../types/api";
 
 export function buildExtractStatus(response: ExtractResponse) {
   const recipeTotal = response.recipes.length;
+  const noRecipeMessage =
+    response.parse_reason ??
+    "No Recipe objects were found on that page, so nothing was saved.";
   const importMessage =
     recipeTotal > 0
       ? `Found ${recipeTotal} unique recipe${recipeTotal === 1 ? "" : "s"}.`
-      : "No Recipe objects were found on that page, so nothing was saved.";
+      : noRecipeMessage;
 
   const rawDatabaseMessage =
     response.database_saved &&
