@@ -38,9 +38,31 @@ def test_extract_recipes_from_url_dispatches_youtube_urls():
     assert result.source_url == "https://youtu.be/abc123XYZ09"
 
 
-def test_extract_recipes_from_url_dispatches_non_youtube_urls():
+def test_extract_recipes_from_url_dispatches_tiktok_urls():
     with (
         patch("app.services.extractor.extract_recipe_from_youtube_url") as youtube,
+        patch(
+            "app.services.extractor.extract_recipe_from_tiktok_url",
+            new=AsyncMock(
+                return_value=_result("https://www.tiktok.com/@cook/video/123")
+            ),
+        ) as tiktok,
+        patch("app.services.extractor.extract_blog_recipes_from_url") as blog,
+    ):
+        result = asyncio.run(
+            extract_recipes_from_url("https://www.tiktok.com/@cook/video/123")
+        )
+
+    tiktok.assert_awaited_once_with("https://www.tiktok.com/@cook/video/123")
+    youtube.assert_not_called()
+    blog.assert_not_called()
+    assert result.source_url == "https://www.tiktok.com/@cook/video/123"
+
+
+def test_extract_recipes_from_url_dispatches_non_video_urls():
+    with (
+        patch("app.services.extractor.extract_recipe_from_youtube_url") as youtube,
+        patch("app.services.extractor.extract_recipe_from_tiktok_url") as tiktok,
         patch(
             "app.services.extractor.extract_blog_recipes_from_url",
             new=AsyncMock(return_value=_result("https://example.com/recipe")),
@@ -50,4 +72,5 @@ def test_extract_recipes_from_url_dispatches_non_youtube_urls():
 
     blog.assert_awaited_once_with("https://example.com/recipe")
     youtube.assert_not_called()
+    tiktok.assert_not_called()
     assert result.source_url == "https://example.com/recipe"

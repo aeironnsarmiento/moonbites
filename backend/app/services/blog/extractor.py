@@ -9,6 +9,7 @@ from ...core.config import Settings, get_settings
 from ...schemas.extract import IngredientSection, JsonLdBlock, NormalizedRecipe
 from ...utils.text import clean_text, unique_strings
 from ..extraction_types import ExtractionResult
+from ..http_utils import build_request_headers, get_with_403_retry
 from ..image_extraction import extract_image_url
 from ..normalizer import (
     collect_recipe_nodes,
@@ -378,38 +379,6 @@ def extract_html_instruction_lines(html: str) -> list[str]:
     return best_instructions
 
 
-def _build_request_headers(settings: Settings) -> dict[str, str]:
-    return {
-        "User-Agent": settings.user_agent,
-        "Accept": settings.accept_header,
-        "Accept-Language": settings.accept_language_header,
-    }
-
-
-def _build_403_retry_headers(settings: Settings) -> dict[str, str]:
-    return {
-        **_build_request_headers(settings),
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-    }
-
-
-def _should_retry_403(response: httpx.Response, *, retried: bool) -> bool:
-    return not retried and response.status_code == 403
-
-
-async def _get_with_403_retry(
-    client: httpx.AsyncClient, url: str, settings: Settings
-) -> httpx.Response:
-    response = await client.get(url)
-
-    if _should_retry_403(response, retried=False):
-        response = await client.get(url, headers=_build_403_retry_headers(settings))
-
-    return response
 
 
 async def extract_recipes_from_url(url: str) -> ExtractionResult:
@@ -418,11 +387,11 @@ async def extract_recipes_from_url(url: str) -> ExtractionResult:
 
     try:
         async with httpx.AsyncClient(
-            headers=_build_request_headers(settings),
+            headers=build_request_headers(settings),
             follow_redirects=True,
             timeout=settings.request_timeout_seconds,
         ) as client:
-            response = await _get_with_403_retry(client, target_url, settings)
+            response = await get_with_403_retry(client, target_url, settings)
             response.raise_for_status()
     except httpx.TimeoutException as error:
         raise HTTPException(

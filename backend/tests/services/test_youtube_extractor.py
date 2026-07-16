@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import httpx
@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from app.core.config import Settings
 from app.schemas.extract import NormalizedRecipe
 from app.services.extraction_types import ExtractionResult, ParseStatus
+from app.services.gemini.recipe_parser import ParsedCaption
 from app.services.youtube.extractor import (
     extract_recipe_from_youtube_url,
     extract_youtube_video_id,
@@ -30,6 +31,7 @@ def _settings(api_key: str | None = "youtube-key") -> Settings:
         accept_header="text/html",
         accept_language_header="en-US",
         youtube_api_key=api_key,
+        gemini_api_key="gemini-key",
     )
 
 
@@ -56,8 +58,6 @@ class _Response:
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
-            request = Mock()
-            response = Mock(status_code=self.status_code)
             raise HTTPException(status_code=self.status_code, detail="api error")
 
     def json(self) -> dict:
@@ -73,6 +73,74 @@ class _HttpStatusResponse:
             request=request,
             response=response,
         )
+
+
+def _snippet_response(
+    description: str,
+    title: str = "Garlic Noodles",
+    thumbnails: dict | None = None,
+) -> _Response:
+    return _Response(
+        {
+            "items": [
+                {
+                    "id": "abc123XYZ09",
+                    "snippet": {
+                        "title": title,
+                        "description": description,
+                        "thumbnails": thumbnails
+                        or {"high": {"url": "https://img.youtube.com/high.jpg"}},
+                    },
+                }
+            ]
+        }
+    )
+
+
+def _parsed_recipe() -> ParsedCaption:
+    return ParsedCaption(
+        raw_recipe={
+            "@type": "Recipe",
+            "name": "Garlic Noodles",
+            "recipeIngredient": ["8 oz noodles", "2 tbsp butter"],
+            "recipeInstructions": ["Boil noodles.", "Toss with butter."],
+        },
+        ingredients=["8 oz noodles", "2 tbsp butter"],
+        instructions=["Boil noodles.", "Toss with butter."],
+        is_complete=True,
+        parse_status="recipe",
+        parse_reason=None,
+    )
+
+
+def _not_recipe(reason: str) -> ParsedCaption:
+    return ParsedCaption(
+        raw_recipe={},
+        ingredients=[],
+        instructions=[],
+        is_complete=False,
+        parse_status="not_recipe",
+        parse_reason=reason,
+    )
+
+
+def _run(url: str, response, *, gemini, blog=None):
+    with (
+        patch("app.services.youtube.extractor.get_settings", return_value=_settings()),
+        patch(
+            "app.services.youtube.extractor.httpx.AsyncClient",
+            return_value=_AsyncClientContext(response),
+        ),
+        patch(
+            "app.services.youtube.extractor.parse_caption_with_gemini",
+            new=gemini,
+        ),
+        patch(
+            "app.services.youtube.extractor.extract_blog_recipes_from_url",
+            new=blog or AsyncMock(),
+        ),
+    ):
+        return asyncio.run(extract_recipe_from_youtube_url(url))
 
 
 @pytest.mark.parametrize(
@@ -95,45 +163,13 @@ def test_extract_youtube_video_id_rejects_playlist_without_video():
     assert extract_youtube_video_id("https://www.youtube.com/playlist?list=abc") is None
 
 
-def test_extract_recipe_from_youtube_url_normalizes_complete_description():
-    response = _Response(
-        {
-            "items": [
-                {
-                    "id": "abc123XYZ09",
-                    "snippet": {
-                        "title": "Garlic Noodles",
-                        "description": """
-Ingredients
-- 8 oz noodles
-- 2 tbsp butter
+def test_complete_gemini_parse_builds_recipe_result():
+    gemini = AsyncMock(return_value=_parsed_recipe())
+    response = _snippet_response("Ingredients\n8 oz noodles\n2 tbsp butter\nBoil and toss.")
 
-Instructions
-1. Boil noodles for 8 minutes.
-2. Toss noodles with butter.
-""",
-                        "thumbnails": {
-                            "high": {"url": "https://img.youtube.com/high.jpg"}
-                        },
-                    },
-                }
-            ]
-        }
-    )
+    result = _run("https://youtu.be/abc123XYZ09", response, gemini=gemini)
 
-    with (
-        patch("app.services.youtube.extractor.get_settings", return_value=_settings()),
-        patch(
-            "app.services.youtube.extractor.httpx.AsyncClient",
-            return_value=_AsyncClientContext(response),
-        ),
-        patch("app.services.youtube.extractor.extract_blog_recipes_from_url") as blog,
-    ):
-        result = asyncio.run(
-            extract_recipe_from_youtube_url("https://youtu.be/abc123XYZ09")
-        )
-
-    blog.assert_not_called()
+    gemini.assert_awaited_once()
     assert result.source_url == "https://youtu.be/abc123XYZ09"
     assert result.final_url == "https://youtu.be/abc123XYZ09"
     assert result.title == "Garlic Noodles"
@@ -142,62 +178,9 @@ Instructions
     assert result.recipes[0].name == "Garlic Noodles"
 
 
-def test_extract_recipe_from_youtube_url_uses_video_url_when_instructions_missing():
-    response = _Response(
-        {
-            "items": [
-                {
-                    "id": "abc123XYZ09",
-                    "snippet": {
-                        "title": "Rice Bowl",
-                        "description": """
-Ingredients
-Rice -
-1 cup rice
-2 tbsp soy sauce
-""",
-                        "thumbnails": {},
-                    },
-                }
-            ]
-        }
-    )
-
-    with (
-        patch("app.services.youtube.extractor.get_settings", return_value=_settings()),
-        patch(
-            "app.services.youtube.extractor.httpx.AsyncClient",
-            return_value=_AsyncClientContext(response),
-        ),
-        patch("app.services.youtube.extractor.extract_blog_recipes_from_url") as blog,
-    ):
-        result = asyncio.run(
-            extract_recipe_from_youtube_url("https://youtu.be/abc123XYZ09")
-        )
-
-    blog.assert_not_called()
-    assert result.recipe_node_count == 1
-    assert result.recipes[0].ingredients == ["1 cup rice", "2 tbsp soy sauce"]
-    assert result.recipes[0].instructions == ["https://youtu.be/abc123XYZ09"]
-
-
-def test_extract_recipe_from_youtube_url_falls_back_to_ranked_recipe_link():
-    response = _Response(
-        {
-            "items": [
-                {
-                    "id": "abc123XYZ09",
-                    "snippet": {
-                        "title": "Video Soup",
-                        "description": "Full recipe: https://example.com/soup",
-                        "thumbnails": {
-                            "default": {"url": "https://img.youtube.com/default.jpg"}
-                        },
-                    },
-                }
-            ]
-        }
-    )
+def test_not_recipe_with_link_in_description_falls_back_to_link_follow():
+    gemini = AsyncMock(return_value=_not_recipe("Recipe lives on a linked page."))
+    response = _snippet_response("Full recipe: https://example.com/soup")
     blog_result = ExtractionResult(
         source_url="https://example.com/soup",
         final_url="https://example.com/soup/",
@@ -212,117 +195,111 @@ def test_extract_recipe_from_youtube_url_falls_back_to_ranked_recipe_link():
             )
         ],
     )
+    blog = AsyncMock(return_value=blog_result)
 
-    with (
-        patch("app.services.youtube.extractor.get_settings", return_value=_settings()),
-        patch(
-            "app.services.youtube.extractor.httpx.AsyncClient",
-            return_value=_AsyncClientContext(response),
-        ),
-        patch(
-            "app.services.youtube.extractor.extract_blog_recipes_from_url",
-            new=AsyncMock(return_value=blog_result),
-        ) as blog,
-    ):
-        result = asyncio.run(
-            extract_recipe_from_youtube_url("https://youtu.be/abc123XYZ09")
-        )
+    result = _run("https://youtu.be/abc123XYZ09", response, gemini=gemini, blog=blog)
 
     blog.assert_awaited_once_with("https://example.com/soup")
     assert result.source_url == "https://youtu.be/abc123XYZ09"
     assert result.final_url == "https://example.com/soup/"
-    assert result.title == "Blog Soup"
-    assert result.image_url == "https://example.com/soup.jpg"
     assert result.recipes == blog_result.recipes
 
 
-def test_extract_recipe_from_youtube_url_returns_not_recipe_for_gaming_video():
-    response = _Response(
-        {
-            "items": [
-                {
-                    "id": "shroud123",
-                    "snippet": {
-                        "title": "Shroud CS LAN",
-                        "description": """
-Shroud competes in his first CS LAN Tournament in nearly a DECADE.
-
-SECRET PROMO CODE ON ALL LOGITECH PRODUCTS: shroud
-https://www.logitechg.com
-
-THE PERFECT PC - https://maingear.com/shroud-ref
-
-► Follow me!
-TWITTER →   / shroud
-TWITCH →   / shroud
-
-#shroud #gaming #cs2
-""",
-                        "thumbnails": {
-                            "high": {"url": "https://img.youtube.com/shroud.jpg"}
-                        },
-                    },
-                }
-            ]
-        }
-    )
-
-    with (
-        patch("app.services.youtube.extractor.get_settings", return_value=_settings()),
-        patch(
-            "app.services.youtube.extractor.httpx.AsyncClient",
-            return_value=_AsyncClientContext(response),
-        ),
-        patch(
-            "app.services.youtube.extractor.extract_blog_recipes_from_url",
-            new=AsyncMock(),
-        ) as blog,
-    ):
-        result = asyncio.run(
-            extract_recipe_from_youtube_url("https://youtu.be/shroud123")
+def test_gemini_unconfigured_with_link_still_imports_via_link_follow():
+    gemini = AsyncMock(
+        side_effect=HTTPException(
+            status_code=503, detail="Caption parsing is not configured"
         )
+    )
+    response = _snippet_response("Full recipe: https://example.com/soup")
+    blog_result = ExtractionResult(
+        source_url="https://example.com/soup",
+        final_url="https://example.com/soup/",
+        title="Blog Soup",
+        image_url=None,
+        recipe_node_count=1,
+        recipes=[
+            NormalizedRecipe(
+                name="Blog Soup",
+                ingredients=["2 cups stock"],
+                instructions=["Warm stock."],
+            )
+        ],
+    )
+    blog = AsyncMock(return_value=blog_result)
 
-    blog.assert_not_called()
+    result = _run("https://youtu.be/abc123XYZ09", response, gemini=gemini, blog=blog)
+
+    assert result.recipes == blog_result.recipes
+
+
+def test_gemini_unconfigured_without_links_raises_503():
+    gemini = AsyncMock(
+        side_effect=HTTPException(
+            status_code=503, detail="Caption parsing is not configured"
+        )
+    )
+    response = _snippet_response("Just vibes, no links here.")
+
+    with pytest.raises(HTTPException) as error:
+        _run("https://youtu.be/abc123XYZ09", response, gemini=gemini)
+
+    assert error.value.status_code == 503
+
+
+def test_gemini_transient_failure_with_link_still_imports_via_link_follow():
+    gemini = AsyncMock(side_effect=HTTPException(status_code=429, detail="busy"))
+    response = _snippet_response("Full recipe: https://example.com/soup")
+    blog_result = ExtractionResult(
+        source_url="https://example.com/soup",
+        final_url="https://example.com/soup/",
+        title="Blog Soup",
+        image_url=None,
+        recipe_node_count=1,
+        recipes=[
+            NormalizedRecipe(
+                name="Blog Soup",
+                ingredients=["2 cups stock"],
+                instructions=["Warm stock."],
+            )
+        ],
+    )
+    blog = AsyncMock(return_value=blog_result)
+
+    result = _run("https://youtu.be/abc123XYZ09", response, gemini=gemini, blog=blog)
+
+    assert result.recipes == blog_result.recipes
+
+
+def test_not_recipe_description_returns_source_aware_status():
+    gemini = AsyncMock(return_value=_not_recipe("The description is a gaming video."))
+    response = _snippet_response("Shroud competes in his first CS LAN Tournament.")
+
+    result = _run("https://youtu.be/abc123XYZ09", response, gemini=gemini)
+
     assert result.parse_status == ParseStatus.NOT_RECIPE
-    assert result.parse_reason is not None
+    assert result.parse_reason == "The description is a gaming video."
     assert result.recipes == []
     assert result.recipe_node_count == 0
-    assert result.title == "Shroud CS LAN"
 
 
-def test_extract_recipe_from_youtube_url_returns_partial_metadata_without_recipe():
-    response = _Response(
-        {
-            "items": [
-                {
-                    "id": "abc123XYZ09",
-                    "snippet": {
-                        "title": "Video Soup",
-                        "description": "No recipe here",
-                        "thumbnails": {
-                            "medium": {"url": "https://img.youtube.com/medium.jpg"}
-                        },
-                    },
-                }
-            ]
-        }
+def test_unnormalizable_gemini_output_degrades_to_not_recipe():
+    broken = ParsedCaption(
+        raw_recipe={"@type": "Recipe", "name": ""},
+        ingredients=[],
+        instructions=[],
+        is_complete=True,
+        parse_status="recipe",
+        parse_reason=None,
     )
+    gemini = AsyncMock(return_value=broken)
+    response = _snippet_response("Some description without links.")
 
-    with (
-        patch("app.services.youtube.extractor.get_settings", return_value=_settings()),
-        patch(
-            "app.services.youtube.extractor.httpx.AsyncClient",
-            return_value=_AsyncClientContext(response),
-        ),
-    ):
-        result = asyncio.run(
-            extract_recipe_from_youtube_url("https://youtu.be/abc123XYZ09")
-        )
+    result = _run("https://youtu.be/abc123XYZ09", response, gemini=gemini)
 
-    assert result.title == "Video Soup"
-    assert result.image_url == "https://img.youtube.com/medium.jpg"
-    assert result.recipe_node_count == 0
+    assert result.parse_status == ParseStatus.NOT_RECIPE
     assert result.recipes == []
+    assert result.parse_reason == "No recipe was found in the video description."
 
 
 def test_extract_recipe_from_youtube_url_requires_api_key():

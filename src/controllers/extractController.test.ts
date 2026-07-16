@@ -53,4 +53,35 @@ describe("buildExtractStatus", () => {
       ),
     ).toBe(`No Recipe objects were found on that page, so nothing was saved. ${message}`);
   });
+
+  it("prefers the backend parse_reason for no-recipe results", () => {
+    const status = buildExtractStatus(
+      buildResponse({
+        recipes: [],
+        database_saved: false,
+        database_message: "Skipped — not a recipe.",
+        parse_status: "not_recipe",
+        parse_reason: "No recipe was found in the TikTok caption.",
+      }),
+    );
+
+    expect(status).toBe(
+      "No recipe was found in the TikTok caption. Skipped — not a recipe.",
+    );
+    expect(status).not.toContain("Recipe objects");
+  });
+
+  it("falls back to the generic copy when parse_reason is absent", () => {
+    const status = buildExtractStatus(
+      buildResponse({
+        recipes: [],
+        database_saved: false,
+        database_message: null,
+      }),
+    );
+
+    expect(status).toBe(
+      "No Recipe objects were found on that page, so nothing was saved.",
+    );
+  });
 });
