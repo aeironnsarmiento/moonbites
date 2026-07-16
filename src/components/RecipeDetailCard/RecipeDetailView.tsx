@@ -4,7 +4,7 @@ import type {
   IngredientSection,
   NormalizedRecipe,
 } from "../../types/recipe";
-import { NutritionSection, RecipeTextSection } from "./RecipeTextSection";
+import { RecipeTextSection } from "./RecipeTextSection";
 
 type RecipeDetailViewProps = {
   recipe: NormalizedRecipe;
@@ -59,10 +59,6 @@ export function RecipeDetailView({
       />
 
       {error ? <Text color="red.500">{error}</Text> : null}
-
-      {recipe.nutrition ? (
-        <NutritionSection nutrition={recipe.nutrition} />
-      ) : null}
     </>
   );
 }

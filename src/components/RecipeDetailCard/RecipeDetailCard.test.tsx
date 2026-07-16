@@ -125,7 +125,8 @@ describe("RecipeDetailCard", () => {
     expect(screen.getByText("2 cups flour")).toBeInTheDocument();
     expect(screen.getByText("Mix ingredients.")).toBeInTheDocument();
     expect(document.body).toHaveTextContent("Bake until center is set.");
-    expect(document.body).toHaveTextContent("calories: 320 kcal");
+    expect(document.body).toHaveTextContent("Calories");
+    expect(document.body).toHaveTextContent("320 kcal");
   });
 
   it("toggles favorite when editing is allowed", () => {

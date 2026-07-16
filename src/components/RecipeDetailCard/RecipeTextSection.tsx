@@ -2,7 +2,6 @@ import {
   Flex,
   Heading,
   HStack,
-  SimpleGrid,
   Stack,
   Text,
 } from "@chakra-ui/react";
@@ -118,25 +117,6 @@ export function RecipeTextSection(props: RecipeTextSectionProps) {
           ))}
         </Stack>
       )}
-    </Stack>
-  );
-}
-
-type NutritionSectionProps = {
-  nutrition: Record<string, string>;
-};
-
-export function NutritionSection({ nutrition }: NutritionSectionProps) {
-  return (
-    <Stack spacing={3} className="recipeDetailCard__section">
-      <Heading size="sm">Nutrition</Heading>
-      <SimpleGrid columns={{ base: 1, md: 2 }} spacing={3}>
-        {Object.entries(nutrition).map(([key, value]) => (
-          <Text key={key}>
-            <strong>{key}:</strong> {value}
-          </Text>
-        ))}
-      </SimpleGrid>
     </Stack>
   );
 }
