@@ -16,6 +16,7 @@ import {
 } from "../../utils/recipeOverrides";
 import { scaleIngredients } from "../../utils/scaleIngredients";
 import { DeleteRecipeDialog } from "./DeleteRecipeDialog";
+import { NutritionFactsPanel } from "./NutritionFactsPanel";
 import { RecipeDetailEditor } from "./RecipeDetailEditor";
 import { RecipeDetailHeader } from "./RecipeDetailHeader";
 import { RecipeDetailHero } from "./RecipeDetailHero";
@@ -249,6 +250,12 @@ export function RecipeDetailCard({
               error={deleteError}
             />
           )}
+
+          <NutritionFactsPanel
+            nutrition={recipe.nutrition}
+            recordServings={servings}
+            currentServings={servingsScale.currentServings}
+          />
         </Stack>
       </CardBody>
       <DeleteRecipeDialog

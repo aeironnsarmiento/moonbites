@@ -6,7 +6,7 @@ import type {
 } from "../../types/recipe";
 import { RecipeMetadataEditor } from "./RecipeMetadataEditor";
 import { RecipeTextEditorRows } from "./RecipeTextEditorRows";
-import { NutritionSection, RecipeTextSection } from "./RecipeTextSection";
+import { RecipeTextSection } from "./RecipeTextSection";
 
 type RecipeDetailEditorProps = {
   recipeImportId: string;
@@ -115,10 +115,6 @@ export function RecipeDetailEditor({
       />
 
       {saveError ? <Text color="red.500">{saveError}</Text> : null}
-
-      {recipe.nutrition ? (
-        <NutritionSection nutrition={recipe.nutrition} />
-      ) : null}
     </>
   );
 }
