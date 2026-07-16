@@ -439,12 +439,56 @@ def save_manual_recipe(
     return created_record
 
 
+def _search_recipe_imports(
+    client,
+    search_term: str,
+    page: int,
+    page_size: int,
+    sort: RecipeSortOption,
+    cuisine_key: Optional[str],
+    favorite: Optional[bool],
+) -> PaginatedRecipeImportsResponse:
+    offset = (page - 1) * page_size
+
+    try:
+        response = client.rpc(
+            "search_recipe_imports",
+            {
+                "p_term": search_term,
+                "p_cuisine": cuisine_key,
+                "p_favorite": favorite,
+                "p_sort": sort.value,
+                "p_limit": page_size,
+                "p_offset": offset,
+            },
+        ).execute()
+    except Exception as error:
+        raise RuntimeError(f"Supabase read failed: {error}") from error
+
+    raw_records = response.data or []
+    total_count = int(raw_records[0].get("total_count") or 0) if raw_records else 0
+    items = [_sanitize_record(record) for record in raw_records]
+    items = _dedupe_recipe_import_records(items)
+    total_pages = (
+        max(1, (total_count + page_size - 1) // page_size) if total_count else 1
+    )
+
+    return PaginatedRecipeImportsResponse(
+        items=items,
+        page=page,
+        page_size=page_size,
+        total_count=total_count,
+        total_pages=total_pages,
+    )
+
+
 def list_recipe_imports(
     page: int,
     page_size: int,
     sort: RecipeSortOption = RecipeSortOption.recent,
     cuisine: Optional[str] = None,
     favorite: Optional[bool] = None,
+    search: Optional[str] = None,
 ) -> PaginatedRecipeImportsResponse:
     settings = get_settings()
     client = _get_read_client(settings)
@@ -457,6 +501,18 @@ def list_recipe_imports(
     offset = (page - 1) * page_size
 
     cuisine_key = _cuisine_db_key(cuisine)
+
+    search_term = (search or "").strip()
+    if search_term:
+        return _search_recipe_imports(
+            client,
+            search_term,
+            page,
+            page_size,
+            sort,
+            cuisine_key,
+            favorite,
+        )
 
     try:
         query = client.table(table_name).select(

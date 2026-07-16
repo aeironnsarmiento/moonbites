@@ -127,6 +127,33 @@ class _FacetClient:
         )
 
 
+class _FailingRpcQuery:
+    def execute(self):
+        raise Exception("rpc exploded")
+
+
+class _SearchClient:
+    def __init__(self, data: list[dict], fail: bool = False):
+        self.data = data
+        self.fail = fail
+        self.rpc_calls: list[tuple[str, dict | None]] = []
+        self.table_calls = 0
+
+    def rpc(self, fn_name: str, params: dict | None = None):
+        self.rpc_calls.append((fn_name, params))
+        if self.fail:
+            return _FailingRpcQuery()
+        return _ListQuery(_Response(self.data))
+
+    def table(self, _table_name: str):
+        self.table_calls += 1
+        raise AssertionError("search path must not use the table builder chain")
+
+
+def _search_row(recipe_id: str = "1", total_count: int = 1) -> dict:
+    return {**_record_dict(recipe_id), "total_count": total_count}
+
+
 def test_sort_recipe_import_records_orders_a_to_z_case_insensitive():
     records = [
         _record("1", "ziti", "2026-04-01T00:00:00"),
@@ -286,6 +313,174 @@ def test_list_recipe_imports_filters_cuisine_with_cuisines_contains():
 
     assert ("contains", "cuisines", ["italian"]) in query.calls
     assert not any(call[0] == "in_" for call in query.calls)
+
+
+def test_list_recipe_imports_search_calls_rpc_with_all_params():
+    client = _SearchClient([_search_row("1", total_count=27)])
+
+    with (
+        patch("app.repositories.recipe_imports.get_settings") as get_settings,
+        patch("app.repositories.recipe_imports._get_read_client") as get_read_client,
+    ):
+        get_settings.return_value.supabase_table_name = "recipe_imports"
+        get_read_client.return_value = client
+
+        response = list_recipe_imports(
+            page=3,
+            page_size=10,
+            sort=RecipeSortOption.times_cooked,
+            cuisine="Italian",
+            favorite=True,
+            search="curry",
+        )
+
+    assert client.rpc_calls == [
+        (
+            "search_recipe_imports",
+            {
+                "p_term": "curry",
+                "p_cuisine": "italian",
+                "p_favorite": True,
+                "p_sort": "times_cooked",
+                "p_limit": 10,
+                "p_offset": 20,
+            },
+        )
+    ]
+    assert client.table_calls == 0
+    assert response.total_count == 27
+    assert response.total_pages == 3
+    assert [item.id for item in response.items] == ["1"]
+
+
+def test_list_recipe_imports_search_none_uses_builder_chain():
+    query = _ListQuery(_Response([_record_dict("1")], count=1))
+
+    with (
+        patch("app.repositories.recipe_imports.get_settings") as get_settings,
+        patch("app.repositories.recipe_imports._get_read_client") as get_read_client,
+    ):
+        get_settings.return_value.supabase_table_name = "recipe_imports"
+        get_read_client.return_value = _ListClient(query)
+
+        response = list_recipe_imports(
+            page=1,
+            page_size=10,
+            sort=RecipeSortOption.recent,
+            search=None,
+        )
+
+    assert response.total_count == 1
+    assert ("range", 0, 9) in query.calls
+
+
+def test_list_recipe_imports_search_blank_uses_builder_chain():
+    query = _ListQuery(_Response([_record_dict("1")], count=1))
+
+    with (
+        patch("app.repositories.recipe_imports.get_settings") as get_settings,
+        patch("app.repositories.recipe_imports._get_read_client") as get_read_client,
+    ):
+        get_settings.return_value.supabase_table_name = "recipe_imports"
+        get_read_client.return_value = _ListClient(query)
+
+        response = list_recipe_imports(
+            page=1,
+            page_size=10,
+            sort=RecipeSortOption.recent,
+            search="   ",
+        )
+
+    assert response.total_count == 1
+    assert ("range", 0, 9) in query.calls
+
+
+def test_list_recipe_imports_search_trims_term_before_rpc():
+    client = _SearchClient([_search_row("1")])
+
+    with (
+        patch("app.repositories.recipe_imports.get_settings") as get_settings,
+        patch("app.repositories.recipe_imports._get_read_client") as get_read_client,
+    ):
+        get_settings.return_value.supabase_table_name = "recipe_imports"
+        get_read_client.return_value = client
+
+        list_recipe_imports(
+            page=1,
+            page_size=10,
+            sort=RecipeSortOption.recent,
+            search="  curry  ",
+        )
+
+    assert client.rpc_calls[0][1]["p_term"] == "curry"
+
+
+def test_list_recipe_imports_search_dedupes_rows_by_url():
+    duplicate = {**_search_row("1", total_count=2), "id": "2"}
+    duplicate["submitted_url"] = _search_row("1")["submitted_url"]
+    duplicate["final_url"] = _search_row("1")["final_url"]
+    client = _SearchClient([_search_row("1", total_count=2), duplicate])
+
+    with (
+        patch("app.repositories.recipe_imports.get_settings") as get_settings,
+        patch("app.repositories.recipe_imports._get_read_client") as get_read_client,
+    ):
+        get_settings.return_value.supabase_table_name = "recipe_imports"
+        get_read_client.return_value = client
+
+        response = list_recipe_imports(
+            page=1,
+            page_size=10,
+            sort=RecipeSortOption.recent,
+            search="pasta",
+        )
+
+    assert [item.id for item in response.items] == ["1"]
+
+
+def test_list_recipe_imports_search_empty_page_reports_zero_count():
+    client = _SearchClient([])
+
+    with (
+        patch("app.repositories.recipe_imports.get_settings") as get_settings,
+        patch("app.repositories.recipe_imports._get_read_client") as get_read_client,
+    ):
+        get_settings.return_value.supabase_table_name = "recipe_imports"
+        get_read_client.return_value = client
+
+        response = list_recipe_imports(
+            page=3,
+            page_size=10,
+            sort=RecipeSortOption.recent,
+            search="nothing matches",
+        )
+
+    assert response.items == []
+    assert response.total_count == 0
+    assert response.total_pages == 1
+
+
+def test_list_recipe_imports_search_rpc_error_raises_read_failed():
+    client = _SearchClient([], fail=True)
+
+    with (
+        patch("app.repositories.recipe_imports.get_settings") as get_settings,
+        patch("app.repositories.recipe_imports._get_read_client") as get_read_client,
+    ):
+        get_settings.return_value.supabase_table_name = "recipe_imports"
+        get_read_client.return_value = client
+
+        try:
+            list_recipe_imports(
+                page=1,
+                page_size=10,
+                sort=RecipeSortOption.recent,
+                search="curry",
+            )
+        except RuntimeError as error:
+            assert "Supabase read failed" in str(error)
+        else:
+            raise AssertionError("expected RuntimeError")
 
 
 def test_list_cuisine_facets_uses_rpc_and_maps_display_labels():
