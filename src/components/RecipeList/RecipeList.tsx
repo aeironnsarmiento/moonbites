@@ -4,6 +4,7 @@ import {
   AlertIcon,
   Box,
   Button,
+  CloseButton,
   HStack,
   Popover,
   PopoverArrow,
@@ -97,14 +98,11 @@ export function RecipeList({
             </span>
           ) : null}
           {searchTerm ? (
-            <button
-              type="button"
-              className="recipeList__clearSearch"
+            <CloseButton
+              size="sm"
               aria-label="Clear search"
               onClick={() => onSearchTermChange("")}
-            >
-              ×
-            </button>
+            />
           ) : null}
           <span className="recipeList__searchDivider" aria-hidden="true" />
           <Popover placement="bottom-end">

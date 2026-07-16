@@ -77,6 +77,7 @@ async def get_saved_recipes(
     favorite: Optional[bool] = Query(default=None),
     search: Optional[str] = Query(default=None, min_length=2, max_length=100),
 ) -> PaginatedRecipeImportsResponse:
+    stripped_search = (search or "").strip()
     try:
         return list_recipe_imports(
             page=page,
@@ -84,7 +85,7 @@ async def get_saved_recipes(
             sort=sort,
             cuisine=cuisine,
             favorite=favorite,
-            search=(search or "").strip() or None,
+            search=stripped_search if len(stripped_search) >= 2 else None,
         )
     except RuntimeError as error:
         _raise_repository_http_error(error)

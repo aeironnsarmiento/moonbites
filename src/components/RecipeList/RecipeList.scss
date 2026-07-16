@@ -52,27 +52,6 @@
     padding: 0 6px;
   }
 
-  &__clearSearch {
-    display: grid;
-    place-items: center;
-    flex: 0 0 auto;
-    width: 28px;
-    height: 28px;
-    border: none;
-    border-radius: 999px;
-    background: transparent;
-    color: var(--chakra-colors-gray-500);
-    font-size: 18px;
-    line-height: 1;
-    cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease;
-
-    &:hover {
-      background: rgba(74, 87, 60, 0.1);
-      color: var(--chakra-colors-gray-700);
-    }
-  }
-
   &__searchDivider {
     width: 1px;
     height: 22px;

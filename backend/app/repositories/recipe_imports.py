@@ -439,6 +439,30 @@ def save_manual_recipe(
     return created_record
 
 
+def _build_paginated_response(
+    raw_records: list[dict],
+    page: int,
+    page_size: int,
+    total_count: Optional[int],
+) -> PaginatedRecipeImportsResponse:
+    items = _dedupe_recipe_import_records(
+        [_sanitize_record(record) for record in raw_records]
+    )
+    if total_count is None:
+        total_count = len(items)
+    total_pages = (
+        max(1, (total_count + page_size - 1) // page_size) if total_count else 1
+    )
+
+    return PaginatedRecipeImportsResponse(
+        items=items,
+        page=page,
+        page_size=page_size,
+        total_count=total_count,
+        total_pages=total_pages,
+    )
+
+
 def _search_recipe_imports(
     client,
     search_term: str,
@@ -467,19 +491,7 @@ def _search_recipe_imports(
 
     raw_records = response.data or []
     total_count = int(raw_records[0].get("total_count") or 0) if raw_records else 0
-    items = [_sanitize_record(record) for record in raw_records]
-    items = _dedupe_recipe_import_records(items)
-    total_pages = (
-        max(1, (total_count + page_size - 1) // page_size) if total_count else 1
-    )
-
-    return PaginatedRecipeImportsResponse(
-        items=items,
-        page=page,
-        page_size=page_size,
-        total_count=total_count,
-        total_pages=total_pages,
-    )
+    return _build_paginated_response(raw_records, page, page_size, total_count)
 
 
 def list_recipe_imports(
@@ -529,23 +541,8 @@ def list_recipe_imports(
         raise RuntimeError(f"Supabase read failed: {error}") from error
 
     raw_records = response.data or []
-    items = [_sanitize_record(record) for record in raw_records]
-    items = _dedupe_recipe_import_records(items)
-
     total_count = getattr(response, "count", None)
-    if total_count is None:
-        total_count = len(items)
-    total_pages = (
-        max(1, (total_count + page_size - 1) // page_size) if total_count else 1
-    )
-
-    return PaginatedRecipeImportsResponse(
-        items=items,
-        page=page,
-        page_size=page_size,
-        total_count=total_count,
-        total_pages=total_pages,
-    )
+    return _build_paginated_response(raw_records, page, page_size, total_count)
 
 
 def list_highlighted_recipes(

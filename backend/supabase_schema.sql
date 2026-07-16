@@ -475,31 +475,28 @@ as $$
               when 'array' then r.recipes_json
               else '[]'::jsonb
             end
-          ) recipe(node),
-          lateral jsonb_array_elements_text(
-            case jsonb_typeof(recipe.node->'ingredients')
-              when 'array' then recipe.node->'ingredients'
-              else '[]'::jsonb
-            end
-          ) ingredient(value)
-          where ingredient.value ilike '%' || p.escaped_term || '%'
-        )
-        or exists (
-          select 1
-          from jsonb_array_elements(
-            case jsonb_typeof(r.recipes_json)
-              when 'array' then r.recipes_json
-              else '[]'::jsonb
-            end
-          ) recipe(node),
-          lateral jsonb_array_elements_text(
-            case jsonb_typeof(recipe.node->'recipeCuisine')
-              when 'array' then recipe.node->'recipeCuisine'
-              when 'string' then jsonb_build_array(recipe.node->'recipeCuisine')
-              else '[]'::jsonb
-            end
-          ) cuisine(value)
-          where cuisine.value ilike '%' || p.escaped_term || '%'
+          ) recipe(node)
+          where exists (
+            select 1
+            from jsonb_array_elements_text(
+              case jsonb_typeof(recipe.node->'ingredients')
+                when 'array' then recipe.node->'ingredients'
+                else '[]'::jsonb
+              end
+            ) ingredient(value)
+            where ingredient.value ilike '%' || p.escaped_term || '%'
+          )
+          or exists (
+            select 1
+            from jsonb_array_elements_text(
+              case jsonb_typeof(recipe.node->'recipeCuisine')
+                when 'array' then recipe.node->'recipeCuisine'
+                when 'string' then jsonb_build_array(recipe.node->'recipeCuisine')
+                else '[]'::jsonb
+              end
+            ) cuisine(value)
+            where cuisine.value ilike '%' || p.escaped_term || '%'
+          )
         )
         or exists (
           select 1

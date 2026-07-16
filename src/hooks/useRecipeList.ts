@@ -11,6 +11,7 @@ import {
 } from "../controllers/recipeController";
 import type { RecipeSortOption } from "../types/api";
 import { normalizeSearchTerm } from "../utils/searchTerm";
+import { RECIPE_LIST_KEY } from "./recipeQueryKeys";
 
 type UseRecipeListParams = {
   page: number;
@@ -29,7 +30,7 @@ function recipeListQueryKey(
   favorite: boolean | null,
   search: string | null,
 ) {
-  const key = ["recipe-list", page, pageSize, sort, cuisine, favorite];
+  const key = [...RECIPE_LIST_KEY, page, pageSize, sort, cuisine, favorite];
   return search ? [...key, search] : key;
 }
 
