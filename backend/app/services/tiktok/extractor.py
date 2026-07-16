@@ -11,13 +11,12 @@ from fastapi import HTTPException
 
 from ...core.config import Settings, get_settings
 from ..blog.extractor import (
-    _build_request_headers,
-    _get_with_403_retry,
     extract_recipes_from_url as extract_blog_recipes_from_url,
     normalize_url,
 )
 from ..extraction_types import ExtractionResult, ParseStatus
 from ..gemini.recipe_parser import ParsedCaption, parse_caption_with_gemini
+from ..http_utils import build_request_headers, get_with_403_retry
 from ..normalizer import normalize_recipe
 from ..youtube.description_parser import extract_ranked_recipe_urls
 
@@ -134,11 +133,11 @@ def parse_tiktok_page(html: str) -> Optional[TikTokPost]:
 async def _fetch_page_html(url: str, settings: Settings) -> Optional[str]:
     try:
         async with httpx.AsyncClient(
-            headers=_build_request_headers(settings),
+            headers=build_request_headers(settings),
             follow_redirects=True,
             timeout=settings.request_timeout_seconds,
         ) as client:
-            response = await _get_with_403_retry(client, url, settings)
+            response = await get_with_403_retry(client, url, settings)
             response.raise_for_status()
             return response.text
     except httpx.HTTPError:

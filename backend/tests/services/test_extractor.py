@@ -113,7 +113,7 @@ def test_extract_recipes_from_url_uses_html_fallback_for_partial_recipe_schema()
             return_value=_AsyncClientContext(),
         ),
         patch(
-            "app.services.blog.extractor._get_with_403_retry",
+            "app.services.blog.extractor.get_with_403_retry",
             new=AsyncMock(return_value=response),
         ),
     ):
@@ -253,7 +253,7 @@ def test_extract_recipes_from_url_prefers_json_ld_ingredients_over_html_fallback
             return_value=_AsyncClientContext(),
         ),
         patch(
-            "app.services.blog.extractor._get_with_403_retry",
+            "app.services.blog.extractor.get_with_403_retry",
             new=AsyncMock(return_value=response),
         ),
     ):
@@ -334,7 +334,7 @@ def test_extract_recipes_from_url_uses_matching_wprm_headers_for_flat_json_ld_in
             return_value=_AsyncClientContext(),
         ),
         patch(
-            "app.services.blog.extractor._get_with_403_retry",
+            "app.services.blog.extractor.get_with_403_retry",
             new=AsyncMock(return_value=response),
         ),
     ):
