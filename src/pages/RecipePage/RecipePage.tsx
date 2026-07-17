@@ -14,6 +14,7 @@ import { StatusBanner } from "../../components/StatusBanner/StatusBanner";
 import { useAuth } from "../../hooks/useAuth";
 import { useRecipeDetail } from "../../hooks/useRecipeDetail";
 import type { RecipeTextOverrides } from "../../types/recipe";
+import { resolveDisplayTitle } from "../../utils/recipeTitle";
 import "./RecipePage.scss";
 
 function getSourceLabel(value: string) {
@@ -72,7 +73,7 @@ export function RecipePage() {
               Recipe detail
             </Text>
             <Heading size="xl">
-              {recipeImport?.page_title ?? "Saved recipe import"}
+              {recipeImport ? resolveDisplayTitle(recipeImport) : "Saved recipe import"}
             </Heading>
           </Stack>
 
@@ -103,7 +104,7 @@ export function RecipePage() {
               recipeImportId={recipeImport.id}
               recipe={recipe}
               recipeIndex={index}
-              recordTitle={recipeImport.page_title}
+              recordTitle={resolveDisplayTitle(recipeImport)}
               timesCooked={recipeImport.times_cooked}
               imageUrl={recipeImport.image_url}
               isFavorite={recipeImport.is_favorite}

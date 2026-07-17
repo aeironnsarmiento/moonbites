@@ -401,6 +401,37 @@ grant execute on function public.toggle_recipe_favorite(uuid) to authenticated;
 grant execute on function public.set_recipe_override(uuid, text, jsonb) to authenticated;
 
 -- ---------------------------------------------------------------------------
+-- AI display titles: a presentation name layered over the existing title
+-- fields. page_title keeps attribution, recipes_json name stays frozen as the
+-- extraction output and dedup fingerprint input; neither is rewritten.
+-- display_title_source is 'ai' | 'user' | 'fallback'; 'user' is authoritative
+-- and is never overwritten by later AI processing. No check constraint —
+-- unknown values are coerced to 'fallback' on read, matching the repository's
+-- sanitize-on-every-read handling of the other jsonb columns.
+-- Existing rows need no backfill: a NULL display_title falls through to the
+-- previous precedence everywhere.
+-- ---------------------------------------------------------------------------
+
+alter table public.recipe_imports
+  add column if not exists display_title text;
+
+alter table public.recipe_imports
+  add column if not exists display_title_source text not null default 'fallback';
+
+-- Sorting must follow the name users actually see, or "Creamy Garlic Pasta"
+-- sorts under T for "The BEST Creamy Garlic Pasta...". PostgREST .order() takes
+-- a column and not an expression, so this mirrors the generated cuisines column
+-- above and encodes the same precedence as the frontend card mapper.
+alter table public.recipe_imports
+  add column if not exists display_title_sort text
+  generated always as (
+    lower(coalesce(display_title, recipes_json->0->>'name', page_title, ''))
+  ) stored;
+
+create index if not exists recipe_imports_display_title_sort_idx
+  on public.recipe_imports (display_title_sort);
+
+-- ---------------------------------------------------------------------------
 -- Global recipe search: ranked, filtered, paginated search RPC.
 -- Dropped before create because "create or replace" cannot change the
 -- signature of a table-returning function on schema re-apply.
@@ -420,6 +451,8 @@ create function public.search_recipe_imports(
   submitted_url text,
   final_url text,
   page_title text,
+  display_title text,
+  display_title_source text,
   times_cooked integer,
   recipes_json jsonb,
   recipe_overrides_json jsonb,
@@ -445,6 +478,9 @@ as $$
       r.submitted_url,
       r.final_url,
       r.page_title,
+      r.display_title,
+      r.display_title_source,
+      r.display_title_sort,
       r.times_cooked,
       r.recipes_json,
       r.recipe_overrides_json,
@@ -453,20 +489,24 @@ as $$
       r.servings,
       r.created_at,
       case
-        when lower(coalesce(r.recipes_json->0->>'name', '')) = p.exact_term
+        when lower(coalesce(r.display_title, '')) = p.exact_term
+          or lower(coalesce(r.recipes_json->0->>'name', '')) = p.exact_term
           or lower(coalesce(r.page_title, '')) = p.exact_term
           then 1
-        when coalesce(r.recipes_json->0->>'name', '') ilike p.escaped_term || '%'
+        when coalesce(r.display_title, '') ilike p.escaped_term || '%'
+          or coalesce(r.recipes_json->0->>'name', '') ilike p.escaped_term || '%'
           or coalesce(r.page_title, '') ilike p.escaped_term || '%'
           then 2
-        when coalesce(r.recipes_json->0->>'name', '') ilike '%' || p.escaped_term || '%'
+        when coalesce(r.display_title, '') ilike '%' || p.escaped_term || '%'
+          or coalesce(r.recipes_json->0->>'name', '') ilike '%' || p.escaped_term || '%'
           or coalesce(r.page_title, '') ilike '%' || p.escaped_term || '%'
           then 3
         else 4
       end as match_rank
     from public.recipe_imports r, patterns p
     where (
-        coalesce(r.recipes_json->0->>'name', '') ilike '%' || p.escaped_term || '%'
+        coalesce(r.display_title, '') ilike '%' || p.escaped_term || '%'
+        or coalesce(r.recipes_json->0->>'name', '') ilike '%' || p.escaped_term || '%'
         or coalesce(r.page_title, '') ilike '%' || p.escaped_term || '%'
         or exists (
           select 1
@@ -514,6 +554,8 @@ as $$
     m.submitted_url,
     m.final_url,
     m.page_title,
+    m.display_title,
+    m.display_title_source,
     m.times_cooked,
     m.recipes_json,
     m.recipe_overrides_json,
@@ -526,8 +568,8 @@ as $$
   order by m.match_rank,
     case when p_sort = 'times_cooked' then m.times_cooked end desc nulls last,
     case when p_sort = 'favorites' then m.is_favorite end desc nulls last,
-    case when p_sort = 'az' then m.page_title end asc nulls last,
-    case when p_sort = 'za' then m.page_title end desc nulls last,
+    case when p_sort = 'az' then m.display_title_sort end asc nulls last,
+    case when p_sort = 'za' then m.display_title_sort end desc nulls last,
     case when p_sort = 'za' then m.created_at end asc nulls last,
     m.created_at desc,
     m.id

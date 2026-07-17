@@ -4,7 +4,8 @@ from fastapi.testclient import TestClient
 
 from backend.main import app
 from backend.app.api.auth import AuthenticatedAdmin, require_admin_user
-from backend.app.schemas.extract import NormalizedRecipe
+from backend.app.schemas.extract import DisplayTitleSource, NormalizedRecipe
+from backend.app.services.display_titles import DisplayTitle
 from backend.app.services.extraction_types import ExtractionResult, ParseStatus
 
 
@@ -260,3 +261,165 @@ def test_extract_success_passes_image_url_to_save_recipe_import():
     assert response.status_code == 200
     assert response.json()["image_url"] == "https://example.com/soup.jpg"
     assert save.call_args.kwargs["image_url"] == "https://example.com/soup.jpg"
+
+
+def _admin_override():
+    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+        email="admin@example.com",
+        access_token="admin-token",
+    )
+
+
+def _extraction_with_recipes():
+    return Mock(
+        source_url="https://example.com/submitted",
+        final_url="https://example.com/final",
+        title="The BEST Soup You'll EVER Make!!",
+        image_url=None,
+        recipe_node_count=1,
+        recipes=[
+            NormalizedRecipe(
+                name="Chicken Soup",
+                ingredients=["1 cup stock", "2 chicken thighs"],
+                instructions=["Warm stock."],
+            )
+        ],
+        parse_status=ParseStatus.RECIPE,
+        parse_reason=None,
+    )
+
+
+def test_extract_forwards_the_generated_display_title_to_the_save():
+    _admin_override()
+
+    try:
+        with (
+            patch(
+                "backend.app.api.routes.extract.extract_recipes_from_url",
+                return_value=_extraction_with_recipes(),
+            ),
+            patch(
+                "backend.app.api.routes.extract.generate_display_title",
+                return_value=DisplayTitle(value="Chicken Soup", source="ai"),
+            ) as generate,
+            patch(
+                "backend.app.api.routes.extract.save_recipe_import",
+                return_value=(True, "Saved."),
+            ) as save,
+        ):
+            response = client.post(
+                "/api/extract",
+                json={"url": "https://example.com/submitted"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    generate.assert_called_once()
+    assert generate.call_args.kwargs["source_title"] == "The BEST Soup You'll EVER Make!!"
+    assert save.call_args.kwargs["display_title"] == "Chicken Soup"
+    assert save.call_args.kwargs["display_title_source"] == DisplayTitleSource.ai
+
+
+def test_extract_still_saves_when_title_generation_degrades():
+    # Covers AE4: the AI service being unavailable must not fail the import.
+    _admin_override()
+
+    try:
+        with (
+            patch(
+                "backend.app.api.routes.extract.extract_recipes_from_url",
+                return_value=_extraction_with_recipes(),
+            ),
+            patch(
+                "backend.app.api.routes.extract.generate_display_title",
+                return_value=DisplayTitle(
+                    value="Soup", source="fallback", reason="unreachable"
+                ),
+            ),
+            patch(
+                "backend.app.api.routes.extract.save_recipe_import",
+                return_value=(True, "Saved."),
+            ) as save,
+        ):
+            response = client.post(
+                "/api/extract",
+                json={"url": "https://example.com/submitted"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["database_saved"] is True
+    assert save.call_args.kwargs["display_title"] == "Soup"
+    assert save.call_args.kwargs["display_title_source"] == DisplayTitleSource.fallback
+
+
+def test_extract_does_not_generate_a_title_for_a_non_recipe():
+    _admin_override()
+
+    try:
+        extraction = Mock(
+            source_url="https://example.com/submitted",
+            final_url="https://example.com/final",
+            title="Vlog",
+            image_url=None,
+            recipe_node_count=0,
+            recipes=[],
+            parse_status=ParseStatus.NOT_RECIPE,
+            parse_reason="Not a recipe.",
+        )
+
+        with (
+            patch(
+                "backend.app.api.routes.extract.extract_recipes_from_url",
+                return_value=extraction,
+            ),
+            patch(
+                "backend.app.api.routes.extract.generate_display_title"
+            ) as generate,
+        ):
+            response = client.post(
+                "/api/extract",
+                json={"url": "https://example.com/submitted"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    generate.assert_not_called()
+
+
+def test_extract_does_not_generate_a_title_when_nothing_normalized():
+    _admin_override()
+
+    try:
+        extraction = Mock(
+            source_url="https://example.com/submitted",
+            final_url="https://example.com/final",
+            title="Recipe Page",
+            image_url=None,
+            recipe_node_count=1,
+            recipes=[],
+            parse_status=ParseStatus.RECIPE,
+            parse_reason=None,
+        )
+
+        with (
+            patch(
+                "backend.app.api.routes.extract.extract_recipes_from_url",
+                return_value=extraction,
+            ),
+            patch(
+                "backend.app.api.routes.extract.generate_display_title"
+            ) as generate,
+        ):
+            response = client.post(
+                "/api/extract",
+                json={"url": "https://example.com/submitted"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    generate.assert_not_called()

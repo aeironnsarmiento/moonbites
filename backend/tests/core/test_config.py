@@ -26,6 +26,7 @@ def test_gemini_settings_fall_back_to_defaults(monkeypatch):
     monkeypatch.delenv("GEMINI_MODEL", raising=False)
     monkeypatch.delenv("GEMINI_TIMEOUT_SECONDS", raising=False)
     monkeypatch.delenv("GEMINI_RATE_LIMIT_PER_MINUTE", raising=False)
+    monkeypatch.delenv("GEMINI_TITLE_RATE_LIMIT_PER_MINUTE", raising=False)
     get_settings.cache_clear()
     try:
         settings = get_settings()
@@ -33,6 +34,16 @@ def test_gemini_settings_fall_back_to_defaults(monkeypatch):
         assert settings.gemini_model == "gemini-3.1-flash-lite"
         assert settings.gemini_timeout_seconds == 30.0
         assert settings.gemini_rate_limit_per_minute == 3
+        assert settings.gemini_title_rate_limit_per_minute == 3
+    finally:
+        get_settings.cache_clear()
+
+
+def test_gemini_title_rate_limit_falls_back_when_env_is_blank(monkeypatch):
+    monkeypatch.setenv("GEMINI_TITLE_RATE_LIMIT_PER_MINUTE", "")
+    get_settings.cache_clear()
+    try:
+        assert get_settings().gemini_title_rate_limit_per_minute == 3
     finally:
         get_settings.cache_clear()
 
@@ -42,6 +53,7 @@ def test_gemini_settings_parse_env_values(monkeypatch):
     monkeypatch.setenv("GEMINI_MODEL", "gemini-custom")
     monkeypatch.setenv("GEMINI_TIMEOUT_SECONDS", "12.5")
     monkeypatch.setenv("GEMINI_RATE_LIMIT_PER_MINUTE", "5")
+    monkeypatch.setenv("GEMINI_TITLE_RATE_LIMIT_PER_MINUTE", "7")
     get_settings.cache_clear()
     try:
         settings = get_settings()
@@ -49,5 +61,6 @@ def test_gemini_settings_parse_env_values(monkeypatch):
         assert settings.gemini_model == "gemini-custom"
         assert settings.gemini_timeout_seconds == 12.5
         assert settings.gemini_rate_limit_per_minute == 5
+        assert settings.gemini_title_rate_limit_per_minute == 7
     finally:
         get_settings.cache_clear()

@@ -88,6 +88,21 @@ REQUEST_TIMEOUT_SECONDS=15.0
 YOUTUBE_API_KEY=your-youtube-data-api-key
 ```
 
+Gemini powers two things: parsing recipes out of TikTok/YouTube captions, and
+generating a short display title for each import. Without `GEMINI_API_KEY`,
+caption-based video imports fail, while blog imports still work and simply fall
+back to a cleaned-up version of the source title.
+
+```env
+GEMINI_API_KEY=your-gemini-api-key
+GEMINI_MODEL=gemini-3.1-flash-lite
+GEMINI_TIMEOUT_SECONDS=30.0
+# Caption parsing and title generation hold separate per-minute budgets, so a
+# best-effort title call can never starve the parse that blocks an import.
+GEMINI_RATE_LIMIT_PER_MINUTE=3
+GEMINI_TITLE_RATE_LIMIT_PER_MINUTE=3
+```
+
 ## Supabase Auth and RLS
 
 Moonbites uses Supabase Google OAuth for admin login and PostgreSQL row-level

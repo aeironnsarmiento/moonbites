@@ -50,6 +50,8 @@ function record(overrides: Partial<RecipeImportRecord> = {}): RecipeImportRecord
     submitted_url: "manual://new-id",
     final_url: "manual://new-id",
     page_title: "New Recipe",
+    display_title: "New Recipe",
+    display_title_source: "user",
     times_cooked: 0,
     recipes_json: [recipe()],
     recipe_overrides_json: {},

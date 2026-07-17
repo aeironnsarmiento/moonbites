@@ -102,9 +102,61 @@ def test_search_recipe_imports_returns_record_columns_with_window_count():
     assert "offset greatest(p_offset, 0)" in function_sql
 
 
+def test_recipe_imports_has_display_title_columns():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    assert (
+        "add column if not exists display_title text" in normalized_sql
+    )
+    assert (
+        "add column if not exists display_title_source text not null default 'fallback'"
+        in normalized_sql
+    )
+
+
+def test_recipe_imports_display_title_sort_mirrors_card_title_precedence():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+    match = re.search(
+        r"add column if not exists display_title_sort text generated always as \((.*?)\) stored",
+        normalized_sql,
+    )
+
+    assert match is not None
+    expression = match.group(1).strip()
+    # Same precedence as the frontend card mapper, so A-Z sorts by what users see.
+    assert (
+        expression
+        == "lower(coalesce(display_title, recipes_json->0->>'name', page_title, ''))"
+    )
+    assert "select " not in expression
+    assert (
+        "create index if not exists recipe_imports_display_title_sort_idx "
+        "on public.recipe_imports (display_title_sort)"
+    ) in normalized_sql
+
+
+def test_display_title_columns_are_added_before_the_search_function():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    column_index = normalized_sql.index("add column if not exists display_title text")
+    create_index = normalized_sql.index(
+        "create function public.search_recipe_imports"
+    )
+
+    assert column_index < create_index
+
+
+def test_search_recipe_imports_returns_display_title_columns():
+    function_sql = _search_function_sql()
+
+    assert "display_title text," in function_sql
+    assert "display_title_source text," in function_sql
+
+
 def test_search_recipe_imports_matches_only_the_contracted_fields():
     function_sql = _search_function_sql()
 
+    assert "r.display_title" in function_sql
     assert "recipes_json->0->>'name'" in function_sql
     assert "r.page_title" in function_sql
     assert "recipe.node->'ingredients'" in function_sql
@@ -147,6 +199,24 @@ def test_search_recipe_imports_tier_two_is_prefix_and_tier_three_is_substring():
     assert substring_pattern in tier_three_clause
 
 
+def test_search_recipe_imports_ranks_display_title_alongside_the_original_titles():
+    function_sql = _search_function_sql()
+
+    tier_one = function_sql.index("then 1")
+    tier_two = function_sql.index("then 2")
+    tier_three = function_sql.index("then 3")
+
+    # The display title is the name users see, so it ranks in every title tier;
+    # page_title stays matched so the original source title remains searchable (R7).
+    for clause in (
+        function_sql[:tier_one],
+        function_sql[tier_one:tier_two],
+        function_sql[tier_two:tier_three],
+    ):
+        assert "r.display_title" in clause
+        assert "r.page_title" in clause
+
+
 def test_search_recipe_imports_matches_case_insensitively():
     function_sql = _search_function_sql()
 
@@ -176,8 +246,8 @@ def test_search_recipe_imports_orders_by_rank_then_requested_sort():
     assert "order by m.match_rank," in function_sql
     assert "case when p_sort = 'times_cooked' then m.times_cooked end desc" in function_sql
     assert "case when p_sort = 'favorites' then m.is_favorite end desc" in function_sql
-    assert "case when p_sort = 'az' then m.page_title end asc" in function_sql
-    assert "case when p_sort = 'za' then m.page_title end desc" in function_sql
+    assert "case when p_sort = 'az' then m.display_title_sort end asc" in function_sql
+    assert "case when p_sort = 'za' then m.display_title_sort end desc" in function_sql
     assert "case when p_sort = 'za' then m.created_at end asc" in function_sql
     assert "m.created_at desc, m.id" in function_sql
 

@@ -3,9 +3,10 @@ from fastapi import APIRouter, Depends, Request
 from ..auth import AuthenticatedAdmin, require_admin_user
 from ...core.rate_limit import limiter
 from ...repositories.recipe_imports import save_recipe_import
-from ...schemas.extract import ExtractRequest, ExtractResponse
+from ...schemas.extract import DisplayTitleSource, ExtractRequest, ExtractResponse
 from ...services.extraction_types import ParseStatus
 from ...services.extractor import extract_recipes_from_url
+from ...services.gemini.title_generator import generate_display_title
 
 
 router = APIRouter(prefix="/api", tags=["extract"])
@@ -47,6 +48,15 @@ async def extract_ld_json(
         )
 
     if result.recipes:
+        # Generation hangs off the route rather than extract_recipes_from_url
+        # because the refetch CLI calls that dispatcher too, and re-titling on
+        # refetch is out of scope. No try/except: the generator never raises,
+        # degrading to a cleaned source title instead, so a title can never
+        # fail an import.
+        display_title = await generate_display_title(
+            source_title=result.title,
+            recipes=result.recipes,
+        )
         database_saved, database_message = save_recipe_import(
             submitted_url=result.source_url,
             final_url=result.final_url,
@@ -54,6 +64,8 @@ async def extract_ld_json(
             recipes=result.recipes,
             image_url=result.image_url,
             access_token=admin.access_token,
+            display_title=display_title.value,
+            display_title_source=DisplayTitleSource(display_title.source),
         )
         database_message = _sanitize_database_message(database_saved, database_message)
     else:

@@ -1,25 +1,37 @@
 from __future__ import annotations
 
 import re
-import time
-from collections import deque
 from dataclasses import dataclass
 from typing import Any, Optional
 
-import httpx
 from fastapi import HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
 from ...core.config import get_settings
+from .client import (
+    GEMINI_API_BASE_URL,
+    GeminiErrorDetails,
+    RateLimiter,
+    candidate_text,
+    post_generate_content,
+)
 
 
-GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 MAX_REASON_LENGTH = 200
 MIN_INGREDIENT_LINES = 2
 
 NOT_CONFIGURED_DETAIL = "Caption parsing is not configured"
 BUSY_DETAIL = "The recipe parser is busy — try again shortly"
 TIMEOUT_DETAIL = "Request to the recipe parser timed out"
+
+ERROR_DETAILS = GeminiErrorDetails(
+    busy=BUSY_DETAIL,
+    not_configured=NOT_CONFIGURED_DETAIL,
+    timeout=TIMEOUT_DETAIL,
+    rejected="The recipe parser rejected the request (HTTP 400)",
+    unreachable="Unable to reach the recipe parser",
+    upstream_template="The recipe parser returned HTTP {status_code}",
+)
 
 # Fabrication guard: a parsed line "matches" the caption when at least this
 # fraction of its tokens appear in the source text; the parse is rejected when
@@ -99,24 +111,7 @@ class ParsedCaption:
     parse_reason: Optional[str]
 
 
-class _RateLimiter:
-    def __init__(self) -> None:
-        self._timestamps: deque[float] = deque()
-
-    def try_acquire(self, limit: int) -> bool:
-        now = time.monotonic()
-        while self._timestamps and now - self._timestamps[0] >= 60.0:
-            self._timestamps.popleft()
-        if len(self._timestamps) >= max(limit, 1):
-            return False
-        self._timestamps.append(now)
-        return True
-
-    def reset(self) -> None:
-        self._timestamps.clear()
-
-
-_rate_limiter = _RateLimiter()
+_rate_limiter = RateLimiter()
 
 
 def reset_gemini_rate_limiter() -> None:
@@ -155,96 +150,6 @@ def _looks_fabricated(source_text: str, lines: list[str]) -> bool:
             mismatched += 1
 
     return checked > 0 and mismatched / checked > _FABRICATED_LINE_RATIO
-
-
-def _map_status_error(error: httpx.HTTPStatusError) -> HTTPException:
-    status_code = error.response.status_code
-
-    status_token = ""
-    try:
-        payload = error.response.json()
-        status_token = str(payload.get("error", {}).get("status") or "")
-    except Exception:  # pragma: no cover - defensive body parse
-        status_token = ""
-
-    if status_code == 429:
-        return HTTPException(status_code=429, detail=BUSY_DETAIL)
-    if status_code in (403, 404):
-        return HTTPException(status_code=503, detail=NOT_CONFIGURED_DETAIL)
-    if status_code == 400:
-        if status_token == "FAILED_PRECONDITION":
-            return HTTPException(status_code=503, detail=NOT_CONFIGURED_DETAIL)
-        return HTTPException(
-            status_code=502,
-            detail="The recipe parser rejected the request (HTTP 400)",
-        )
-    return HTTPException(
-        status_code=502,
-        detail=f"The recipe parser returned HTTP {status_code}",
-    )
-
-
-_RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
-
-
-async def _post_generate_content(
-    request_url: str,
-    request_body: dict[str, Any],
-    *,
-    api_key: str,
-    timeout_seconds: float,
-) -> httpx.Response:
-    last_exception: Optional[HTTPException] = None
-    last_cause: Optional[Exception] = None
-
-    for _ in range(2):
-        try:
-            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-                response = await client.post(
-                    request_url,
-                    headers={
-                        "x-goog-api-key": api_key,
-                        "Content-Type": "application/json",
-                    },
-                    json=request_body,
-                )
-                response.raise_for_status()
-                return response
-        except httpx.TimeoutException as error:
-            last_exception = HTTPException(status_code=504, detail=TIMEOUT_DETAIL)
-            last_cause = error
-        except httpx.HTTPStatusError as error:
-            mapped = _map_status_error(error)
-            if error.response.status_code not in _RETRYABLE_STATUS_CODES:
-                raise mapped from error
-            last_exception = mapped
-            last_cause = error
-        except httpx.HTTPError as error:
-            raise HTTPException(
-                status_code=502,
-                detail="Unable to reach the recipe parser",
-            ) from error
-
-    assert last_exception is not None
-    raise last_exception from last_cause
-
-
-def _candidate_text(payload: Any) -> Optional[str]:
-    if not isinstance(payload, dict):
-        return None
-    candidates = payload.get("candidates")
-    if not isinstance(candidates, list) or not candidates:
-        return None
-    content = candidates[0].get("content") if isinstance(candidates[0], dict) else None
-    parts = content.get("parts") if isinstance(content, dict) else None
-    if not isinstance(parts, list):
-        return None
-    for part in parts:
-        if isinstance(part, dict):
-            text = part.get("text")
-            if isinstance(text, str) and text.strip():
-                return text
-    return None
 
 
 def _build_parsed_caption(
@@ -337,11 +242,12 @@ async def parse_caption_with_gemini(
     }
     request_url = f"{GEMINI_API_BASE_URL}/models/{settings.gemini_model}:generateContent"
 
-    response = await _post_generate_content(
+    response = await post_generate_content(
         request_url,
         request_body,
         api_key=settings.gemini_api_key,
         timeout_seconds=settings.gemini_timeout_seconds,
+        details=ERROR_DETAILS,
     )
 
     try:
@@ -352,7 +258,7 @@ async def parse_caption_with_gemini(
             detail="The recipe parser returned an unreadable response",
         ) from error
 
-    text = _candidate_text(payload)
+    text = candidate_text(payload)
     if text is None:
         raise HTTPException(
             status_code=502,

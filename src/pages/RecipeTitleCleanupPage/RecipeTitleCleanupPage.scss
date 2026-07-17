@@ -1,0 +1,15 @@
+.titleCleanupPage {
+  &__row {
+    border-radius: 18px;
+    transition: opacity 0.2s ease;
+  }
+
+  &__row--rejected {
+    opacity: 0.55;
+  }
+
+  &__skipped {
+    padding-top: 8px;
+    border-top: 1px solid rgba(73, 85, 54, 0.15);
+  }
+}

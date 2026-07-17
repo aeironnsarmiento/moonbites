@@ -148,7 +148,7 @@ def _patched(client: _AsyncClientContext, settings: Settings | None = None):
             return_value=settings or _settings(),
         ),
         patch(
-            "app.services.gemini.recipe_parser.httpx.AsyncClient",
+            "app.services.gemini.client.httpx.AsyncClient",
             return_value=client,
         ),
     )

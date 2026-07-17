@@ -28,6 +28,7 @@ import {
   dedupeRecipeImports,
 } from "../utils/recipeDedup";
 import { formatDate } from "../utils/formatDate";
+import { resolveDisplayTitle } from "../utils/recipeTitle";
 
 function isManualRecipeUrl(value: string) {
   return value.trim().toLowerCase().startsWith("manual://");
@@ -39,7 +40,7 @@ export function mapRecipeImportToCard(record: RecipeImportRecord): RecipeCardIte
 
   return {
     id: record.id,
-    title: primaryRecipe?.name ?? record.page_title ?? "Untitled recipe import",
+    title: resolveDisplayTitle(record),
     pageTitle: manualRecord ? record.page_title ?? "Manual recipe" : record.page_title,
     submittedUrl: manualRecord ? "Manual recipe" : record.submitted_url,
     createdAtLabel: formatDate(record.created_at),

@@ -1,4 +1,5 @@
-from typing import NoReturn, Optional
+from dataclasses import dataclass
+from typing import Any, NoReturn, Optional
 from uuid import uuid4
 
 from ..clients.supabase_client import (
@@ -10,6 +11,7 @@ from ..core.config import get_settings
 from ..schemas.extract import (
     CuisineFacet,
     CuisineFacetsResponse,
+    DisplayTitleSource,
     HighlightedRecipesResponse,
     NormalizedRecipe,
     PaginatedRecipeImportsResponse,
@@ -18,6 +20,7 @@ from ..schemas.extract import (
     UpdateRecipeMetadataRequest,
     RecipeTextOverrides,
 )
+from ..services.display_titles import resolve_display_title
 from ..services.cuisine_catalog import (
     CANONICAL_CUISINES,
     OTHER_CUISINE_LABEL,
@@ -29,7 +32,7 @@ from ..utils.urls import canonicalize_url
 from ..utils.yield_parser import parse_yield
 
 
-RECIPE_IMPORT_SELECT = "id, submitted_url, final_url, page_title, times_cooked, recipes_json, recipe_overrides_json, image_url, is_favorite, servings, created_at"
+RECIPE_IMPORT_SELECT = "id, submitted_url, final_url, page_title, display_title, display_title_source, times_cooked, recipes_json, recipe_overrides_json, image_url, is_favorite, servings, created_at"
 
 
 class RecipeWriteDeniedError(RuntimeError):
@@ -99,6 +102,19 @@ def _sanitize_recipe_overrides(
     return sanitized_overrides
 
 
+def _sanitize_display_title_source(value: Any) -> DisplayTitleSource:
+    """Coerce an unrecognized source rather than rejecting the whole record.
+
+    The column has no check constraint, so a legacy or hand-edited value is
+    treated as 'fallback' — never as 'user', which would silently make a row
+    permanently uneditable by the cleanup pass.
+    """
+    try:
+        return DisplayTitleSource(value)
+    except ValueError:
+        return DisplayTitleSource.fallback
+
+
 def _sanitize_record(record: dict) -> RecipeImportRecord:
     recipes = [
         NormalizedRecipe.model_validate(item)
@@ -112,6 +128,10 @@ def _sanitize_record(record: dict) -> RecipeImportRecord:
         "image_url": record.get("image_url"),
         "is_favorite": bool(record.get("is_favorite", False)),
         "servings": record.get("servings"),
+        "display_title": record.get("display_title"),
+        "display_title_source": _sanitize_display_title_source(
+            record.get("display_title_source")
+        ),
         "recipes_json": [recipe.model_dump() for recipe in unique_recipes],
         "recipe_overrides_json": _sanitize_recipe_overrides(
             record.get("recipe_overrides_json") or {}
@@ -200,9 +220,13 @@ def _filter_recipe_import_records(
 
 
 def _primary_recipe_name(record: RecipeImportRecord) -> str:
-    primary_recipe = record.recipes_json[0] if record.recipes_json else None
-    name = primary_recipe.name if primary_recipe else record.page_title or ""
-    return name.casefold()
+    # Same precedence as the display_title_sort generated column, so the
+    # in-memory sorter and the database agree on A-Z order.
+    return resolve_display_title(
+        record.display_title,
+        record.recipes_json,
+        record.page_title,
+    ).casefold()
 
 
 def _sort_recipe_import_records(
@@ -279,8 +303,11 @@ _SORT_CLAUSES: dict[RecipeSortOption, list[tuple[str, bool]]] = {
     RecipeSortOption.recent: [("created_at", True)],
     RecipeSortOption.times_cooked: [("times_cooked", True), ("created_at", True)],
     RecipeSortOption.favorites: [("is_favorite", True), ("created_at", True)],
-    RecipeSortOption.az: [("page_title", False), ("created_at", True)],
-    RecipeSortOption.za: [("page_title", True), ("created_at", False)],
+    # display_title_sort is the generated column encoding the same precedence
+    # the cards use, so A-Z sorts by the name on screen rather than the raw
+    # source title.
+    RecipeSortOption.az: [("display_title_sort", False), ("created_at", True)],
+    RecipeSortOption.za: [("display_title_sort", True), ("created_at", False)],
 }
 
 
@@ -329,6 +356,8 @@ def save_recipe_import(
     recipes: list[NormalizedRecipe],
     image_url: Optional[str] = None,
     access_token: Optional[str] = None,
+    display_title: Optional[str] = None,
+    display_title_source: DisplayTitleSource = DisplayTitleSource.fallback,
 ) -> tuple[bool, Optional[str]]:
     settings = get_settings()
     client = _get_write_client(settings, access_token)
@@ -375,6 +404,8 @@ def save_recipe_import(
         "submitted_url": submitted_url,
         "final_url": final_url,
         "page_title": title,
+        "display_title": display_title,
+        "display_title_source": DisplayTitleSource(display_title_source).value,
         "times_cooked": 0,
         "recipes_json": [recipe.model_dump() for recipe in unique_recipes],
         "recipe_overrides_json": {},
@@ -419,6 +450,11 @@ def save_manual_recipe(
         "submitted_url": manual_url,
         "final_url": manual_url,
         "page_title": page_title,
+        # R10: a manual recipe's name is already the title the user intended,
+        # so it is authoritative and never generated over. page_title stays the
+        # record label ("Manual recipe: X"), which is not a dish name.
+        "display_title": recipe.name,
+        "display_title_source": DisplayTitleSource.user.value,
         "times_cooked": 0,
         "recipes_json": [recipe.model_dump()],
         "recipe_overrides_json": {},
@@ -688,6 +724,108 @@ def iter_recipe_import_records_for_refresh(
             return
 
 
+def list_recipe_import_records_for_title_cleanup(
+    *,
+    cursor: Optional[str] = None,
+    batch_size: int = 10,
+) -> list[RecipeImportRecord]:
+    """One cursor page of records for the title cleanup preview.
+
+    Unlike the refresh reader this uses the read client, so an admin route
+    works on a deployment configured with only the publishable key.
+    """
+    settings = get_settings()
+    client = _get_read_client(settings)
+    if client is None:
+        raise RuntimeError(
+            "Supabase is not configured yet. Add backend env vars to enable reading saved recipes."
+        )
+
+    try:
+        query = (
+            client.table(settings.supabase_table_name)
+            .select(RECIPE_IMPORT_SELECT)
+            .order("created_at", desc=True)
+            .limit(batch_size)
+        )
+        if cursor:
+            query = query.lt("created_at", cursor)
+        response = query.execute()
+    except Exception as error:
+        raise RuntimeError(f"Supabase read failed: {error}") from error
+
+    return [_sanitize_record(record) for record in response.data or []]
+
+
+@dataclass(frozen=True)
+class DisplayTitleApplyResult:
+    recipe_import_id: str
+    status: str
+    reason: Optional[str] = None
+    record: Optional[RecipeImportRecord] = None
+
+
+def apply_display_titles(
+    items: list[tuple[str, str]],
+    access_token: Optional[str] = None,
+) -> list[DisplayTitleApplyResult]:
+    """Write reviewed display titles, re-checking the skip rule per row.
+
+    R13 is enforced against the database rather than the client's claim: a
+    record the user has already titled is skipped even if its id is submitted.
+    R14 is structural — the payload carries only the two display columns, so
+    page_title and recipes_json cannot be touched from here.
+    """
+    settings = get_settings()
+    client = _get_write_client(settings, access_token)
+    if client is None:
+        raise RuntimeError(
+            "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
+        )
+
+    results: list[DisplayTitleApplyResult] = []
+    for recipe_import_id, title in items:
+        existing_record = get_recipe_import(recipe_import_id)
+        if existing_record is None:
+            results.append(
+                DisplayTitleApplyResult(
+                    recipe_import_id=recipe_import_id,
+                    status="not_found",
+                    reason="Recipe import not found.",
+                )
+            )
+            continue
+
+        if existing_record.display_title_source == DisplayTitleSource.user:
+            results.append(
+                DisplayTitleApplyResult(
+                    recipe_import_id=recipe_import_id,
+                    status="skipped",
+                    reason="This title was edited by you, so it was left alone.",
+                )
+            )
+            continue
+
+        record = _update_or_resolve(
+            client,
+            settings.supabase_table_name,
+            recipe_import_id,
+            {
+                "display_title": title,
+                "display_title_source": DisplayTitleSource.user.value,
+            },
+        )
+        results.append(
+            DisplayTitleApplyResult(
+                recipe_import_id=recipe_import_id,
+                status="applied",
+                record=record,
+            )
+        )
+
+    return results
+
+
 def get_recipe_import(recipe_import_id: str) -> Optional[RecipeImportRecord]:
     settings = get_settings()
     client = _get_read_client(settings)
@@ -906,14 +1044,17 @@ def _build_metadata_update_payload(
     recipes = [recipe.model_copy(deep=True) for recipe in existing_record.recipes_json]
     if recipes:
         recipes[0] = recipes[0].model_copy(
-            update={
-                "name": metadata.title,
-                "recipeYield": metadata.recipe_yield,
-            }
+            update={"recipeYield": metadata.recipe_yield}
         )
 
+    # The title edit lands on display_title alone. page_title keeps the
+    # original source title for attribution and search (R7), and the recipe
+    # name stays frozen as the extraction output and dedup fingerprint input.
+    # Marking the source 'user' makes the edit authoritative: no later AI
+    # processing overwrites it (R8), and cleanup skips it (R13).
     return {
-        "page_title": metadata.title,
+        "display_title": metadata.title,
+        "display_title_source": DisplayTitleSource.user.value,
         "submitted_url": metadata.source_url,
         "final_url": metadata.source_url,
         "recipes_json": [recipe.model_dump() for recipe in recipes],

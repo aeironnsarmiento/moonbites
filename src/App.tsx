@@ -19,6 +19,11 @@ const RecipeCreatePage = lazy(() =>
 const RecipeListPage = lazy(() =>
   import("./pages/RecipeListPage/RecipeListPage").then((m) => ({ default: m.RecipeListPage })),
 );
+const RecipeTitleCleanupPage = lazy(() =>
+  import("./pages/RecipeTitleCleanupPage/RecipeTitleCleanupPage").then((m) => ({
+    default: m.RecipeTitleCleanupPage,
+  })),
+);
 const RecipePage = lazy(() =>
   import("./pages/RecipePage/RecipePage").then((m) => ({ default: m.RecipePage })),
 );
@@ -45,6 +50,14 @@ function App() {
               element={
                 <RequireAdmin>
                   <RecipeCreatePage />
+                </RequireAdmin>
+              }
+            />
+            <Route
+              path="/recipes/titles"
+              element={
+                <RequireAdmin>
+                  <RecipeTitleCleanupPage />
                 </RequireAdmin>
               }
             />

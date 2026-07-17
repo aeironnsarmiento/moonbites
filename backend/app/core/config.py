@@ -31,6 +31,7 @@ class Settings:
     gemini_model: str = "gemini-3.1-flash-lite"
     gemini_timeout_seconds: float = 30.0
     gemini_rate_limit_per_minute: int = 3
+    gemini_title_rate_limit_per_minute: int = 3
 
 
 def normalize_cors_origins(value: str) -> tuple[str, ...]:
@@ -84,4 +85,7 @@ def get_settings() -> Settings:
         gemini_model=os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite",
         gemini_timeout_seconds=float(os.getenv("GEMINI_TIMEOUT_SECONDS") or "30.0"),
         gemini_rate_limit_per_minute=int(os.getenv("GEMINI_RATE_LIMIT_PER_MINUTE") or "3"),
+        gemini_title_rate_limit_per_minute=int(
+            os.getenv("GEMINI_TITLE_RATE_LIMIT_PER_MINUTE") or "3"
+        ),
     )

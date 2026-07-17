@@ -296,7 +296,7 @@ def test_list_recipe_imports_applies_db_pagination_sort_and_count():
 
     assert response.total_count == 12
     assert response.total_pages == 2
-    assert ("select", (("id, submitted_url, final_url, page_title, times_cooked, recipes_json, recipe_overrides_json, image_url, is_favorite, servings, created_at"),), {"count": "exact"}) in query.calls
+    assert ("select", (("id, submitted_url, final_url, page_title, display_title, display_title_source, times_cooked, recipes_json, recipe_overrides_json, image_url, is_favorite, servings, created_at"),), {"count": "exact"}) in query.calls
     assert ("order", "times_cooked", {"desc": True}) in query.calls
     assert ("order", "created_at", {"desc": True}) in query.calls
     assert ("range", 10, 19) in query.calls

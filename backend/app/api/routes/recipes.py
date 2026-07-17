@@ -6,6 +6,7 @@ from ..auth import AuthenticatedAdmin, require_admin_user
 from ...core.rate_limit import limiter
 from ...repositories.recipe_imports import (
     RecipeWriteDeniedError,
+    apply_display_titles,
     delete_recipe_import,
     get_recipe_import,
     list_cuisine_facets,
@@ -20,6 +21,9 @@ from ...repositories.recipe_imports import (
     update_times_cooked,
 )
 from ...schemas.extract import (
+    ApplyTitleResult,
+    ApplyTitlesRequest,
+    ApplyTitlesResponse,
     CreateManualRecipeRequest,
     CuisineFacetsResponse,
     DeleteRecipeImportResponse,
@@ -27,12 +31,15 @@ from ...schemas.extract import (
     PaginatedRecipeImportsResponse,
     RecipeImportRecord,
     RecipeSortOption,
+    TitleCleanupPreviewRequest,
+    TitleCleanupPreviewResponse,
     UpdateImageRequest,
     UpdateRecipeMetadataRequest,
     UpdateRecipeOverridesRequest,
     UpdateServingsRequest,
     UpdateTimesCookedRequest,
 )
+from ...services.title_cleanup import preview_title_cleanup
 
 
 router = APIRouter(prefix="/api", tags=["recipes"])
@@ -114,6 +121,50 @@ async def get_recipe_highlights(
         )
     except RuntimeError as error:
         _raise_repository_http_error(error)
+
+
+# POST rather than GET: both endpoints spend Gemini quota and write, so they
+# must stay off any caching path. Declared above /recipes/{recipe_import_id}
+# per the convention the literal cuisines/highlights routes follow.
+@router.post("/recipes/titles/preview", response_model=TitleCleanupPreviewResponse)
+@limiter.limit("30/minute")
+async def post_title_cleanup_preview(
+    request: Request,
+    payload: TitleCleanupPreviewRequest,
+    admin: AuthenticatedAdmin = Depends(require_admin_user),
+) -> TitleCleanupPreviewResponse:
+    try:
+        return await preview_title_cleanup(cursor=payload.cursor, limit=payload.limit)
+    except RuntimeError as error:
+        _raise_repository_http_error(error)
+
+
+@router.post("/recipes/titles/apply", response_model=ApplyTitlesResponse)
+@limiter.limit("30/minute")
+async def post_title_cleanup_apply(
+    request: Request,
+    payload: ApplyTitlesRequest,
+    admin: AuthenticatedAdmin = Depends(require_admin_user),
+) -> ApplyTitlesResponse:
+    try:
+        results = apply_display_titles(
+            [(item.recipe_import_id, item.title) for item in payload.items],
+            access_token=admin.access_token,
+        )
+    except RuntimeError as error:
+        _raise_repository_http_error(error)
+
+    return ApplyTitlesResponse(
+        results=[
+            ApplyTitleResult(
+                recipe_import_id=result.recipe_import_id,
+                status=result.status,
+                reason=result.reason,
+            )
+            for result in results
+        ],
+        applied_count=sum(1 for result in results if result.status == "applied"),
+    )
 
 
 @router.get("/recipes/{recipe_import_id}", response_model=RecipeImportRecord)

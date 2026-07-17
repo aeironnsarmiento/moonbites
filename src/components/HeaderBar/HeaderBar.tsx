@@ -8,7 +8,8 @@ import "./HeaderBar.scss";
 
 const navItems = [
   { label: "Recipe List", to: "/recipes", end: true },
-  { label: "Create Recipe", to: "/recipes/create", end: true },
+  { label: "Create Recipe", to: "/recipes/create", end: true, adminOnly: true },
+  { label: "Clean Titles", to: "/recipes/titles", end: true, adminOnly: true },
 ];
 
 const subtleHeaderBackgroundImage =
@@ -19,9 +20,7 @@ const subtleHeaderBackgroundImage =
 export function HeaderBar() {
   const isScrolled = useScrolled();
   const { isAdmin } = useAuth();
-  const visibleNavItems = navItems.filter(
-    (item) => item.to !== "/recipes/create" || isAdmin,
-  );
+  const visibleNavItems = navItems.filter((item) => !item.adminOnly || isAdmin);
 
   return (
     <motion.header

@@ -63,3 +63,27 @@ def test_build_refetched_recipe_update_payload_replaces_raw_fields_and_prunes_ov
             "instructions": {"0": "edited step"},
         }
     }
+
+
+def test_build_refetched_recipe_update_payload_never_retitles():
+    # Covers AE3 and the Scope Boundaries' "no re-titling during refetch": the
+    # payload must omit both display columns entirely, so a refetch cannot
+    # overwrite a title the user set (R8) -- not even by accident. Pinned here
+    # because the omission is currently structural rather than explicit.
+    fresh_recipe = NormalizedRecipe(
+        name="Fresh Recipe",
+        ingredients=["fresh ingredient 1"],
+        instructions=["fresh step 1"],
+    )
+
+    payload = _build_refetched_recipe_update_payload(
+        _record(),
+        title="Fresh Title",
+        image_url=None,
+        recipes=[fresh_recipe],
+    )
+
+    assert "display_title" not in payload
+    assert "display_title_source" not in payload
+    # The raw source title still refreshes -- only the display title is frozen.
+    assert payload["page_title"] == "Fresh Title"

@@ -15,12 +15,18 @@ vi.mock("../services/recipeService", () => ({
 const mockedFetchHighlightedRecipes = vi.mocked(fetchHighlightedRecipes);
 const mockedFetchRecipeImports = vi.mocked(fetchRecipeImports);
 
-function record(id: string, url: string): RecipeImportRecord {
+function record(
+  id: string,
+  url: string,
+  overrides: Partial<RecipeImportRecord> = {},
+): RecipeImportRecord {
   return {
     id,
     submitted_url: url,
     final_url: url,
     page_title: `Recipe ${id}`,
+    display_title: null,
+    display_title_source: "fallback",
     times_cooked: 2,
     recipes_json: [],
     recipe_overrides_json: {},
@@ -28,6 +34,7 @@ function record(id: string, url: string): RecipeImportRecord {
     is_favorite: false,
     servings: null,
     created_at: "2026-06-01T00:00:00Z",
+    ...overrides,
   };
 }
 
@@ -91,5 +98,79 @@ describe("getRecipeListPage", () => {
     expect(mockedFetchRecipeImports).toHaveBeenCalledWith(
       expect.objectContaining({ search: "curry" }),
     );
+  });
+});
+
+describe("mapRecipeImportToCard title precedence", () => {
+  beforeEach(() => {
+    mockedFetchRecipeImports.mockReset();
+  });
+
+  async function cardTitleFor(overrides: Partial<RecipeImportRecord>) {
+    mockedFetchRecipeImports.mockResolvedValue({
+      items: [record("1", "https://example.com/a", overrides)],
+      page: 1,
+      page_size: 10,
+      total_count: 1,
+      total_pages: 1,
+    });
+
+    const page = await getRecipeListPage({
+      page: 1,
+      pageSize: 10,
+      sort: "recent",
+      cuisine: null,
+    });
+
+    return page.items[0].title;
+  }
+
+  it("uses the display title when present", async () => {
+    await expect(
+      cardTitleFor({ display_title: "Creamy Garlic Pasta" }),
+    ).resolves.toBe("Creamy Garlic Pasta");
+  });
+
+  it("keeps the pre-feature behavior when there is no display title", async () => {
+    await expect(
+      cardTitleFor({
+        recipes_json: [
+          {
+            name: "Garlic Noodles",
+            recipeYield: null,
+            cookTime: null,
+            recipeCuisine: null,
+            nutrition: null,
+            ingredients: ["1 cup rice"],
+            ingredientSections: null,
+            instructions: ["Cook."],
+          },
+        ],
+      }),
+    ).resolves.toBe("Garlic Noodles");
+  });
+
+  it("still exposes the original source title for attribution", async () => {
+    mockedFetchRecipeImports.mockResolvedValue({
+      items: [
+        record("1", "https://example.com/a", {
+          display_title: "Creamy Garlic Pasta",
+        }),
+      ],
+      page: 1,
+      page_size: 10,
+      total_count: 1,
+      total_pages: 1,
+    });
+
+    const page = await getRecipeListPage({
+      page: 1,
+      pageSize: 10,
+      sort: "recent",
+      cuisine: null,
+    });
+
+    // R7: the display title never displaces page_title on the card model.
+    expect(page.items[0].pageTitle).toBe("Recipe 1");
   });
 });

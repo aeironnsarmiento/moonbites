@@ -46,6 +46,8 @@ function record(overrides: Partial<RecipeImportRecord> = {}): RecipeImportRecord
     submitted_url: "https://example.com/miso-cookies",
     final_url: "https://example.com/miso-cookies",
     page_title: "Miso Cookies",
+    display_title: null,
+    display_title_source: "fallback",
     times_cooked: 0,
     recipes_json: [],
     recipe_overrides_json: {},

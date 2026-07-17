@@ -18,6 +18,18 @@ def _is_manual_recipe_url(value: str) -> bool:
     return value.strip().lower().startswith("manual://")
 
 
+class DisplayTitleSource(str, Enum):
+    """Where a record's display title came from.
+
+    ``user`` is authoritative: it is never overwritten by later AI processing
+    (R8) and is skipped by the retroactive cleanup pass (R13).
+    """
+
+    ai = "ai"
+    user = "user"
+    fallback = "fallback"
+
+
 class ExtractRequest(BaseModel):
     url: str = Field(..., min_length=1, max_length=2048)
 
@@ -29,6 +41,57 @@ class CreateManualRecipeRequest(BaseModel):
 
 class DeleteRecipeImportResponse(BaseModel):
     id: str
+
+
+class TitleCleanupPreviewRequest(BaseModel):
+    cursor: Optional[str] = None
+    limit: int = Field(10, ge=1, le=10)
+
+
+class TitleSuggestion(BaseModel):
+    recipe_import_id: str
+    current_title: str
+    suggested_title: str
+    source: DisplayTitleSource
+    reason: Optional[str] = None
+
+
+class SkippedTitleCleanupItem(BaseModel):
+    recipe_import_id: str
+    current_title: str
+    reason: str
+
+
+class TitleCleanupPreviewResponse(BaseModel):
+    suggestions: list[TitleSuggestion] = Field(default_factory=list)
+    skipped: list[SkippedTitleCleanupItem] = Field(default_factory=list)
+    next_cursor: Optional[str] = None
+    degraded_reason: Optional[str] = None
+
+
+class ApplyTitleItem(BaseModel):
+    recipe_import_id: str = Field(..., min_length=1)
+    title: str = Field(..., min_length=1, max_length=200)
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        return value.strip()
+
+
+class ApplyTitlesRequest(BaseModel):
+    items: list[ApplyTitleItem] = Field(..., min_length=1, max_length=50)
+
+
+class ApplyTitleResult(BaseModel):
+    recipe_import_id: str
+    status: str
+    reason: Optional[str] = None
+
+
+class ApplyTitlesResponse(BaseModel):
+    results: list[ApplyTitleResult] = Field(default_factory=list)
+    applied_count: int = 0
 
 
 class UpdateTimesCookedRequest(BaseModel):
@@ -153,6 +216,8 @@ class RecipeImportRecord(BaseModel):
     submitted_url: str
     final_url: str
     page_title: Optional[str] = None
+    display_title: Optional[str] = None
+    display_title_source: DisplayTitleSource = DisplayTitleSource.fallback
     times_cooked: int = 0
     recipes_json: list[NormalizedRecipe]
     recipe_overrides_json: dict[str, RecipeTextOverrides] = Field(default_factory=dict)

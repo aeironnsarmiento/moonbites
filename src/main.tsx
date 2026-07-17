@@ -46,7 +46,10 @@ createRoot(document.getElementById("root")!).render(
       persistOptions={{
         persister,
         maxAge: CACHE_MAX_AGE_MS,
-        buster: "v1",
+        // v2: RecipeImportRecord gained display_title/display_title_source. A
+        // persisted v1 entry would read them as undefined and quietly render
+        // stale pre-feature titles that never self-correct.
+        buster: "v2",
       }}
       onSuccess={prefetchHighlights}
     >

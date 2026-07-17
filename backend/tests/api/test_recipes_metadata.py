@@ -10,6 +10,7 @@ from backend.main import app
 from backend.app.api.auth import AuthenticatedAdmin, require_admin_user
 from app.repositories.recipe_imports import _build_metadata_update_payload
 from app.schemas.extract import (
+    DisplayTitleSource,
     NormalizedRecipe,
     RecipeImportRecord,
     UpdateRecipeMetadataRequest,
@@ -55,7 +56,8 @@ def _record() -> RecipeImportRecord:
 def test_update_metadata_returns_updated_record():
     updated = _record().model_copy(
         update={
-            "page_title": "New Title",
+            "display_title": "New Title",
+            "display_title_source": DisplayTitleSource.user,
             "submitted_url": "https://new.test/source",
             "final_url": "https://new.test/source",
             "image_url": None,
@@ -63,7 +65,7 @@ def test_update_metadata_returns_updated_record():
         }
     )
     updated.recipes_json[0] = updated.recipes_json[0].model_copy(
-        update={"name": "New Title", "recipeYield": "6 servings"}
+        update={"recipeYield": "6 servings"}
     )
 
     with patch(
@@ -82,10 +84,13 @@ def test_update_metadata_returns_updated_record():
 
     assert response.status_code == 200
     body = response.json()
-    assert body["page_title"] == "New Title"
+    assert body["display_title"] == "New Title"
+    assert body["display_title_source"] == "user"
+    # The original source title and the extraction's recipe name survive.
+    assert body["page_title"] == "Old Title"
+    assert body["recipes_json"][0]["name"] == "Old Title"
     assert body["submitted_url"] == "https://new.test/source"
     assert body["final_url"] == "https://new.test/source"
-    assert body["recipes_json"][0]["name"] == "New Title"
     assert body["recipes_json"][0]["recipeYield"] == "6 servings"
     assert body["servings"] == 6
     update_recipe_metadata.assert_called_once()
@@ -161,10 +166,42 @@ def test_build_metadata_update_payload_recalculates_servings_from_yield():
         ),
     )
 
-    assert payload["page_title"] == "Party Rice"
     assert payload["submitted_url"] == "https://new.test/source"
     assert payload["final_url"] == "https://new.test/source"
     assert payload["image_url"] is None
     assert payload["servings"] == 12
-    assert payload["recipes_json"][0]["name"] == "Party Rice"
     assert payload["recipes_json"][0]["recipeYield"] == "Makes 12 bowls"
+
+
+def test_build_metadata_update_payload_writes_the_title_to_the_display_title():
+    payload = _build_metadata_update_payload(
+        _record(),
+        UpdateRecipeMetadataRequest(
+            title="Party Rice",
+            recipe_yield="Makes 12 bowls",
+            image_url="",
+            source_url="https://new.test/source",
+        ),
+    )
+
+    assert payload["display_title"] == "Party Rice"
+    assert payload["display_title_source"] == "user"
+
+
+def test_build_metadata_update_payload_leaves_the_original_titles_alone():
+    # R7: page_title carries attribution and stays searchable. R8/KTD1: the
+    # recipe name is the extraction output and a dedup fingerprint input, so a
+    # title edit must not churn it. This replaces the pre-feature assertions
+    # that expected the edit to overwrite both.
+    payload = _build_metadata_update_payload(
+        _record(),
+        UpdateRecipeMetadataRequest(
+            title="Party Rice",
+            recipe_yield="Makes 12 bowls",
+            image_url="",
+            source_url="https://new.test/source",
+        ),
+    )
+
+    assert "page_title" not in payload
+    assert payload["recipes_json"][0]["name"] == "Old Title"
