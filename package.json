@@ -12,6 +12,8 @@
     "dev:backend:win": "py -m uvicorn backend.main:app --reload",
     "refetch:recipes": "python3 -m backend.scripts.refetch_recipe_imports",
     "refetch:recipes:dry-run": "python3 -m backend.scripts.refetch_recipe_imports --dry-run",
+    "backfill:tiktok-thumbnails": "python3 -m backend.scripts.backfill_tiktok_thumbnails",
+    "backfill:tiktok-thumbnails:dry-run": "python3 -m backend.scripts.backfill_tiktok_thumbnails --dry-run",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",

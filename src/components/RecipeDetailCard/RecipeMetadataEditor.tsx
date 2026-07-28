@@ -1,5 +1,6 @@
 import {
   FormControl,
+  FormHelperText,
   FormLabel,
   Heading,
   Input,
@@ -13,10 +14,13 @@ type RecipeMetadataEditorProps = {
   draftYield: string;
   draftImageUrl: string;
   draftSourceUrl: string;
+  draftFallbackVideoUrl: string;
+  canEmbedSourceVideo: boolean;
   onChangeTitle: (value: string) => void;
   onChangeYield: (value: string) => void;
   onChangeImageUrl: (value: string) => void;
   onChangeSourceUrl: (value: string) => void;
+  onChangeFallbackVideoUrl: (value: string) => void;
 };
 
 export function RecipeMetadataEditor({
@@ -25,10 +29,13 @@ export function RecipeMetadataEditor({
   draftYield,
   draftImageUrl,
   draftSourceUrl,
+  draftFallbackVideoUrl,
+  canEmbedSourceVideo,
   onChangeTitle,
   onChangeYield,
   onChangeImageUrl,
   onChangeSourceUrl,
+  onChangeFallbackVideoUrl,
 }: RecipeMetadataEditorProps) {
   return (
     <Stack spacing={4} className="recipeDetailCard__section">
@@ -72,6 +79,22 @@ export function RecipeMetadataEditor({
             onChange={(event) => onChangeSourceUrl(event.target.value)}
             placeholder="https://example.com/recipe"
           />
+        </FormControl>
+        <FormControl>
+          <FormLabel htmlFor={`recipe-fallback-video-${recipeImportId}`}>
+            Fallback video URL
+          </FormLabel>
+          <Input
+            id={`recipe-fallback-video-${recipeImportId}`}
+            value={draftFallbackVideoUrl}
+            onChange={(event) => onChangeFallbackVideoUrl(event.target.value)}
+            placeholder="https://www.youtube.com/watch?v=…"
+          />
+          <FormHelperText>
+            {canEmbedSourceVideo
+              ? "Not used here — this recipe's own source video takes priority."
+              : "A YouTube or TikTok link to play on this recipe. The source link above stays the attribution."}
+          </FormHelperText>
         </FormControl>
       </SimpleGrid>
     </Stack>

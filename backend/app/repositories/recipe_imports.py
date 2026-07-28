@@ -1,3 +1,5 @@
+import logging
+from dataclasses import dataclass
 from typing import NoReturn, Optional
 from uuid import uuid4
 
@@ -25,15 +27,27 @@ from ..services.cuisine_catalog import (
     collect_canonical_cuisines,
 )
 from ..services.normalizer import dedupe_normalized_recipes
+from ..services.tiktok.thumbnail_storage import (
+    delete_tiktok_thumbnail,
+    mirror_tiktok_thumbnail,
+)
 from ..utils.urls import canonicalize_url
 from ..utils.yield_parser import parse_yield
 
 
-RECIPE_IMPORT_SELECT = "id, submitted_url, final_url, page_title, times_cooked, recipes_json, recipe_overrides_json, image_url, is_favorite, servings, created_at"
+RECIPE_IMPORT_SELECT = "id, submitted_url, final_url, page_title, times_cooked, recipes_json, recipe_overrides_json, image_url, is_favorite, servings, fallback_video_url, created_at"
+logger = logging.getLogger(__name__)
 
 
 class RecipeWriteDeniedError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class SaveRecipeImportResult:
+    saved: bool
+    message: str
+    image_url: Optional[str]
 
 
 def _get_read_client(settings):
@@ -322,20 +336,22 @@ def _find_existing_records_by_exact_urls(
     return records
 
 
-def save_recipe_import(
+async def save_recipe_import(
     submitted_url: str,
     final_url: str,
     title: Optional[str],
     recipes: list[NormalizedRecipe],
     image_url: Optional[str] = None,
+    tiktok_thumbnail_url: Optional[str] = None,
     access_token: Optional[str] = None,
-) -> tuple[bool, Optional[str]]:
+) -> SaveRecipeImportResult:
     settings = get_settings()
     client = _get_write_client(settings, access_token)
     if client is None:
-        return (
-            False,
-            "Supabase is not configured yet. Add backend env vars to enable saving.",
+        return SaveRecipeImportResult(
+            saved=False,
+            message="Supabase is not configured yet. Add backend env vars to enable saving.",
+            image_url=image_url,
         )
 
     unique_recipes = dedupe_normalized_recipes(recipes)
@@ -358,7 +374,11 @@ def save_recipe_import(
             candidate_urls,
         )
     except Exception as error:
-        return False, f"Supabase duplicate check failed: {error}"
+        return SaveRecipeImportResult(
+            saved=False,
+            message=f"Supabase duplicate check failed: {error}",
+            image_url=image_url,
+        )
 
     for existing in existing_records:
         existing_keys = {
@@ -366,19 +386,41 @@ def save_recipe_import(
             canonicalize_url(existing.get("final_url") or ""),
         }
         if submitted_url_key in existing_keys or final_url_key in existing_keys:
-            return (
-                True,
-                "Recipe import already exists, so the duplicate save was skipped.",
+            return SaveRecipeImportResult(
+                saved=True,
+                message="Recipe import already exists, so the duplicate save was skipped.",
+                image_url=image_url,
+            )
+
+    recipe_import_id = str(uuid4())
+    effective_image_url = image_url
+    image_storage_path: Optional[str] = None
+    if tiktok_thumbnail_url:
+        try:
+            mirrored = await mirror_tiktok_thumbnail(
+                recipe_import_id,
+                tiktok_thumbnail_url,
+                settings=settings,
+            )
+            effective_image_url = mirrored.image_url
+            image_storage_path = mirrored.storage_path
+        except Exception as error:
+            logger.warning(
+                "TikTok thumbnail mirror failed for recipe import %s: %s",
+                recipe_import_id,
+                error,
             )
 
     payload = {
+        "id": recipe_import_id,
         "submitted_url": submitted_url,
         "final_url": final_url,
         "page_title": title,
         "times_cooked": 0,
         "recipes_json": [recipe.model_dump() for recipe in unique_recipes],
         "recipe_overrides_json": {},
-        "image_url": image_url,
+        "image_url": effective_image_url,
+        "image_storage_path": image_storage_path,
         "is_favorite": False,
         "servings": servings,
     }
@@ -386,15 +428,29 @@ def save_recipe_import(
     try:
         client.table(settings.supabase_table_name).insert(payload).execute()
     except Exception as error:
+        if image_storage_path:
+            _delete_managed_thumbnail_best_effort(
+                image_storage_path,
+                recipe_import_id=recipe_import_id,
+            )
         message = str(error).lower()
         if "unique" in message or "duplicate" in message or "23505" in message:
-            return (
-                True,
-                "Recipe import already exists, so the duplicate save was skipped.",
+            return SaveRecipeImportResult(
+                saved=True,
+                message="Recipe import already exists, so the duplicate save was skipped.",
+                image_url=image_url,
             )
-        return False, f"Supabase save failed: {error}"
+        return SaveRecipeImportResult(
+            saved=False,
+            message=f"Supabase save failed: {error}",
+            image_url=image_url,
+        )
 
-    return True, "Recipe saved to your collection."
+    return SaveRecipeImportResult(
+        saved=True,
+        message="Recipe saved to your collection.",
+        image_url=effective_image_url,
+    )
 
 
 def save_manual_recipe(
@@ -790,6 +846,51 @@ def _rpc_or_resolve(
     return _resolve_empty_write(recipe_import_id)
 
 
+def _get_managed_image_state(
+    client,
+    table_name: str,
+    recipe_import_id: str,
+) -> tuple[Optional[str], Optional[str]]:
+    try:
+        response = (
+            client.table(table_name)
+            .select("image_url, image_storage_path")
+            .eq("id", recipe_import_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as error:
+        raise RuntimeError(f"Supabase read failed: {error}") from error
+
+    records = response.data or []
+    if not records:
+        return None, None
+
+    record = records[0]
+    image_url = record.get("image_url")
+    storage_path = record.get("image_storage_path")
+    return (
+        image_url if isinstance(image_url, str) else None,
+        storage_path if isinstance(storage_path, str) else None,
+    )
+
+
+def _delete_managed_thumbnail_best_effort(
+    storage_path: str,
+    *,
+    recipe_import_id: str,
+) -> None:
+    try:
+        delete_tiktok_thumbnail(storage_path)
+    except Exception as error:
+        logger.warning(
+            "Managed thumbnail cleanup failed for recipe import %s (%s): %s",
+            recipe_import_id,
+            storage_path,
+            error,
+        )
+
+
 def delete_recipe_import(
     recipe_import_id: str,
     access_token: Optional[str] = None,
@@ -812,6 +913,12 @@ def delete_recipe_import(
         raise RuntimeError(f"Supabase delete failed: {error}") from error
 
     if response.data:
+        storage_path = response.data[0].get("image_storage_path")
+        if isinstance(storage_path, str) and storage_path:
+            _delete_managed_thumbnail_best_effort(
+                storage_path,
+                recipe_import_id=recipe_import_id,
+            )
         return True
 
     if get_recipe_import(recipe_import_id) is None:
@@ -891,12 +998,28 @@ def update_image_url(
             "Supabase is not configured yet. Add backend env vars to enable updating saved recipes."
         )
 
-    return _update_or_resolve(
+    previous_image_url, storage_path = _get_managed_image_state(
         client,
         settings.supabase_table_name,
         recipe_import_id,
-        {"image_url": image_url},
     )
+    image_changed = image_url != previous_image_url
+    payload = {"image_url": image_url}
+    if image_changed:
+        payload["image_storage_path"] = None
+
+    updated_record = _update_or_resolve(
+        client,
+        settings.supabase_table_name,
+        recipe_import_id,
+        payload,
+    )
+    if updated_record is not None and image_changed and storage_path:
+        _delete_managed_thumbnail_best_effort(
+            storage_path,
+            recipe_import_id=recipe_import_id,
+        )
+    return updated_record
 
 
 def _build_metadata_update_payload(
@@ -912,14 +1035,23 @@ def _build_metadata_update_payload(
             }
         )
 
-    return {
+    payload = {
         "page_title": metadata.title,
         "submitted_url": metadata.source_url,
-        "final_url": metadata.source_url,
         "recipes_json": [recipe.model_dump() for recipe in recipes],
         "image_url": metadata.image_url,
         "servings": parse_yield(metadata.recipe_yield),
+        "fallback_video_url": metadata.fallback_video_url,
     }
+
+    # Only re-point final_url when the source actually changed. Editing an
+    # unrelated field must not collapse a resolved final_url back onto the
+    # submitted one -- TikTok stores its canonical /@handle/video/<id> form
+    # there, and the video embed reads it.
+    if metadata.source_url != existing_record.submitted_url:
+        payload["final_url"] = metadata.source_url
+
+    return payload
 
 
 def update_recipe_metadata(
@@ -939,13 +1071,27 @@ def update_recipe_metadata(
         return None
 
     payload = _build_metadata_update_payload(existing_record, metadata)
+    _, storage_path = _get_managed_image_state(
+        client,
+        settings.supabase_table_name,
+        recipe_import_id,
+    )
+    image_changed = metadata.image_url != existing_record.image_url
+    if image_changed:
+        payload["image_storage_path"] = None
 
-    return _update_recipe_import_record(
+    updated_record = _update_recipe_import_record(
         client,
         settings.supabase_table_name,
         recipe_import_id,
         payload,
     )
+    if image_changed and storage_path:
+        _delete_managed_thumbnail_best_effort(
+            storage_path,
+            recipe_import_id=recipe_import_id,
+        )
+    return updated_record
 
 
 def _prune_override_rows(rows: dict[str, str], row_count: int) -> dict[str, str]:
@@ -1038,13 +1184,27 @@ def update_recipe_import_from_extraction(
         image_url=extraction_result.image_url,
         recipes=extraction_result.recipes,
     )
+    _, storage_path = _get_managed_image_state(
+        client,
+        settings.supabase_table_name,
+        recipe_import_id,
+    )
+    image_changed = extraction_result.image_url != existing_record.image_url
+    if image_changed:
+        payload["image_storage_path"] = None
 
-    return _update_recipe_import_record(
+    updated_record = _update_recipe_import_record(
         client,
         settings.supabase_table_name,
         recipe_import_id,
         payload,
     )
+    if image_changed and storage_path:
+        _delete_managed_thumbnail_best_effort(
+            storage_path,
+            recipe_import_id=recipe_import_id,
+        )
+    return updated_record
 
 
 def update_recipe_overrides(

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 from app.repositories.recipe_imports import (
+    RECIPE_IMPORT_SELECT,
     _build_cuisine_facets,
     _filter_recipe_import_records,
     _prepare_recipe_import_records,
@@ -296,7 +297,7 @@ def test_list_recipe_imports_applies_db_pagination_sort_and_count():
 
     assert response.total_count == 12
     assert response.total_pages == 2
-    assert ("select", (("id, submitted_url, final_url, page_title, times_cooked, recipes_json, recipe_overrides_json, image_url, is_favorite, servings, created_at"),), {"count": "exact"}) in query.calls
+    assert ("select", (RECIPE_IMPORT_SELECT,), {"count": "exact"}) in query.calls
     assert ("order", "times_cooked", {"desc": True}) in query.calls
     assert ("order", "created_at", {"desc": True}) in query.calls
     assert ("range", 10, 19) in query.calls

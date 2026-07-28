@@ -15,6 +15,7 @@ import {
   getRecipeTextOverrides,
 } from "../../utils/recipeOverrides";
 import { scaleIngredients } from "../../utils/scaleIngredients";
+import type { RecipeVideo } from "../../utils/videoEmbed";
 import { DeleteRecipeDialog } from "./DeleteRecipeDialog";
 import { NutritionFactsPanel } from "./NutritionFactsPanel";
 import { RecipeDetailEditor } from "./RecipeDetailEditor";
@@ -34,6 +35,8 @@ type RecipeDetailCardProps = {
   isFavorite: boolean;
   servings: number | null;
   sourceUrl: string;
+  fallbackVideoUrl?: string | null;
+  video?: RecipeVideo | null;
   overrides?: RecipeTextOverrides;
   isUpdatingTimesCooked?: boolean;
   isSavingOverrides?: boolean;
@@ -83,6 +86,8 @@ export function RecipeDetailCard({
   isFavorite,
   servings,
   sourceUrl,
+  fallbackVideoUrl = null,
+  video = null,
   overrides,
   isUpdatingTimesCooked = false,
   isSavingOverrides = false,
@@ -124,6 +129,7 @@ export function RecipeDetailCard({
     recordTitle,
     imageUrl,
     sourceUrl,
+    fallbackVideoUrl,
     visibleIngredients,
     visibleInstructions,
     canEditMetadata: canEdit && showTimesCookedControls,
@@ -182,6 +188,7 @@ export function RecipeDetailCard({
       <RecipeDetailHero
         imageUrl={imageUrl}
         title={recipe.name}
+        video={video}
         isFavorite={isFavorite}
         isTogglingFavorite={toggleFavorite.isPending}
         onToggleFavorite={
@@ -226,6 +233,8 @@ export function RecipeDetailCard({
               draftYield={editDraft.draftYield}
               draftImageUrl={editDraft.draftImageUrl}
               draftSourceUrl={editDraft.draftSourceUrl}
+              draftFallbackVideoUrl={editDraft.draftFallbackVideoUrl}
+              canEmbedSourceVideo={Boolean(video && !video.isFallback)}
               scaledVisibleIngredients={scaledVisibleIngredients}
               visibleIngredientSections={visibleIngredientSections}
               scaleFactor={servingsScale.scaleFactor}
@@ -237,6 +246,7 @@ export function RecipeDetailCard({
               onChangeYield={editDraft.setDraftYield}
               onChangeImageUrl={editDraft.setDraftImageUrl}
               onChangeSourceUrl={editDraft.setDraftSourceUrl}
+              onChangeFallbackVideoUrl={editDraft.setDraftFallbackVideoUrl}
             />
           ) : (
             <RecipeDetailView

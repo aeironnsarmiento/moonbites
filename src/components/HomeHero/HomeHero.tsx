@@ -10,6 +10,7 @@ type HomeHeroProps = {
   totalCount: number;
   favoriteCount: number;
   isLoadingCounts: boolean;
+  /** Resolves with the import result, or undefined when the import failed. */
   onSubmit: (url: string) => Promise<unknown>;
   isSubmitting: boolean;
   submitError: string;
@@ -33,8 +34,13 @@ export function HomeHero({
     e.preventDefault();
     const trimmed = url.trim();
     if (!trimmed) return;
-    await onSubmit(trimmed);
-    setUrl("");
+    const result = await onSubmit(trimmed);
+
+    // A failed import resolves undefined. Keep the URL in the box so it can be
+    // retried or carried over to the manual form instead of re-pasted.
+    if (result) {
+      setUrl("");
+    }
   };
 
   return (
@@ -83,8 +89,14 @@ export function HomeHero({
               {isSubmitting ? "Saving…" : "Save recipe"}
             </button>
           </div>
-          <RouterLink to="/recipes/create" className="homeHero__altLink">
-            Or enter the details yourself →
+          <RouterLink
+            to="/recipes/create"
+            state={url.trim() ? { importUrl: url.trim() } : undefined}
+            className="homeHero__altLink"
+          >
+            {submitError
+              ? "Create this recipe manually instead →"
+              : "Or enter the details yourself →"}
           </RouterLink>
           {(submitError || submitStatus) && (
             <div className="homeHero__status">

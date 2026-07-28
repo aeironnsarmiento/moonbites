@@ -1,9 +1,10 @@
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi.testclient import TestClient
 
 from backend.main import app
 from backend.app.api.auth import AuthenticatedAdmin, require_admin_user
+from backend.app.repositories.recipe_imports import SaveRecipeImportResult
 from backend.app.schemas.extract import NormalizedRecipe
 from backend.app.services.extraction_types import ExtractionResult, ParseStatus
 
@@ -75,7 +76,13 @@ def test_extract_success_message_does_not_expose_supabase_table_name():
             ),
             patch(
                 "backend.app.api.routes.extract.save_recipe_import",
-                return_value=(True, "Saved to Supabase table 'recipe_imports'."),
+                new=AsyncMock(
+                    return_value=SaveRecipeImportResult(
+                        saved=True,
+                        message="Saved to Supabase table 'recipe_imports'.",
+                        image_url=None,
+                    )
+                ),
             ),
         ):
             response = client.post(
@@ -202,7 +209,13 @@ def test_extract_recipe_response_includes_parse_status_recipe():
             ),
             patch(
                 "backend.app.api.routes.extract.save_recipe_import",
-                return_value=(True, "Recipe saved to your collection."),
+                new=AsyncMock(
+                    return_value=SaveRecipeImportResult(
+                        saved=True,
+                        message="Recipe saved to your collection.",
+                        image_url=None,
+                    )
+                ),
             ),
         ):
             response = client.post(
@@ -247,7 +260,13 @@ def test_extract_success_passes_image_url_to_save_recipe_import():
             ),
             patch(
                 "backend.app.api.routes.extract.save_recipe_import",
-                return_value=(True, "Recipe saved to your collection."),
+                new=AsyncMock(
+                    return_value=SaveRecipeImportResult(
+                        saved=True,
+                        message="Recipe saved to your collection.",
+                        image_url="https://example.com/soup.jpg",
+                    )
+                ),
             ) as save,
         ):
             response = client.post(

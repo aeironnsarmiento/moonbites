@@ -33,6 +33,7 @@ export type UpdateRecipeMetadataPayload = {
   recipeYield: string | null;
   imageUrl: string | null;
   sourceUrl: string;
+  fallbackVideoUrl: string | null;
 };
 
 export type RecipeImportRecord = {
@@ -46,6 +47,7 @@ export type RecipeImportRecord = {
   image_url: string | null;
   is_favorite: boolean;
   servings: number | null;
+  fallback_video_url: string | null;
   created_at: string;
 };
 

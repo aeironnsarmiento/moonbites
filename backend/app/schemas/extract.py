@@ -18,6 +18,16 @@ def _is_manual_recipe_url(value: str) -> bool:
     return value.strip().lower().startswith("manual://")
 
 
+def _validate_http_url(value: str, *, field_name: str) -> str:
+    from urllib.parse import urlparse
+
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(f"{field_name} must start with http:// or https://")
+
+    return value
+
+
 class ExtractRequest(BaseModel):
     url: str = Field(..., min_length=1, max_length=2048)
 
@@ -58,21 +68,28 @@ class UpdateRecipeMetadataRequest(BaseModel):
     recipe_yield: Optional[str] = Field(default=None, max_length=200)
     image_url: Optional[str] = Field(default=None, max_length=2048)
     source_url: str = Field(..., min_length=1, max_length=2048)
+    fallback_video_url: Optional[str] = Field(default=None, max_length=2048)
 
     @field_validator("source_url")
     @classmethod
     def validate_source_url(cls, value: str) -> str:
-        from urllib.parse import urlparse
-
         normalized = value.strip()
         if _is_manual_recipe_url(normalized):
             return normalized
 
-        parsed = urlparse(normalized)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise ValueError("source_url must start with http:// or https://")
+        return _validate_http_url(normalized, field_name="source_url")
 
-        return normalized
+    @field_validator("fallback_video_url")
+    @classmethod
+    def validate_fallback_video_url(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+
+        stripped = value.strip()
+        if not stripped:
+            return None
+
+        return _validate_http_url(stripped, field_name="fallback_video_url")
 
     @field_validator("title")
     @classmethod
@@ -159,6 +176,7 @@ class RecipeImportRecord(BaseModel):
     image_url: Optional[str] = None
     is_favorite: bool = False
     servings: Optional[int] = None
+    fallback_video_url: Optional[str] = None
     created_at: datetime
 
 

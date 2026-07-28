@@ -198,6 +198,7 @@ describe("RecipeDetailCard", () => {
         recipeYield: "10 servings",
         imageUrl: "https://example.com/new-cake.jpg",
         sourceUrl: "https://example.com/new-cake",
+        fallbackVideoUrl: null,
       });
       expect(onSaveOverrides).toHaveBeenCalledWith(3, {
         ingredients: {

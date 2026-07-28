@@ -19,6 +19,8 @@ type RecipeDetailEditorProps = {
   draftYield: string;
   draftImageUrl: string;
   draftSourceUrl: string;
+  draftFallbackVideoUrl: string;
+  canEmbedSourceVideo: boolean;
   scaledVisibleIngredients: string[];
   visibleIngredientSections: IngredientSection[] | null;
   scaleFactor: number;
@@ -37,6 +39,7 @@ type RecipeDetailEditorProps = {
   onChangeYield: (value: string) => void;
   onChangeImageUrl: (value: string) => void;
   onChangeSourceUrl: (value: string) => void;
+  onChangeFallbackVideoUrl: (value: string) => void;
 };
 
 export function RecipeDetailEditor({
@@ -50,6 +53,8 @@ export function RecipeDetailEditor({
   draftYield,
   draftImageUrl,
   draftSourceUrl,
+  draftFallbackVideoUrl,
+  canEmbedSourceVideo,
   scaledVisibleIngredients,
   visibleIngredientSections,
   scaleFactor,
@@ -61,6 +66,7 @@ export function RecipeDetailEditor({
   onChangeYield,
   onChangeImageUrl,
   onChangeSourceUrl,
+  onChangeFallbackVideoUrl,
 }: RecipeDetailEditorProps) {
   return (
     <>
@@ -73,10 +79,13 @@ export function RecipeDetailEditor({
           draftYield={draftYield}
           draftImageUrl={draftImageUrl}
           draftSourceUrl={draftSourceUrl}
+          draftFallbackVideoUrl={draftFallbackVideoUrl}
+          canEmbedSourceVideo={canEmbedSourceVideo}
           onChangeTitle={onChangeTitle}
           onChangeYield={onChangeYield}
           onChangeImageUrl={onChangeImageUrl}
           onChangeSourceUrl={onChangeSourceUrl}
+          onChangeFallbackVideoUrl={onChangeFallbackVideoUrl}
         />
       ) : null}
 

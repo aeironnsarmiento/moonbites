@@ -154,6 +154,15 @@ class TikTokOEmbed:
     item_id: Optional[str]
 
 
+@dataclass(frozen=True)
+class TikTokSourceMetadata:
+    source_url: str
+    final_url: str
+    caption: str
+    image_url: Optional[str]
+    author_handle: Optional[str]
+
+
 def _author_handle_from_oembed(payload: dict[str, Any]) -> Optional[str]:
     unique_id = payload.get("author_unique_id")
     if isinstance(unique_id, str) and unique_id.strip():
@@ -218,6 +227,44 @@ async def _fetch_oembed(url: str, settings: Settings) -> TikTokOEmbed:
     )
 
 
+async def fetch_tiktok_source_metadata(url: str) -> TikTokSourceMetadata:
+    """Fetch post metadata without parsing or replacing saved recipe content."""
+    settings = get_settings()
+    target_url = normalize_url(url)
+    html = await _fetch_page_html(target_url, settings)
+    post = parse_tiktok_page(html) if html else None
+
+    if post is not None:
+        return TikTokSourceMetadata(
+            source_url=target_url,
+            final_url=_canonical_post_url(
+                post.author_handle,
+                post.item_id,
+                is_photo_post=post.is_photo_post,
+            ),
+            caption=post.caption,
+            image_url=post.image_url,
+            author_handle=post.author_handle,
+        )
+
+    oembed = await _fetch_oembed(target_url, settings)
+    final_url = target_url
+    if oembed.author_handle and oembed.item_id:
+        final_url = _canonical_post_url(
+            oembed.author_handle,
+            oembed.item_id,
+            is_photo_post=False,
+        )
+
+    return TikTokSourceMetadata(
+        source_url=target_url,
+        final_url=final_url,
+        caption=oembed.caption,
+        image_url=oembed.thumbnail_url,
+        author_handle=oembed.author_handle,
+    )
+
+
 def _caption_title(caption: str, author_handle: Optional[str]) -> str:
     for line in caption.splitlines():
         cleaned = line.strip()
@@ -250,6 +297,7 @@ async def _extract_first_recipe_link(
             continue
 
         if result.recipes:
+            uses_tiktok_thumbnail = result.image_url is None and fallback_image is not None
             return ExtractionResult(
                 source_url=source_url,
                 final_url=result.final_url,
@@ -257,41 +305,21 @@ async def _extract_first_recipe_link(
                 image_url=result.image_url or fallback_image,
                 recipe_node_count=result.recipe_node_count,
                 recipes=result.recipes,
+                tiktok_thumbnail_url=(
+                    fallback_image if uses_tiktok_thumbnail else None
+                ),
             )
 
     return None
 
 
 async def extract_recipe_from_tiktok_url(url: str) -> ExtractionResult:
-    settings = get_settings()
-    target_url = normalize_url(url)
-
-    caption: str
-    image_url: Optional[str]
-    final_url: str
-    author_handle: Optional[str]
-
-    html = await _fetch_page_html(target_url, settings)
-    post = parse_tiktok_page(html) if html else None
-
-    if post is not None:
-        caption = post.caption
-        image_url = post.image_url
-        author_handle = post.author_handle
-        final_url = _canonical_post_url(
-            post.author_handle, post.item_id, is_photo_post=post.is_photo_post
-        )
-    else:
-        oembed = await _fetch_oembed(target_url, settings)
-        caption = oembed.caption
-        image_url = oembed.thumbnail_url
-        author_handle = oembed.author_handle
-        if oembed.author_handle and oembed.item_id:
-            final_url = _canonical_post_url(
-                oembed.author_handle, oembed.item_id, is_photo_post=False
-            )
-        else:
-            final_url = target_url
+    metadata = await fetch_tiktok_source_metadata(url)
+    target_url = metadata.source_url
+    caption = metadata.caption
+    image_url = metadata.image_url
+    author_handle = metadata.author_handle
+    final_url = metadata.final_url
 
     title = _caption_title(caption, author_handle)
 
@@ -316,6 +344,7 @@ async def extract_recipe_from_tiktok_url(url: str) -> ExtractionResult:
                 image_url=image_url,
                 recipe_node_count=1,
                 recipes=[recipe],
+                tiktok_thumbnail_url=image_url,
                 parse_status=ParseStatus.RECIPE,
             )
 
