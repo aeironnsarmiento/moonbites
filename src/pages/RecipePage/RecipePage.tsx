@@ -2,11 +2,12 @@ import {
   Button,
   Heading,
   HStack,
+  Link,
   Spinner,
   Stack,
   Text,
 } from "@chakra-ui/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link as RouterLink, useNavigate, useParams } from "react-router-dom";
 
 import { RecipeDetailCard } from "../../components/RecipeDetailCard/RecipeDetailCard";
@@ -14,12 +15,11 @@ import { StatusBanner } from "../../components/StatusBanner/StatusBanner";
 import { useAuth } from "../../hooks/useAuth";
 import { useRecipeDetail } from "../../hooks/useRecipeDetail";
 import type { RecipeTextOverrides } from "../../types/recipe";
+import { resolveRecipeVideo } from "../../utils/videoEmbed";
 import "./RecipePage.scss";
 
-function getSourceLabel(value: string) {
-  return value.trim().toLowerCase().startsWith("manual://")
-    ? "Manual recipe"
-    : value;
+function isManualRecipeUrl(value: string) {
+  return value.trim().toLowerCase().startsWith("manual://");
 }
 
 export function RecipePage() {
@@ -44,6 +44,18 @@ export function RecipePage() {
     saveOverrides,
     updateTimesCooked,
   } = useRecipeDetail(recipeImportId);
+
+  const video = useMemo(
+    () =>
+      recipeImport
+        ? resolveRecipeVideo({
+            submittedUrl: recipeImport.submitted_url,
+            finalUrl: recipeImport.final_url,
+            fallbackVideoUrl: recipeImport.fallback_video_url,
+          })
+        : null,
+    [recipeImport],
+  );
 
   const handleSaveOverrides = async (
     recipeIndex: number,
@@ -82,7 +94,22 @@ export function RecipePage() {
         </HStack>
 
         {recipeImport ? (
-          <Text color="gray.500">Source: {getSourceLabel(recipeImport.submitted_url)}</Text>
+          <Text color="gray.500">
+            Source:{" "}
+            {isManualRecipeUrl(recipeImport.submitted_url) ? (
+              // A manual:// sentinel is provenance, not somewhere to navigate.
+              "Manual recipe"
+            ) : (
+              <Link
+                href={recipeImport.submitted_url}
+                isExternal
+                color="brand.700"
+                textDecoration="underline"
+              >
+                {recipeImport.submitted_url}
+              </Link>
+            )}
+          </Text>
         ) : null}
       </Stack>
 
@@ -109,6 +136,8 @@ export function RecipePage() {
               isFavorite={recipeImport.is_favorite}
               servings={recipeImport.servings}
               sourceUrl={recipeImport.submitted_url}
+              fallbackVideoUrl={recipeImport.fallback_video_url}
+              video={index === 0 ? video : null}
               overrides={recipeImport.recipe_overrides_json[String(index)]}
               isUpdatingTimesCooked={isUpdatingTimesCooked}
               isSavingServings={isSavingServings}

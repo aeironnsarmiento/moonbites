@@ -47,17 +47,29 @@ async def extract_ld_json(
         )
 
     if result.recipes:
-        database_saved, database_message = save_recipe_import(
+        thumbnail_candidate = (
+            result.tiktok_thumbnail_url
+            if isinstance(result.tiktok_thumbnail_url, str)
+            else None
+        )
+        save_result = await save_recipe_import(
             submitted_url=result.source_url,
             final_url=result.final_url,
             title=result.title,
             recipes=result.recipes,
             image_url=result.image_url,
+            tiktok_thumbnail_url=thumbnail_candidate,
             access_token=admin.access_token,
         )
-        database_message = _sanitize_database_message(database_saved, database_message)
+        database_saved = save_result.saved
+        database_message = _sanitize_database_message(
+            save_result.saved,
+            save_result.message,
+        )
+        response_image_url = save_result.image_url
     else:
         database_saved = False
+        response_image_url = result.image_url
         if result.recipe_node_count > 0:
             database_message = (
                 "Nothing was saved because recipe objects were found on that page, "
@@ -72,7 +84,7 @@ async def extract_ld_json(
         source_url=result.source_url,
         final_url=result.final_url,
         title=result.title,
-        image_url=result.image_url,
+        image_url=response_image_url,
         recipes=result.recipes,
         database_saved=database_saved,
         database_message=database_message,

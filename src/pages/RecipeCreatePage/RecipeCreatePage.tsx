@@ -17,7 +17,7 @@ import {
   Text,
   Textarea,
 } from "@chakra-ui/react";
-import { Link as RouterLink, useNavigate } from "react-router-dom";
+import { Link as RouterLink, useLocation, useNavigate } from "react-router-dom";
 
 import { StatusBanner } from "../../components/StatusBanner/StatusBanner";
 import { UrlPasteForm } from "../../components/UrlPasteForm/UrlPasteForm";
@@ -76,8 +76,13 @@ function buildRecipePayload(form: RecipeFormState): NormalizedRecipe {
   };
 }
 
+type RecipeCreateLocationState = {
+  importUrl?: string;
+};
+
 export function RecipeCreatePage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { createRecipe, error, isLoading } = useCreateRecipe();
   const {
     error: extractError,
@@ -86,7 +91,10 @@ export function RecipeCreatePage() {
     submitRecipe,
   } = useExtractRecipe();
   const [form, setForm] = useState<RecipeFormState>(EMPTY_FORM);
-  const [url, setUrl] = useState("");
+  // Seeded when an import failed elsewhere and sent the pasted URL here.
+  const [url, setUrl] = useState(
+    () => (location.state as RecipeCreateLocationState | null)?.importUrl ?? "",
+  );
   const [validationError, setValidationError] = useState("");
 
   const fieldError = validationError || error;

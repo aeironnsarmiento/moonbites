@@ -16,6 +16,7 @@ type UseRecipeEditDraftOptions = {
   recordTitle: string | null;
   imageUrl: string | null;
   sourceUrl: string;
+  fallbackVideoUrl: string | null;
   visibleIngredients: string[];
   visibleInstructions: string[];
   canEditMetadata: boolean;
@@ -32,6 +33,7 @@ export function useRecipeEditDraft({
   recordTitle,
   imageUrl,
   sourceUrl,
+  fallbackVideoUrl,
   visibleIngredients,
   visibleInstructions,
   canEditMetadata,
@@ -47,6 +49,9 @@ export function useRecipeEditDraft({
   const [draftYield, setDraftYield] = useState(recipe.recipeYield ?? "");
   const [draftImageUrl, setDraftImageUrl] = useState(imageUrl ?? "");
   const [draftSourceUrl, setDraftSourceUrl] = useState(sourceUrl);
+  const [draftFallbackVideoUrl, setDraftFallbackVideoUrl] = useState(
+    fallbackVideoUrl ?? "",
+  );
   const [saveError, setSaveError] = useState("");
 
   const seedDrafts = () => {
@@ -56,6 +61,7 @@ export function useRecipeEditDraft({
     setDraftYield(recipe.recipeYield ?? "");
     setDraftImageUrl(imageUrl ?? "");
     setDraftSourceUrl(sourceUrl);
+    setDraftFallbackVideoUrl(fallbackVideoUrl ?? "");
     setSaveError("");
   };
 
@@ -74,6 +80,7 @@ export function useRecipeEditDraft({
     (draftTitle.trim() !== (recordTitle ?? recipe.name) ||
       (draftYield.trim() || null) !== (recipe.recipeYield ?? null) ||
       (draftImageUrl.trim() || null) !== (imageUrl ?? null) ||
+      (draftFallbackVideoUrl.trim() || null) !== (fallbackVideoUrl ?? null) ||
       draftSourceUrl.trim() !== sourceUrl);
 
   const hasUnsavedChanges =
@@ -95,6 +102,7 @@ export function useRecipeEditDraft({
           recipeYield: draftYield.trim() || null,
           imageUrl: draftImageUrl.trim() || null,
           sourceUrl: draftSourceUrl.trim(),
+          fallbackVideoUrl: draftFallbackVideoUrl.trim() || null,
         });
       }
 
@@ -122,6 +130,7 @@ export function useRecipeEditDraft({
     draftYield,
     draftImageUrl,
     draftSourceUrl,
+    draftFallbackVideoUrl,
     hasMetadataChanges,
     hasUnsavedChanges,
     setDraftIngredients,
@@ -130,6 +139,7 @@ export function useRecipeEditDraft({
     setDraftYield,
     setDraftImageUrl,
     setDraftSourceUrl,
+    setDraftFallbackVideoUrl,
     setSaveError,
     startEditing,
     cancelEditing,

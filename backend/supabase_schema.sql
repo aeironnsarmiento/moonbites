@@ -29,11 +29,41 @@ create index if not exists recipe_imports_submitted_url_idx
 alter table public.recipe_imports
   add column if not exists image_url text;
 
+-- Server-managed durable copy of third-party thumbnails. This path is kept
+-- internal; public API responses continue to expose only image_url.
+alter table public.recipe_imports
+  add column if not exists image_storage_path text;
+
+insert into storage.buckets (
+  id,
+  name,
+  public,
+  file_size_limit,
+  allowed_mime_types
+)
+values (
+  'recipe-thumbnails',
+  'recipe-thumbnails',
+  true,
+  5242880,
+  array['image/jpeg', 'image/png', 'image/webp', 'image/avif']
+)
+on conflict (id) do update
+set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
 alter table public.recipe_imports
   add column if not exists is_favorite boolean not null default false;
 
 alter table public.recipe_imports
   add column if not exists servings integer;
+
+-- Admin-attached video for recipes whose own source cannot be embedded.
+-- Kept separate from submitted_url/final_url so provenance is never rewritten.
+alter table public.recipe_imports
+  add column if not exists fallback_video_url text;
 
 create index if not exists recipe_imports_is_favorite_idx
   on public.recipe_imports (is_favorite) where is_favorite = true;
@@ -426,6 +456,7 @@ create function public.search_recipe_imports(
   image_url text,
   is_favorite boolean,
   servings integer,
+  fallback_video_url text,
   created_at timestamptz,
   total_count bigint
 )
@@ -451,6 +482,7 @@ as $$
       r.image_url,
       r.is_favorite,
       r.servings,
+      r.fallback_video_url,
       r.created_at,
       case
         when lower(coalesce(r.recipes_json->0->>'name', '')) = p.exact_term
@@ -520,6 +552,7 @@ as $$
     m.image_url,
     m.is_favorite,
     m.servings,
+    m.fallback_video_url,
     m.created_at,
     count(*) over () as total_count
   from matched m

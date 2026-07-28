@@ -168,3 +168,70 @@ def test_build_metadata_update_payload_recalculates_servings_from_yield():
     assert payload["servings"] == 12
     assert payload["recipes_json"][0]["name"] == "Party Rice"
     assert payload["recipes_json"][0]["recipeYield"] == "Makes 12 bowls"
+
+
+def test_build_metadata_update_payload_keeps_final_url_when_source_unchanged():
+    record = _record().model_copy(
+        update={
+            "submitted_url": "https://vm.tiktok.com/ZM123",
+            "final_url": "https://www.tiktok.com/@chef/video/456",
+        }
+    )
+
+    payload = _build_metadata_update_payload(
+        record,
+        UpdateRecipeMetadataRequest(
+            title="Party Rice",
+            recipe_yield="2 servings",
+            image_url=None,
+            source_url="https://vm.tiktok.com/ZM123",
+        ),
+    )
+
+    assert "final_url" not in payload
+    assert payload["submitted_url"] == "https://vm.tiktok.com/ZM123"
+
+
+def test_build_metadata_update_payload_carries_fallback_video_url():
+    payload = _build_metadata_update_payload(
+        _record(),
+        UpdateRecipeMetadataRequest(
+            title="Party Rice",
+            recipe_yield="2 servings",
+            image_url=None,
+            source_url="https://old.test/source",
+            fallback_video_url="https://www.youtube.com/watch?v=abc123",
+        ),
+    )
+
+    assert payload["fallback_video_url"] == "https://www.youtube.com/watch?v=abc123"
+
+
+def test_build_metadata_update_payload_clears_blank_fallback_video_url():
+    payload = _build_metadata_update_payload(
+        _record(),
+        UpdateRecipeMetadataRequest(
+            title="Party Rice",
+            recipe_yield="2 servings",
+            image_url=None,
+            source_url="https://old.test/source",
+            fallback_video_url="   ",
+        ),
+    )
+
+    assert payload["fallback_video_url"] is None
+
+
+def test_update_metadata_rejects_invalid_fallback_video_url():
+    response = client.patch(
+        "/api/recipes/abc/metadata",
+        json={
+            "title": "New Title",
+            "recipe_yield": "6 servings",
+            "image_url": None,
+            "source_url": "https://new.test/source",
+            "fallback_video_url": "javascript:alert(1)",
+        },
+    )
+
+    assert response.status_code == 422

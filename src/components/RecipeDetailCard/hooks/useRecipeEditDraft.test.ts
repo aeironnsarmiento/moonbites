@@ -31,6 +31,7 @@ function renderDraft(
       recordTitle: "Saved Chocolate Cake",
       imageUrl: "https://example.com/cake.jpg",
       sourceUrl: "https://example.com/cake",
+      fallbackVideoUrl: null,
       visibleIngredients: ["1 cup brown sugar", "2 cups flour"],
       visibleInstructions: ["Mix ingredients.", "Bake until center is set."],
       canEditMetadata: true,
@@ -150,6 +151,7 @@ describe("useRecipeEditDraft", () => {
       recipeYield: "10 servings",
       imageUrl: "https://example.com/new-cake.jpg",
       sourceUrl: "https://example.com/new-cake",
+      fallbackVideoUrl: null,
     });
     expect(onSaveOverrides).toHaveBeenCalledWith(3, {
       ingredients: {

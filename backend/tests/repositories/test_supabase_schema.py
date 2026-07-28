@@ -102,6 +102,37 @@ def test_search_recipe_imports_returns_record_columns_with_window_count():
     assert "offset greatest(p_offset, 0)" in function_sql
 
 
+def test_recipe_imports_has_fallback_video_url_column():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    assert (
+        "alter table public.recipe_imports add column if not exists fallback_video_url text"
+        in normalized_sql
+    )
+
+
+def test_recipe_imports_has_internal_thumbnail_storage_and_public_bucket():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    assert (
+        "alter table public.recipe_imports add column if not exists "
+        "image_storage_path text"
+    ) in normalized_sql
+    assert "insert into storage.buckets" in normalized_sql
+    assert "'recipe-thumbnails', 'recipe-thumbnails', true, 5242880" in normalized_sql
+    assert "array['image/jpeg', 'image/png', 'image/webp', 'image/avif']" in normalized_sql
+    assert "on conflict (id) do update" in normalized_sql
+
+
+def test_search_recipe_imports_returns_fallback_video_url():
+    function_sql = _search_function_sql()
+
+    # The RPC returns an explicit column list, so a column missing here comes
+    # back null on every search hit rather than failing loudly.
+    assert "fallback_video_url text" in function_sql
+    assert "m.fallback_video_url" in function_sql
+
+
 def test_search_recipe_imports_matches_only_the_contracted_fields():
     function_sql = _search_function_sql()
 

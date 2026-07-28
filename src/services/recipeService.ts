@@ -161,6 +161,7 @@ export function patchRecipeImportMetadata(
         recipe_yield: payload.recipeYield,
         image_url: payload.imageUrl,
         source_url: payload.sourceUrl,
+        fallback_video_url: payload.fallbackVideoUrl,
       }),
     },
   );
