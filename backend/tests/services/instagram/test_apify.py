@@ -363,11 +363,12 @@ def test_profile_dataset_requires_matching_public_owner_and_allowlists_direct_li
     result = asyncio.run(_client(handler).get_profile_result(DATASET_ID, "tasty"))
     assert result.username == "Tasty"
     # A real-world mixed-scheme bio link list: the plain-http entry is
-    # silently dropped rather than failing the whole profile.
+    # upgraded to https rather than dropped or failing the whole profile.
     assert result.external_urls == (
         "https://tasty.co/",
         "https://linktr.ee/tasty",
         "https://tasty.co/recipes",
+        "https://plain-http-bio-link.example/tasty",
     )
 
 
@@ -395,13 +396,19 @@ def test_profile_adapter_rejects_identity_privacy_and_error_rows(item):
     assert exc_info.value.code is expected
 
 
-def test_profile_adapter_filters_non_https_links_instead_of_failing():
-    # A real bio can be entirely non-HTTPS links; that is unusable for the
-    # HTTPS-only downstream fetch but is not itself a malformed response.
+def test_profile_adapter_upgrades_plain_http_links_instead_of_failing():
+    # A real bio commonly carries a plain http:// link (often one that
+    # itself redirects straight to https). That is upgraded, not dropped or
+    # treated as a malformed response -- the downstream fetch is https-only
+    # regardless, and this never issues an actual cleartext request.
     item = {
         "username": "tasty",
         "externalUrl": "http://example.com",
-        "externalUrls": [{"url": "http://also-plain.example"}],
+        "externalUrls": [
+            {"url": "http://also-plain.example/path?q=1"},
+            {"url": "https://already-https.example"},
+            {"url": "ftp://not-http.example"},
+        ],
         "private": False,
     }
 
@@ -412,7 +419,11 @@ def test_profile_adapter_filters_non_https_links_instead_of_failing():
     )
 
     assert result.username == "tasty"
-    assert result.external_urls == ()
+    assert result.external_urls == (
+        "https://example.com",
+        "https://also-plain.example/path?q=1",
+        "https://already-https.example",
+    )
 
 
 @pytest.mark.parametrize(

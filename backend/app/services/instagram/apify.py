@@ -4,7 +4,7 @@ import json
 import re
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Optional
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from pydantic import ValidationError
@@ -98,21 +98,35 @@ def _https_url(value: Any) -> str:
     return value
 
 
-def _is_https_url(value: Any) -> bool:
+def _upgrade_to_https(value: Any) -> Optional[str]:
+    """Accepts a direct https:// URL as-is, or upgrades a plain http:// one to
+    https:// by rewriting the scheme -- never by issuing a cleartext request.
+    A bare http:// link in third-party profile metadata almost always still
+    serves https (frequently via an immediate redirect, sometimes with HSTS),
+    and the downstream fetch is https-only regardless; rewriting the scheme
+    string here means a stale http-only host still fails closed on connect,
+    exactly as it would if it had been written as https:// to begin with.
+    Anything that isn't a well-formed http(s) URL is dropped, not upgraded.
+    """
     if not isinstance(value, str):
-        return False
+        return None
     try:
         parsed = urlsplit(value)
         port = parsed.port
     except ValueError:
-        return False
-    return (
-        parsed.scheme.casefold() == "https"
-        and bool(parsed.hostname)
-        and parsed.username is None
-        and parsed.password is None
-        and port is None
-    )
+        return None
+    scheme = parsed.scheme.casefold()
+    if (
+        scheme not in ("http", "https")
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is not None
+    ):
+        return None
+    if scheme == "https":
+        return value
+    return urlunsplit(("https", parsed.netloc, parsed.path, parsed.query, parsed.fragment))
 
 
 def _content_url_matches(value: Any, identity: InstagramReelIdentity) -> bool:
@@ -416,12 +430,14 @@ class ApifyClient:
             raw_urls.append(parsed_item.external_url)
         raw_urls.extend(entry.url for entry in parsed_item.external_urls)
 
-        # Real bios commonly mix in non-HTTPS links (e.g. a plain http://
-        # link-in-bio host); those are simply unusable candidates for the
-        # HTTPS-only downstream fetch, not a sign of a malformed provider
-        # response, so they are filtered out rather than failing the call.
+        # Real bios commonly carry a plain http:// link (frequently one that
+        # itself redirects straight to https); those are upgraded rather
+        # than dropped or treated as a malformed response, since the
+        # downstream fetch is https-only regardless and this never issues an
+        # actual cleartext request.
         urls: list[str] = []
         for raw_url in raw_urls:
-            if _is_https_url(raw_url) and raw_url not in urls:
-                urls.append(raw_url)
+            upgraded = _upgrade_to_https(raw_url)
+            if upgraded is not None and upgraded not in urls:
+                urls.append(upgraded)
         return InstagramProfileMetadata(username=username, external_urls=tuple(urls))
