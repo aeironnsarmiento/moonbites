@@ -54,6 +54,7 @@ LINK_HUB_HOSTS = frozenset(
         "shorby.com",
         "koji.to",
         "lnk.bio",
+        "buzzfeed.bio",
     }
 )
 
