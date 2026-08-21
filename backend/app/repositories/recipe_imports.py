@@ -26,6 +26,11 @@ from ..services.cuisine_catalog import (
     canonical_cuisine,
     collect_canonical_cuisines,
 )
+from ..services.instagram.urls import (
+    InstagramUrlError,
+    is_instagram_url,
+    parse_instagram_reel_url,
+)
 from ..services.normalizer import dedupe_normalized_recipes
 from ..services.tiktok.thumbnail_storage import (
     delete_tiktok_thumbnail,
@@ -35,7 +40,7 @@ from ..utils.urls import canonicalize_url
 from ..utils.yield_parser import parse_yield
 
 
-RECIPE_IMPORT_SELECT = "id, submitted_url, final_url, page_title, times_cooked, recipes_json, recipe_overrides_json, image_url, is_favorite, servings, fallback_video_url, created_at"
+RECIPE_IMPORT_SELECT = "id, submitted_url, final_url, page_title, times_cooked, recipes_json, recipe_overrides_json, image_url, is_favorite, servings, fallback_video_url, linked_recipe_url, created_at"
 logger = logging.getLogger(__name__)
 
 
@@ -48,6 +53,7 @@ class SaveRecipeImportResult:
     saved: bool
     message: str
     image_url: Optional[str]
+    id: Optional[str] = None
 
 
 def _get_read_client(settings):
@@ -328,7 +334,7 @@ def _find_existing_records_by_exact_urls(
     for column in ("submitted_url", "final_url"):
         response = (
             client.table(table_name)
-            .select("submitted_url, final_url")
+            .select("id, submitted_url, final_url")
             .in_(column, urls)
             .execute()
         )
@@ -343,6 +349,8 @@ async def save_recipe_import(
     recipes: list[NormalizedRecipe],
     image_url: Optional[str] = None,
     tiktok_thumbnail_url: Optional[str] = None,
+    linked_recipe_url: Optional[str] = None,
+    managed_image_storage_path: Optional[str] = None,
     access_token: Optional[str] = None,
 ) -> SaveRecipeImportResult:
     settings = get_settings()
@@ -390,12 +398,13 @@ async def save_recipe_import(
                 saved=True,
                 message="Recipe import already exists, so the duplicate save was skipped.",
                 image_url=image_url,
+                id=existing.get("id"),
             )
 
     recipe_import_id = str(uuid4())
     effective_image_url = image_url
-    image_storage_path: Optional[str] = None
-    if tiktok_thumbnail_url:
+    image_storage_path: Optional[str] = managed_image_storage_path
+    if not managed_image_storage_path and tiktok_thumbnail_url:
         try:
             mirrored = await mirror_tiktok_thumbnail(
                 recipe_import_id,
@@ -421,6 +430,7 @@ async def save_recipe_import(
         "recipe_overrides_json": {},
         "image_url": effective_image_url,
         "image_storage_path": image_storage_path,
+        "linked_recipe_url": linked_recipe_url,
         "is_favorite": False,
         "servings": servings,
     }
@@ -428,17 +438,39 @@ async def save_recipe_import(
     try:
         client.table(settings.supabase_table_name).insert(payload).execute()
     except Exception as error:
-        if image_storage_path:
-            _delete_managed_thumbnail_best_effort(
-                image_storage_path,
-                recipe_import_id=recipe_import_id,
-            )
         message = str(error).lower()
-        if "unique" in message or "duplicate" in message or "23505" in message:
+        is_duplicate = (
+            "unique" in message or "duplicate" in message or "23505" in message
+        )
+        if is_duplicate:
+            if image_storage_path:
+                _delete_managed_thumbnail_best_effort(
+                    image_storage_path,
+                    recipe_import_id=recipe_import_id,
+                )
             return SaveRecipeImportResult(
                 saved=True,
                 message="Recipe import already exists, so the duplicate save was skipped.",
                 image_url=image_url,
+            )
+
+        # The insert's actual outcome is ambiguous (e.g. a lost response), so
+        # read back by our own generated id before deciding whether the row
+        # committed — deleting a provisional object that a committed row now
+        # owns would orphan that row's thumbnail.
+        committed_record = get_recipe_import(recipe_import_id)
+        if committed_record is not None:
+            return SaveRecipeImportResult(
+                saved=True,
+                message="Recipe saved to your collection.",
+                image_url=committed_record.image_url,
+                id=recipe_import_id,
+            )
+
+        if image_storage_path:
+            _delete_managed_thumbnail_best_effort(
+                image_storage_path,
+                recipe_import_id=recipe_import_id,
             )
         return SaveRecipeImportResult(
             saved=False,
@@ -450,6 +482,7 @@ async def save_recipe_import(
         saved=True,
         message="Recipe saved to your collection.",
         image_url=effective_image_url,
+        id=recipe_import_id,
     )
 
 
@@ -1022,6 +1055,22 @@ def update_image_url(
     return updated_record
 
 
+def _is_same_source_identity(previous_url: str, next_url: str) -> bool:
+    if previous_url == next_url:
+        return True
+
+    if is_instagram_url(previous_url) and is_instagram_url(next_url):
+        try:
+            return (
+                parse_instagram_reel_url(previous_url).canonical_url
+                == parse_instagram_reel_url(next_url).canonical_url
+            )
+        except InstagramUrlError:
+            return False
+
+    return False
+
+
 def _build_metadata_update_payload(
     existing_record: RecipeImportRecord,
     metadata: UpdateRecipeMetadataRequest,
@@ -1044,12 +1093,15 @@ def _build_metadata_update_payload(
         "fallback_video_url": metadata.fallback_video_url,
     }
 
-    # Only re-point final_url when the source actually changed. Editing an
-    # unrelated field must not collapse a resolved final_url back onto the
-    # submitted one -- TikTok stores its canonical /@handle/video/<id> form
-    # there, and the video embed reads it.
-    if metadata.source_url != existing_record.submitted_url:
+    # Only re-point final_url when the source's canonical identity actually
+    # changed. Editing an unrelated field, or resubmitting an equivalent URL
+    # form (e.g. an Instagram Reel URL with different query params), must not
+    # collapse a resolved final_url back onto the submitted one -- TikTok
+    # stores its canonical /@handle/video/<id> form there, and the video
+    # embed reads it.
+    if not _is_same_source_identity(existing_record.submitted_url, metadata.source_url):
         payload["final_url"] = metadata.source_url
+        payload["linked_recipe_url"] = None
 
     return payload
 
@@ -1076,8 +1128,10 @@ def update_recipe_metadata(
         settings.supabase_table_name,
         recipe_import_id,
     )
+    identity_changed = "final_url" in payload
     image_changed = metadata.image_url != existing_record.image_url
-    if image_changed:
+    clear_managed_thumbnail = image_changed or identity_changed
+    if clear_managed_thumbnail:
         payload["image_storage_path"] = None
 
     updated_record = _update_recipe_import_record(
@@ -1086,7 +1140,7 @@ def update_recipe_metadata(
         recipe_import_id,
         payload,
     )
-    if image_changed and storage_path:
+    if clear_managed_thumbnail and storage_path:
         _delete_managed_thumbnail_best_effort(
             storage_path,
             recipe_import_id=recipe_import_id,

@@ -223,6 +223,41 @@ def test_search_recipe_imports_grants_execute():
     )
 
 
+# --- U4: linked_recipe_url provenance ---------------------------------------
+
+
+def test_recipe_imports_has_nullable_linked_recipe_url_with_no_unique_constraint():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    assert (
+        "alter table public.recipe_imports add column if not exists linked_recipe_url text"
+        in normalized_sql
+    )
+    assert "linked_recipe_url text unique" not in normalized_sql
+    assert "unique (linked_recipe_url)" not in normalized_sql
+
+
+def test_recipe_imports_submitted_and_final_url_unique_constraints_still_present():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    assert (
+        "add constraint recipe_imports_submitted_url_key unique (submitted_url)"
+        in normalized_sql
+    )
+    assert (
+        "add constraint recipe_imports_final_url_key unique (final_url)"
+        in normalized_sql
+    )
+
+
+def test_search_recipe_imports_returns_linked_recipe_url():
+    function_sql = _search_function_sql()
+
+    assert "linked_recipe_url text" in function_sql
+    assert "r.linked_recipe_url" in function_sql
+    assert "m.linked_recipe_url" in function_sql
+
+
 # --- U9: Instagram import job and provider admission schema ----------------
 
 

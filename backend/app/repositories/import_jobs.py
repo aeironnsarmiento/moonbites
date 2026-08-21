@@ -226,7 +226,10 @@ def find_existing_recipe_by_canonical_url(canonical_url: str) -> Optional[dict]:
     try:
         response = (
             client.table("recipe_imports")
-            .select("id, submitted_url, final_url, page_title, image_url, recipes_json")
+            .select(
+                "id, submitted_url, final_url, page_title, image_url, "
+                "recipes_json, linked_recipe_url"
+            )
             .eq("final_url", canonical_url)
             .limit(1)
             .execute()

@@ -28,6 +28,7 @@ function record(id: string, url: string): RecipeImportRecord {
     is_favorite: false,
     servings: null,
     fallback_video_url: null,
+    linked_recipe_url: null,
     created_at: "2026-06-01T00:00:00Z",
   };
 }

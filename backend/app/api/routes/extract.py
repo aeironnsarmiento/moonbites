@@ -48,6 +48,7 @@ def _existing_recipe_response(record: dict) -> ExtractResponse:
         database_saved=True,
         database_message=GENERIC_SAVE_SUCCESS_MESSAGE,
         parse_status="recipe",
+        linked_recipe_url=record.get("linked_recipe_url"),
     )
 
 

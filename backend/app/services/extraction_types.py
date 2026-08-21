@@ -21,3 +21,4 @@ class ExtractionResult:
     tiktok_thumbnail_url: Optional[str] = None
     parse_status: ParseStatus = ParseStatus.RECIPE
     parse_reason: Optional[str] = None
+    linked_recipe_url: Optional[str] = None

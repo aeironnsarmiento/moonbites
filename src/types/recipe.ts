@@ -48,6 +48,7 @@ export type RecipeImportRecord = {
   is_favorite: boolean;
   servings: number | null;
   fallback_video_url: string | null;
+  linked_recipe_url: string | null;
   created_at: string;
 };
 

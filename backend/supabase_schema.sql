@@ -65,6 +65,12 @@ alter table public.recipe_imports
 alter table public.recipe_imports
   add column if not exists fallback_video_url text;
 
+-- Provenance-only: the public recipe page a caption link or Creator-site
+-- Lookup resolved the saved recipe from (e.g. Instagram Reel imports).
+-- Deliberately not unique -- distinct Reels may share the same linked page.
+alter table public.recipe_imports
+  add column if not exists linked_recipe_url text;
+
 create index if not exists recipe_imports_is_favorite_idx
   on public.recipe_imports (is_favorite) where is_favorite = true;
 
@@ -457,6 +463,7 @@ create function public.search_recipe_imports(
   is_favorite boolean,
   servings integer,
   fallback_video_url text,
+  linked_recipe_url text,
   created_at timestamptz,
   total_count bigint
 )
@@ -483,6 +490,7 @@ as $$
       r.is_favorite,
       r.servings,
       r.fallback_video_url,
+      r.linked_recipe_url,
       r.created_at,
       case
         when lower(coalesce(r.recipes_json->0->>'name', '')) = p.exact_term
@@ -553,6 +561,7 @@ as $$
     m.is_favorite,
     m.servings,
     m.fallback_video_url,
+    m.linked_recipe_url,
     m.created_at,
     count(*) over () as total_count
   from matched m
