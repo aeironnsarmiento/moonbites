@@ -417,7 +417,21 @@ def test_reconcile_provider_admission_forwards_dry_run():
 
     assert rows == [{"id": True}]
     fn_name, params = client.rpc_calls[0]
-    assert params == {"p_dry_run": False}
+    # No age gate by default, so the manual ops sweep keeps its old semantics.
+    assert params == {"p_dry_run": False, "p_min_age_seconds": None}
+
+
+def test_reconcile_provider_admission_forwards_min_age_seconds():
+    client = _FakeClient()
+    client.set_rpc("reconcile_instagram_provider_admission", data=[{"id": True}])
+
+    with patch("app.repositories.import_jobs.get_settings"), patch(
+        "app.repositories.import_jobs.get_supabase_client", return_value=client
+    ):
+        reconcile_provider_admission(dry_run=False, min_age_seconds=180)
+
+    _fn_name, params = client.rpc_calls[0]
+    assert params == {"p_dry_run": False, "p_min_age_seconds": 180}
 
 
 def test_delete_expired_terminal_jobs_defaults_to_dry_run():
