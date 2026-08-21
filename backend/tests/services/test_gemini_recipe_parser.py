@@ -131,12 +131,18 @@ def _reset_rate_limiter():
     reset_gemini_rate_limiter()
 
 
-def _parse(caption: str = CAPTION, title: str = "Garlic Noodles"):
+def _parse(
+    caption: str = CAPTION,
+    title: str = "Garlic Noodles",
+    *,
+    allow_source_url_instruction_fallback: bool = True,
+):
     return asyncio.run(
         parse_caption_with_gemini(
             title=title,
             caption=caption,
             source_url="https://www.tiktok.com/@cook/video/123",
+            allow_source_url_instruction_fallback=allow_source_url_instruction_fallback,
         )
     )
 
@@ -181,6 +187,8 @@ def test_parses_complete_caption_into_recipe():
 
     assert parsed.parse_status == "recipe"
     assert parsed.is_complete is True
+    assert parsed.candidate_name == "Garlic Noodles"
+    assert parsed.has_explicit_instructions is True
     assert parsed.raw_recipe["name"] == "Garlic Noodles"
     assert parsed.raw_recipe["recipeIngredient"] == [
         "8 oz noodles",
@@ -276,6 +284,87 @@ def test_ingredients_without_instructions_use_source_url_crutch():
     assert parsed.raw_recipe["recipeInstructions"] == [
         "https://www.tiktok.com/@cook/video/123"
     ]
+    assert parsed.candidate_name == "Rice Bowl"
+    assert parsed.has_explicit_instructions is False
+
+
+def test_strict_mode_keeps_grounded_name_but_does_not_complete_ingredients_only():
+    caption = "Rice Bowl\nIngredients: 1 cup rice, 2 tbsp soy sauce. Full steps in the video!"
+    client = _AsyncClientContext(
+        _Response(
+            _gemini_body(
+                {
+                    "is_recipe": True,
+                    "name": "Rice Bowl",
+                    "ingredients": ["1 cup rice", "2 tbsp soy sauce"],
+                    "instructions": [],
+                }
+            )
+        )
+    )
+
+    settings_patch, client_patch = _patched(client)
+    with settings_patch, client_patch:
+        parsed = _parse(
+            caption=caption,
+            title="Rice Bowl",
+            allow_source_url_instruction_fallback=False,
+        )
+
+    assert parsed.parse_status == "not_recipe"
+    assert parsed.is_complete is False
+    assert parsed.candidate_name == "Rice Bowl"
+    assert parsed.has_explicit_instructions is False
+    assert parsed.ingredients == ["1 cup rice", "2 tbsp soy sauce"]
+    assert parsed.instructions == []
+    assert client.calls == 1
+
+
+def test_incomplete_not_recipe_verdict_retains_source_grounded_dish_name():
+    caption = "Miso Salmon Brothy Rice — full recipe is linked in my bio."
+    client = _AsyncClientContext(
+        _Response(
+            _gemini_body(
+                {
+                    "is_recipe": False,
+                    "name": "Miso Salmon Brothy Rice",
+                    "ingredients": [],
+                    "instructions": [],
+                    "reason": "The caption points to the recipe instead of including it.",
+                }
+            )
+        )
+    )
+
+    settings_patch, client_patch = _patched(client)
+    with settings_patch, client_patch:
+        parsed = _parse(caption=caption, title="Miso Salmon Brothy Rice")
+
+    assert parsed.parse_status == "not_recipe"
+    assert parsed.candidate_name == "Miso Salmon Brothy Rice"
+    assert parsed.has_explicit_instructions is False
+
+
+def test_fabricated_candidate_name_is_not_retained_on_incomplete_result():
+    client = _AsyncClientContext(
+        _Response(
+            _gemini_body(
+                {
+                    "is_recipe": False,
+                    "name": "Uranium Espresso Surprise",
+                    "ingredients": [],
+                    "instructions": [],
+                    "reason": "No recipe is present.",
+                }
+            )
+        )
+    )
+
+    settings_patch, client_patch = _patched(client)
+    with settings_patch, client_patch:
+        parsed = _parse(caption="Cute cat video #cats", title="")
+
+    assert parsed.candidate_name is None
 
 
 def test_fabricated_lines_are_rejected_as_not_recipe():

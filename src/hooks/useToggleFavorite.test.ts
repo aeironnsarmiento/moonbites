@@ -53,6 +53,7 @@ function record(overrides: Partial<RecipeImportRecord> = {}): RecipeImportRecord
     is_favorite: false,
     servings: null,
     fallback_video_url: null,
+    linked_recipe_url: null,
     created_at: new Date("2026-04-24T00:00:00.000Z").toISOString(),
     ...overrides,
   };

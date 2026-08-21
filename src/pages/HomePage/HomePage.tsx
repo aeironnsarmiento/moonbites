@@ -1,3 +1,4 @@
+import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { HomeFavoritesList } from "../../components/HomeFavoritesList/HomeFavoritesList";
@@ -18,7 +19,18 @@ export function HomePage() {
   const navigate = useNavigate();
   const { isAdmin } = useAuth();
   const { data, error, isLoading } = useHighlightedRecipes();
-  const { submitRecipe, isLoading: isSubmitting, error: submitError, status: submitStatus } = useExtractRecipe();
+  const [url, setUrl] = useState("");
+  const onSaved = useCallback(() => setUrl(""), []);
+  const {
+    submitRecipe,
+    isLoading: isSubmitting,
+    error: submitError,
+    status: submitStatus,
+    isPending,
+    isInterrupted,
+    isResuming,
+    resume,
+  } = useExtractRecipe({ onSaved });
 
   return (
     <div className="homePage">
@@ -27,10 +39,16 @@ export function HomePage() {
         totalCount={data.totalCount}
         favoriteCount={data.favoriteCount}
         isLoadingCounts={isLoading}
+        url={url}
+        onUrlChange={setUrl}
         onSubmit={submitRecipe}
         isSubmitting={isSubmitting}
         submitError={submitError}
         submitStatus={submitStatus}
+        isPending={isPending}
+        isInterrupted={isInterrupted}
+        isResuming={isResuming}
+        onResume={resume}
       />
 
       {!isLoading && <StatusBanner error={error} />}

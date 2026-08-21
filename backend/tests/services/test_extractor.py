@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 from app.schemas.extract import IngredientSection
 from app.core.config import Settings
+from app.services.blog.extractor import parse_recipes_from_html
 from app.services.extractor import extract_recipes_from_url
 from app.services.normalizer import collect_recipe_nodes, normalize_recipe
 
@@ -135,6 +136,40 @@ def test_extract_recipes_from_url_uses_html_fallback_for_partial_recipe_schema()
         "Mix the sauce ingredients.",
         "Fry the shrimp until golden brown.",
     ]
+
+
+def test_parse_recipes_from_html_reuses_normalization_without_a_second_request():
+    html = """
+    <html>
+      <head>
+        <title>Pre-fetched Page</title>
+        <script type="application/ld+json">
+          {
+            "@context":"https://schema.org/",
+            "@type":"recipe",
+            "name":"Pre-fetched Recipe",
+            "recipeIngredient":["1 cup flour"],
+            "recipeInstructions":["Bake it."]
+          }
+        </script>
+      </head>
+      <body></body>
+    </html>
+    """
+
+    result = parse_recipes_from_html(
+        html,
+        source_url="https://example.com/recipe",
+        final_url="https://example.com/recipe/",
+    )
+
+    assert result.source_url == "https://example.com/recipe"
+    assert result.final_url == "https://example.com/recipe/"
+    assert result.title == "Pre-fetched Page"
+    assert result.recipe_node_count == 1
+    assert result.recipes[0].name == "Pre-fetched Recipe"
+    assert result.recipes[0].ingredients == ["1 cup flour"]
+    assert result.recipes[0].instructions == ["Bake it."]
 
 
 def test_normalize_recipe_prefers_flat_json_ld_ingredients_over_html_fallback():

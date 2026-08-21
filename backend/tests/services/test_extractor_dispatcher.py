@@ -1,6 +1,9 @@
 import asyncio
 from unittest.mock import AsyncMock, patch
 
+import pytest
+from fastapi import HTTPException
+
 from app.schemas.extract import NormalizedRecipe
 from app.services.extraction_types import ExtractionResult
 from app.services.extractor import extract_recipes_from_url
@@ -74,3 +77,20 @@ def test_extract_recipes_from_url_dispatches_non_video_urls():
     youtube.assert_not_called()
     tiktok.assert_not_called()
     assert result.source_url == "https://example.com/recipe"
+
+
+def test_extract_recipes_from_url_rejects_instagram_before_blog_fallback():
+    with (
+        patch("app.services.extractor.extract_recipe_from_youtube_url") as youtube,
+        patch("app.services.extractor.extract_recipe_from_tiktok_url") as tiktok,
+        patch("app.services.extractor.extract_blog_recipes_from_url") as blog,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(
+                extract_recipes_from_url("https://www.instagram.com/reel/DZuzc9PNedT/")
+            )
+
+    assert exc_info.value.status_code == 400
+    youtube.assert_not_called()
+    tiktok.assert_not_called()
+    blog.assert_not_called()

@@ -56,6 +56,38 @@ describe("resolveVideoEmbed", () => {
     expect(resolveVideoEmbed("https://vm.tiktok.com/ZM8Abc123/")).toBeNull();
   });
 
+  it("reads an instagram shortcode from the canonical reel url", () => {
+    const embed = resolveVideoEmbed("https://www.instagram.com/reel/DZuzc9PNedT/");
+
+    expect(embed).toMatchObject({
+      platform: "instagram",
+      videoId: "DZuzc9PNedT",
+      orientation: "portrait",
+      embedUrl: "https://www.instagram.com/reel/DZuzc9PNedT/embed/",
+    });
+  });
+
+  it("resolves an instagram reel url carrying a query string", () => {
+    const embed = resolveVideoEmbed(
+      "https://instagram.com/reel/DZuzc9PNedT?igsh=abc123",
+    );
+
+    expect(embed).toMatchObject({ platform: "instagram", videoId: "DZuzc9PNedT" });
+  });
+
+  it.each([
+    ["a photo post", "https://www.instagram.com/p/DZuzc9PNedT/"],
+    ["a stories url", "https://www.instagram.com/stories/chef/123/"],
+    ["a profile url", "https://www.instagram.com/chef/"],
+    [
+      "an extra path segment",
+      "https://www.instagram.com/reel/DZuzc9PNedT/comments/",
+    ],
+    ["a lookalike host", "https://instagram.example/reel/DZuzc9PNedT/"],
+  ])("does not embed %s", (_label, value) => {
+    expect(resolveVideoEmbed(value)).toBeNull();
+  });
+
   it.each([
     ["a blog url", "https://smittenkitchen.com/miso-cookies"],
     ["a manual sentinel", "manual://8f2c"],

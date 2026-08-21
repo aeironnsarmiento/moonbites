@@ -91,11 +91,19 @@
       transform 150ms ease;
   }
 
-  &__notice {
+  &__unavailable {
     position: absolute;
     right: 0.75rem;
     bottom: 0.75rem;
     left: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  &__notice {
+    width: 100%;
     border-radius: 0.75rem;
     background: rgba(31, 41, 55, 0.82);
     backdrop-filter: blur(8px);
@@ -103,6 +111,27 @@
     font-size: 0.875rem;
     padding: 0.625rem 0.75rem;
     text-align: center;
+  }
+
+  &__retry {
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    background: rgba(31, 41, 55, 0.82);
+    backdrop-filter: blur(8px);
+    color: #fff;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    padding: 0.4rem 0.9rem;
+    cursor: pointer;
+
+    &:hover {
+      background: rgba(31, 41, 55, 0.95);
+    }
+
+    &:focus-visible {
+      outline: 2px solid #fff;
+      outline-offset: 2px;
+    }
   }
 
   &__favorite {

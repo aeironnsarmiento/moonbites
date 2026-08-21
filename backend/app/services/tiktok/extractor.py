@@ -10,15 +10,10 @@ from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
 from ...core.config import Settings, get_settings
-from ..blog.extractor import (
-    extract_recipes_from_url as extract_blog_recipes_from_url,
-    normalize_url,
-)
-from ..extraction_types import ExtractionResult, ParseStatus
-from ..gemini.recipe_parser import ParsedCaption, parse_caption_with_gemini
+from ..blog.extractor import normalize_url
+from ..extraction_types import ExtractionResult
 from ..http_utils import build_request_headers, get_with_403_retry
-from ..normalizer import normalize_recipe
-from ..youtube.description_parser import extract_ranked_recipe_urls
+from ..social.caption_recipe import CaptionPost, extract_recipe_from_caption
 
 
 TIKTOK_HOSTS = {
@@ -275,100 +270,16 @@ def _caption_title(caption: str, author_handle: Optional[str]) -> str:
     return "TikTok post"
 
 
-def _mentions_recipe_link(caption: str) -> bool:
-    if "recipe" not in caption.casefold():
-        return False
-    return bool(extract_ranked_recipe_urls(caption))
-
-
-async def _extract_first_recipe_link(
-    caption: str,
-    *,
-    source_url: str,
-    fallback_title: str,
-    fallback_image: Optional[str],
-) -> Optional[ExtractionResult]:
-    for recipe_url in extract_ranked_recipe_urls(caption):
-        try:
-            result = await extract_blog_recipes_from_url(recipe_url)
-        except HTTPException:
-            continue
-        except Exception:  # pragma: no cover - defensive network fallback
-            continue
-
-        if result.recipes:
-            uses_tiktok_thumbnail = result.image_url is None and fallback_image is not None
-            return ExtractionResult(
-                source_url=source_url,
-                final_url=result.final_url,
-                title=result.title or fallback_title,
-                image_url=result.image_url or fallback_image,
-                recipe_node_count=result.recipe_node_count,
-                recipes=result.recipes,
-                tiktok_thumbnail_url=(
-                    fallback_image if uses_tiktok_thumbnail else None
-                ),
-            )
-
-    return None
-
-
 async def extract_recipe_from_tiktok_url(url: str) -> ExtractionResult:
     metadata = await fetch_tiktok_source_metadata(url)
-    target_url = metadata.source_url
-    caption = metadata.caption
-    image_url = metadata.image_url
-    author_handle = metadata.author_handle
-    final_url = metadata.final_url
-
-    title = _caption_title(caption, author_handle)
-
-    parsed: Optional[ParsedCaption] = None
-    gemini_error: Optional[HTTPException] = None
-    try:
-        parsed = await parse_caption_with_gemini(
-            title=title,
-            caption=caption,
-            source_url=target_url,
-        )
-    except HTTPException as error:
-        gemini_error = error
-
-    if parsed is not None and parsed.is_complete:
-        recipe = normalize_recipe(parsed.raw_recipe)
-        if recipe is not None:
-            return ExtractionResult(
-                source_url=target_url,
-                final_url=final_url,
-                title=title,
-                image_url=image_url,
-                recipe_node_count=1,
-                recipes=[recipe],
-                tiktok_thumbnail_url=image_url,
-                parse_status=ParseStatus.RECIPE,
-            )
-
-    if _mentions_recipe_link(caption):
-        fallback = await _extract_first_recipe_link(
-            caption,
-            source_url=target_url,
-            fallback_title=title,
-            fallback_image=image_url,
-        )
-        if fallback is not None:
-            return fallback
-
-    if gemini_error is not None:
-        raise gemini_error
-
-    parse_reason = parsed.parse_reason if parsed is not None else None
-    return ExtractionResult(
-        source_url=target_url,
-        final_url=final_url,
-        title=title,
-        image_url=image_url,
-        recipe_node_count=0,
-        recipes=[],
-        parse_status=ParseStatus.NOT_RECIPE,
-        parse_reason=parse_reason or "No recipe was found in the TikTok caption.",
+    return await extract_recipe_from_caption(
+        CaptionPost(
+            source_url=metadata.source_url,
+            final_url=metadata.final_url,
+            title=_caption_title(metadata.caption, metadata.author_handle),
+            caption=metadata.caption,
+            image_url=metadata.image_url,
+        ),
+        not_recipe_reason="No recipe was found in the TikTok caption.",
+        mirror_provider_thumbnail=True,
     )

@@ -31,6 +31,17 @@ class Settings:
     gemini_model: str = "gemini-3.1-flash-lite"
     gemini_timeout_seconds: float = 30.0
     gemini_rate_limit_per_minute: int = 3
+    instagram_apify_token: Optional[str] = None
+    instagram_reel_actor_id: str = "xMc5Ga1oCONPmWJIa"
+    instagram_profile_actor_id: str = "dSCLg0C3YEZ83HzYX"
+    instagram_reel_actor_build: str = "0.0.542"
+    instagram_profile_actor_build: str = "0.0.580"
+    instagram_reel_max_charge_usd: Optional[float] = 0.0073
+    instagram_profile_max_charge_usd: Optional[float] = 0.0026
+    instagram_monthly_usage_stop_usd: float = 4.5
+    instagram_reel_actor_timeout_seconds: float = 120.0
+    instagram_profile_actor_timeout_seconds: float = 120.0
+    instagram_request_deadline_seconds: float = 45.0
 
 
 def normalize_cors_origins(value: str) -> tuple[str, ...]:
@@ -84,4 +95,35 @@ def get_settings() -> Settings:
         gemini_model=os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite",
         gemini_timeout_seconds=float(os.getenv("GEMINI_TIMEOUT_SECONDS") or "30.0"),
         gemini_rate_limit_per_minute=int(os.getenv("GEMINI_RATE_LIMIT_PER_MINUTE") or "3"),
+        instagram_apify_token=os.getenv("INSTAGRAM_APIFY_TOKEN") or None,
+        instagram_reel_actor_id=(
+            os.getenv("INSTAGRAM_REEL_ACTOR_ID") or "xMc5Ga1oCONPmWJIa"
+        ),
+        instagram_profile_actor_id=(
+            os.getenv("INSTAGRAM_PROFILE_ACTOR_ID") or "dSCLg0C3YEZ83HzYX"
+        ),
+        instagram_reel_actor_build=(
+            os.getenv("INSTAGRAM_REEL_ACTOR_BUILD") or "0.0.542"
+        ),
+        instagram_profile_actor_build=(
+            os.getenv("INSTAGRAM_PROFILE_ACTOR_BUILD") or "0.0.580"
+        ),
+        instagram_reel_max_charge_usd=float(
+            os.getenv("INSTAGRAM_REEL_MAX_CHARGE_USD") or "0.0073"
+        ),
+        instagram_profile_max_charge_usd=float(
+            os.getenv("INSTAGRAM_PROFILE_MAX_CHARGE_USD") or "0.0026"
+        ),
+        instagram_monthly_usage_stop_usd=float(
+            os.getenv("INSTAGRAM_MONTHLY_USAGE_STOP_USD") or "4.5"
+        ),
+        instagram_reel_actor_timeout_seconds=float(
+            os.getenv("INSTAGRAM_REEL_ACTOR_TIMEOUT_SECONDS") or "120"
+        ),
+        instagram_profile_actor_timeout_seconds=float(
+            os.getenv("INSTAGRAM_PROFILE_ACTOR_TIMEOUT_SECONDS") or "120"
+        ),
+        instagram_request_deadline_seconds=float(
+            os.getenv("INSTAGRAM_REQUEST_DEADLINE_SECONDS") or "45"
+        ),
     )

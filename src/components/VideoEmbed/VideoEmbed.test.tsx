@@ -7,6 +7,7 @@ import { VideoEmbed } from "./VideoEmbed";
 
 const YOUTUBE_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 const TIKTOK_URL = "https://www.tiktok.com/@chef/video/7301234567890123456";
+const INSTAGRAM_URL = "https://www.instagram.com/reel/DZuzc9PNedT/";
 
 function embedFor(url: string) {
   const embed = resolveVideoEmbed(url);
@@ -126,6 +127,17 @@ describe("VideoEmbed", () => {
       expect(document.querySelector(".videoEmbed__stage--portrait")).toBeInTheDocument();
     });
 
+    it("loads a portrait instagram reel player", () => {
+      renderEmbed({ embed: embedFor(INSTAGRAM_URL), watchUrl: INSTAGRAM_URL });
+      fireEvent.click(screen.getByRole("button", { name: "Play video: Miso Cookies" }));
+
+      expect(document.querySelector("iframe")).toHaveAttribute(
+        "src",
+        "https://www.instagram.com/reel/DZuzc9PNedT/embed/",
+      );
+      expect(document.querySelector(".videoEmbed__stage--portrait")).toBeInTheDocument();
+    });
+
     it("degrades to the thumbnail and link when youtube refuses to embed", async () => {
       renderEmbed();
       fireEvent.click(screen.getByRole("button", { name: "Play video: Miso Cookies" }));
@@ -140,6 +152,84 @@ describe("VideoEmbed", () => {
       expect(document.querySelector(".videoEmbed__thumbnail")).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "View original" })).toBeInTheDocument();
       expect(destroyPlayer).toHaveBeenCalled();
+    });
+  });
+
+  describe("generic social iframe load timeout", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("shows the fallback and a Retry playback control after 12 seconds without a load event", () => {
+      renderEmbed({ embed: embedFor(INSTAGRAM_URL), watchUrl: INSTAGRAM_URL });
+      fireEvent.click(screen.getByRole("button", { name: "Play video: Miso Cookies" }));
+
+      expect(document.querySelector("iframe")).not.toBeNull();
+
+      act(() => {
+        vi.advanceTimersByTime(12000);
+      });
+
+      expect(document.querySelector("iframe")).toBeNull();
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "This video can’t be played here. Watch it on Instagram instead.",
+      );
+      expect(
+        screen.getByRole("button", { name: "Retry playback" }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "View original" })).toBeInTheDocument();
+    });
+
+    it("cancels the timeout once the iframe reports it loaded", () => {
+      renderEmbed({ embed: embedFor(TIKTOK_URL), watchUrl: TIKTOK_URL });
+      fireEvent.click(screen.getByRole("button", { name: "Play video: Miso Cookies" }));
+
+      const frame = document.querySelector("iframe");
+      expect(frame).not.toBeNull();
+      fireEvent.load(frame as HTMLIFrameElement);
+
+      act(() => {
+        vi.advanceTimersByTime(12000);
+      });
+
+      expect(document.querySelector("iframe")).not.toBeNull();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    });
+
+    it("remounts a fresh iframe when Retry playback is clicked", () => {
+      renderEmbed({ embed: embedFor(INSTAGRAM_URL), watchUrl: INSTAGRAM_URL });
+      fireEvent.click(screen.getByRole("button", { name: "Play video: Miso Cookies" }));
+      act(() => {
+        vi.advanceTimersByTime(12000);
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Retry playback" }));
+
+      expect(document.querySelector("iframe")).toHaveAttribute(
+        "src",
+        "https://www.instagram.com/reel/DZuzc9PNedT/embed/",
+      );
+      expect(
+        screen.queryByRole("button", { name: "Retry playback" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("does not offer Retry playback for the youtube unavailable state", async () => {
+      vi.useRealTimers();
+      stubYouTubeApi();
+      renderEmbed();
+      fireEvent.click(screen.getByRole("button", { name: "Play video: Miso Cookies" }));
+
+      await waitFor(() => expect(capturedOnError).not.toBeNull());
+      act(() => capturedOnError?.());
+
+      expect(
+        screen.queryByRole("button", { name: "Retry playback" }),
+      ).not.toBeInTheDocument();
     });
   });
 });

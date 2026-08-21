@@ -13,12 +13,13 @@ from ..repositories.recipe_imports import (
 )
 from ..schemas.extract import RecipeImportRecord
 from .extractor import ExtractionResult, extract_recipes_from_url
+from .instagram.urls import is_instagram_url
 from .tiktok.extractor import is_tiktok_url
 from .youtube.extractor import is_youtube_url
 
 
 def _is_video_host_url(value: str) -> bool:
-    return is_youtube_url(value) or is_tiktok_url(value)
+    return is_youtube_url(value) or is_tiktok_url(value) or is_instagram_url(value)
 
 
 @dataclass(frozen=True)

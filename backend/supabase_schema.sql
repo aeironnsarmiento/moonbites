@@ -65,6 +65,12 @@ alter table public.recipe_imports
 alter table public.recipe_imports
   add column if not exists fallback_video_url text;
 
+-- Provenance-only: the public recipe page a caption link or Creator-site
+-- Lookup resolved the saved recipe from (e.g. Instagram Reel imports).
+-- Deliberately not unique -- distinct Reels may share the same linked page.
+alter table public.recipe_imports
+  add column if not exists linked_recipe_url text;
+
 create index if not exists recipe_imports_is_favorite_idx
   on public.recipe_imports (is_favorite) where is_favorite = true;
 
@@ -226,6 +232,74 @@ begin
     else
       alter table public.recipe_imports
         add constraint recipe_imports_final_url_key unique (final_url);
+    end if;
+  end if;
+end$$;
+
+-- Recipe Source Identity: the canonicalized form of submitted_url/final_url
+-- (tracking params stripped, trailing slash and default port normalized),
+-- computed by app/services/recipe_identity.py::source_identity and written
+-- on every insert/update. This is the sole implementation -- there is no SQL
+-- equivalent, so a fresh environment starts with these columns empty until
+-- the app backfills them; an environment migrating from raw-URL uniqueness
+-- must run a one-time Python backfill (source_identity over every existing
+-- row) before this constraint can attach, exactly as was done live.
+--
+-- Superset of the raw submitted_url/final_url uniqueness above: this is what
+-- the write path actually checks against, since the raw check alone let
+-- tracking-param variants of the same page insert as duplicates.
+alter table public.recipe_imports
+  add column if not exists submitted_url_canonical text;
+
+alter table public.recipe_imports
+  add column if not exists final_url_canonical text;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'recipe_imports_submitted_url_canonical_key'
+  ) then
+    if exists (
+      select 1
+      from (
+        select submitted_url_canonical
+        from public.recipe_imports
+        where submitted_url_canonical is not null
+        group by submitted_url_canonical
+        having count(*) > 1
+      ) duplicates
+    ) then
+      raise notice
+        'Skipping recipe_imports_submitted_url_canonical_key; duplicate submitted_url_canonical values exist. Backfill via source_identity() and resolve duplicates before rerunning this schema.';
+    else
+      alter table public.recipe_imports
+        add constraint recipe_imports_submitted_url_canonical_key unique (submitted_url_canonical);
+    end if;
+  end if;
+end$$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'recipe_imports_final_url_canonical_key'
+  ) then
+    if exists (
+      select 1
+      from (
+        select final_url_canonical
+        from public.recipe_imports
+        where final_url_canonical is not null
+        group by final_url_canonical
+        having count(*) > 1
+      ) duplicates
+    ) then
+      raise notice
+        'Skipping recipe_imports_final_url_canonical_key; duplicate final_url_canonical values exist. Backfill via source_identity() and resolve duplicates before rerunning this schema.';
+    else
+      alter table public.recipe_imports
+        add constraint recipe_imports_final_url_canonical_key unique (final_url_canonical);
     end if;
   end if;
 end$$;
@@ -457,6 +531,7 @@ create function public.search_recipe_imports(
   is_favorite boolean,
   servings integer,
   fallback_video_url text,
+  linked_recipe_url text,
   created_at timestamptz,
   total_count bigint
 )
@@ -483,6 +558,7 @@ as $$
       r.is_favorite,
       r.servings,
       r.fallback_video_url,
+      r.linked_recipe_url,
       r.created_at,
       case
         when lower(coalesce(r.recipes_json->0->>'name', '')) = p.exact_term
@@ -553,6 +629,7 @@ as $$
     m.is_favorite,
     m.servings,
     m.fallback_video_url,
+    m.linked_recipe_url,
     m.created_at,
     count(*) over () as total_count
   from matched m
@@ -569,3 +646,379 @@ as $$
 $$;
 
 grant execute on function public.search_recipe_imports(text, text, boolean, text, integer, integer) to anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Instagram Reel import jobs: private, server-only durable job state and a
+-- singleton provider-admission record serializing Apify Actor runs. Neither
+-- table is exposed to browser roles; only the service-role server accesses
+-- them. No raw captions, provider payloads, profile links, owner handles,
+-- CDN thumbnail URLs, or tokens are ever stored here.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.instagram_import_jobs (
+  id uuid primary key default gen_random_uuid(),
+  owner_email text not null check (owner_email = lower(owner_email)),
+  canonical_reel_url text not null,
+  state text not null,
+  version integer not null default 0,
+  lease_token uuid,
+  lease_expires_at timestamptz,
+  next_advance_at timestamptz not null default timezone('utc', now()),
+  stale_deadline timestamptz not null,
+  reel_run_id text,
+  reel_dataset_id text,
+  profile_run_id text,
+  profile_dataset_id text,
+  candidate_name text,
+  normalized_result_json jsonb,
+  linked_recipe_url text,
+  recipe_id uuid references public.recipe_imports (id),
+  error_code text,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+create unique index if not exists instagram_import_jobs_active_owner_reel_idx
+  on public.instagram_import_jobs (owner_email, canonical_reel_url)
+  where state not in ('succeeded', 'not_recipe', 'failed');
+
+create index if not exists instagram_import_jobs_stale_deadline_idx
+  on public.instagram_import_jobs (stale_deadline)
+  where state not in ('succeeded', 'not_recipe', 'failed');
+
+create index if not exists instagram_import_jobs_updated_at_idx
+  on public.instagram_import_jobs (updated_at)
+  where state in ('succeeded', 'not_recipe', 'failed');
+
+alter table public.instagram_import_jobs enable row level security;
+
+revoke all on table public.instagram_import_jobs from anon, authenticated, public;
+
+create table if not exists public.instagram_provider_admission (
+  id boolean primary key default true,
+  active_job_id uuid references public.instagram_import_jobs (id),
+  active_run_kind text,
+  reserved_charge_usd numeric,
+  reserved_at timestamptz,
+  released_at timestamptz,
+  constraint instagram_provider_admission_singleton check (id)
+);
+
+insert into public.instagram_provider_admission (id)
+values (true)
+on conflict (id) do nothing;
+
+alter table public.instagram_provider_admission enable row level security;
+
+revoke all on table public.instagram_provider_admission from anon, authenticated, public;
+
+create or replace function public.create_or_reuse_instagram_import_job(
+  p_owner_email text,
+  p_canonical_reel_url text,
+  p_stale_window_seconds integer,
+  p_max_per_owner integer,
+  p_max_global integer
+) returns table (
+  id uuid,
+  owner_email text,
+  canonical_reel_url text,
+  state text,
+  version integer,
+  lease_token uuid,
+  lease_expires_at timestamptz,
+  next_advance_at timestamptz,
+  stale_deadline timestamptz,
+  reel_run_id text,
+  reel_dataset_id text,
+  profile_run_id text,
+  profile_dataset_id text,
+  candidate_name text,
+  normalized_result_json jsonb,
+  linked_recipe_url text,
+  recipe_id uuid,
+  error_code text,
+  created_at timestamptz,
+  updated_at timestamptz,
+  outcome text
+)
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  v_job public.instagram_import_jobs;
+  v_owner_count integer;
+  v_global_count integer;
+begin
+  select * into v_job from public.instagram_import_jobs j
+    where j.owner_email = p_owner_email
+      and j.canonical_reel_url = p_canonical_reel_url
+      and j.state not in ('succeeded', 'not_recipe', 'failed')
+    limit 1;
+
+  if found then
+    return query select v_job.*, 'reused'::text;
+    return;
+  end if;
+
+  select count(*) into v_owner_count from public.instagram_import_jobs j
+    where j.owner_email = p_owner_email
+      and j.state not in ('succeeded', 'not_recipe', 'failed');
+  if v_owner_count >= p_max_per_owner then
+    raise exception 'owner_active_job_ceiling';
+  end if;
+
+  select count(*) into v_global_count from public.instagram_import_jobs j
+    where j.state not in ('succeeded', 'not_recipe', 'failed');
+  if v_global_count >= p_max_global then
+    raise exception 'global_active_job_ceiling';
+  end if;
+
+  begin
+    insert into public.instagram_import_jobs (
+      owner_email, canonical_reel_url, state, stale_deadline, next_advance_at
+    ) values (
+      p_owner_email,
+      p_canonical_reel_url,
+      'queued',
+      timezone('utc', now()) + make_interval(secs => p_stale_window_seconds),
+      timezone('utc', now())
+    )
+    returning * into v_job;
+  exception when unique_violation then
+    select * into v_job from public.instagram_import_jobs j
+      where j.owner_email = p_owner_email
+        and j.canonical_reel_url = p_canonical_reel_url
+        and j.state not in ('succeeded', 'not_recipe', 'failed')
+      limit 1;
+    return query select v_job.*, 'reused'::text;
+    return;
+  end;
+
+  return query select v_job.*, 'created'::text;
+end;
+$$;
+
+revoke execute on function public.create_or_reuse_instagram_import_job(text, text, integer, integer, integer)
+  from anon, authenticated, public;
+
+create or replace function public.claim_instagram_import_job_lease(
+  p_id uuid,
+  p_owner_email text,
+  p_expected_version integer,
+  p_lease_seconds integer
+) returns setof public.instagram_import_jobs
+language sql
+security invoker
+set search_path = public
+as $$
+  update public.instagram_import_jobs as j
+     set lease_token = gen_random_uuid(),
+         lease_expires_at = timezone('utc', now()) + make_interval(secs => p_lease_seconds),
+         version = j.version + 1,
+         updated_at = timezone('utc', now())
+   where j.id = p_id
+     and j.owner_email = p_owner_email
+     and j.version = p_expected_version
+     and j.state not in ('succeeded', 'not_recipe', 'failed')
+     and (j.lease_expires_at is null or j.lease_expires_at <= timezone('utc', now()))
+  returning j.*;
+$$;
+
+revoke execute on function public.claim_instagram_import_job_lease(uuid, text, integer, integer)
+  from anon, authenticated, public;
+
+create or replace function public.checkpoint_instagram_import_job(
+  p_id uuid,
+  p_lease_token uuid,
+  p_expected_version integer,
+  p_state text,
+  p_reel_run_id text default null,
+  p_reel_dataset_id text default null,
+  p_profile_run_id text default null,
+  p_profile_dataset_id text default null,
+  p_candidate_name text default null,
+  p_normalized_result_json jsonb default null,
+  p_linked_recipe_url text default null,
+  p_recipe_id uuid default null,
+  p_error_code text default null,
+  p_next_advance_seconds integer default 0,
+  p_stale_window_seconds integer default null,
+  p_release_lease boolean default false
+) returns setof public.instagram_import_jobs
+language sql
+security invoker
+set search_path = public
+as $$
+  update public.instagram_import_jobs as j
+     set state = p_state,
+         reel_run_id = coalesce(p_reel_run_id, j.reel_run_id),
+         reel_dataset_id = coalesce(p_reel_dataset_id, j.reel_dataset_id),
+         profile_run_id = coalesce(p_profile_run_id, j.profile_run_id),
+         profile_dataset_id = coalesce(p_profile_dataset_id, j.profile_dataset_id),
+         candidate_name = coalesce(p_candidate_name, j.candidate_name),
+         normalized_result_json = coalesce(p_normalized_result_json, j.normalized_result_json),
+         linked_recipe_url = coalesce(p_linked_recipe_url, j.linked_recipe_url),
+         recipe_id = coalesce(p_recipe_id, j.recipe_id),
+         error_code = coalesce(p_error_code, j.error_code),
+         version = j.version + 1,
+         next_advance_at = timezone('utc', now()) + make_interval(secs => p_next_advance_seconds),
+         stale_deadline = case
+           when p_stale_window_seconds is null then j.stale_deadline
+           else timezone('utc', now()) + make_interval(secs => p_stale_window_seconds)
+         end,
+         lease_token = case when p_release_lease then null else j.lease_token end,
+         lease_expires_at = case when p_release_lease then null else j.lease_expires_at end,
+         updated_at = timezone('utc', now())
+   where j.id = p_id
+     and j.lease_token = p_lease_token
+     and j.version = p_expected_version
+  returning j.*;
+$$;
+
+revoke execute on function public.checkpoint_instagram_import_job(
+  uuid, uuid, integer, text, text, text, text, text, text, jsonb, text, uuid, text,
+  integer, integer, boolean
+) from anon, authenticated, public;
+
+create or replace function public.reserve_instagram_provider_admission(
+  p_job_id uuid,
+  p_run_kind text,
+  p_max_charge_usd numeric
+) returns setof public.instagram_provider_admission
+language sql
+security invoker
+set search_path = public
+as $$
+  update public.instagram_provider_admission as a
+     set active_job_id = p_job_id,
+         active_run_kind = p_run_kind,
+         reserved_charge_usd = p_max_charge_usd,
+         reserved_at = timezone('utc', now()),
+         released_at = null
+   where a.id = true
+     and (a.active_job_id is null or a.active_job_id = p_job_id)
+  returning a.*;
+$$;
+
+revoke execute on function public.reserve_instagram_provider_admission(uuid, text, numeric)
+  from anon, authenticated, public;
+
+create or replace function public.release_instagram_provider_admission(
+  p_job_id uuid
+) returns setof public.instagram_provider_admission
+language sql
+security invoker
+set search_path = public
+as $$
+  update public.instagram_provider_admission as a
+     set active_job_id = null,
+         active_run_kind = null,
+         reserved_charge_usd = null,
+         released_at = timezone('utc', now())
+   where a.id = true
+     and a.active_job_id = p_job_id
+  returning a.*;
+$$;
+
+revoke execute on function public.release_instagram_provider_admission(uuid)
+  from anon, authenticated, public;
+
+create or replace function public.reconcile_instagram_provider_admission(
+  p_dry_run boolean
+) returns setof public.instagram_provider_admission
+language plpgsql
+security invoker
+set search_path = public
+as $$
+begin
+  if p_dry_run then
+    return query
+      select a.* from public.instagram_provider_admission a
+      left join public.instagram_import_jobs j on j.id = a.active_job_id
+      where a.active_job_id is not null
+        and (j.id is null or j.state in ('succeeded', 'not_recipe', 'failed'));
+    return;
+  end if;
+
+  return query
+    update public.instagram_provider_admission a
+       set active_job_id = null,
+           active_run_kind = null,
+           reserved_charge_usd = null,
+           released_at = timezone('utc', now())
+      from (
+        select a2.id from public.instagram_provider_admission a2
+        left join public.instagram_import_jobs j on j.id = a2.active_job_id
+        where a2.active_job_id is not null
+          and (j.id is null or j.state in ('succeeded', 'not_recipe', 'failed'))
+      ) as stale
+     where a.id = stale.id
+    returning a.*;
+end;
+$$;
+
+revoke execute on function public.reconcile_instagram_provider_admission(boolean)
+  from anon, authenticated, public;
+
+create or replace function public.terminalize_stale_instagram_import_jobs(
+  p_error_code text,
+  p_dry_run boolean
+) returns setof public.instagram_import_jobs
+language plpgsql
+security invoker
+set search_path = public
+as $$
+begin
+  if p_dry_run then
+    return query
+      select * from public.instagram_import_jobs
+       where state not in ('succeeded', 'not_recipe', 'failed')
+         and stale_deadline < timezone('utc', now());
+    return;
+  end if;
+
+  return query
+    update public.instagram_import_jobs
+       set state = 'failed',
+           error_code = p_error_code,
+           lease_token = null,
+           lease_expires_at = null,
+           version = version + 1,
+           updated_at = timezone('utc', now())
+     where state not in ('succeeded', 'not_recipe', 'failed')
+       and stale_deadline < timezone('utc', now())
+    returning *;
+end;
+$$;
+
+revoke execute on function public.terminalize_stale_instagram_import_jobs(text, boolean)
+  from anon, authenticated, public;
+
+create or replace function public.delete_expired_instagram_import_jobs(
+  p_retention_seconds integer,
+  p_dry_run boolean
+) returns setof public.instagram_import_jobs
+language plpgsql
+security invoker
+set search_path = public
+as $$
+begin
+  if p_dry_run then
+    return query
+      select * from public.instagram_import_jobs
+       where state in ('succeeded', 'not_recipe', 'failed')
+         and updated_at < timezone('utc', now()) - make_interval(secs => p_retention_seconds);
+    return;
+  end if;
+
+  return query
+    delete from public.instagram_import_jobs
+     where state in ('succeeded', 'not_recipe', 'failed')
+       and updated_at < timezone('utc', now()) - make_interval(secs => p_retention_seconds)
+    returning *;
+end;
+$$;
+
+revoke execute on function public.delete_expired_instagram_import_jobs(integer, boolean)
+  from anon, authenticated, public;

@@ -192,6 +192,52 @@ def test_build_metadata_update_payload_keeps_final_url_when_source_unchanged():
     assert payload["submitted_url"] == "https://vm.tiktok.com/ZM123"
 
 
+def test_build_metadata_update_payload_preserves_equivalent_instagram_reel_forms():
+    record = _record().model_copy(
+        update={
+            "submitted_url": "https://www.instagram.com/reel/DZuzc9PNedT/",
+            "final_url": "https://www.instagram.com/reel/DZuzc9PNedT/",
+            "linked_recipe_url": "https://tasty.co/recipe/miso-salmon-rice",
+        }
+    )
+
+    payload = _build_metadata_update_payload(
+        record,
+        UpdateRecipeMetadataRequest(
+            title="Party Rice",
+            recipe_yield="2 servings",
+            image_url=None,
+            source_url="https://instagram.com/reel/DZuzc9PNedT?igsh=abc",
+        ),
+    )
+
+    assert "final_url" not in payload
+    assert "linked_recipe_url" not in payload
+
+
+def test_build_metadata_update_payload_clears_linked_recipe_url_on_true_identity_change():
+    record = _record().model_copy(
+        update={
+            "submitted_url": "https://www.instagram.com/reel/DZuzc9PNedT/",
+            "final_url": "https://www.instagram.com/reel/DZuzc9PNedT/",
+            "linked_recipe_url": "https://tasty.co/recipe/miso-salmon-rice",
+        }
+    )
+
+    payload = _build_metadata_update_payload(
+        record,
+        UpdateRecipeMetadataRequest(
+            title="Party Rice",
+            recipe_yield="2 servings",
+            image_url=None,
+            source_url="https://www.instagram.com/reel/Daa0ZKGOuZb/",
+        ),
+    )
+
+    assert payload["final_url"] == "https://www.instagram.com/reel/Daa0ZKGOuZb/"
+    assert payload["linked_recipe_url"] is None
+
+
 def test_build_metadata_update_payload_carries_fallback_video_url():
     payload = _build_metadata_update_payload(
         _record(),

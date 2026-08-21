@@ -88,6 +88,10 @@ export function RecipeCreatePage() {
     error: extractError,
     isLoading: isExtracting,
     status: extractStatus,
+    isPending: isExtractPending,
+    isInterrupted: isExtractInterrupted,
+    isResuming: isExtractResuming,
+    resume: resumeExtract,
     submitRecipe,
   } = useExtractRecipe();
   const [form, setForm] = useState<RecipeFormState>(EMPTY_FORM);
@@ -149,11 +153,20 @@ export function RecipeCreatePage() {
         <Heading size="md">Paste a URL to import.</Heading>
         <UrlPasteForm
           url={url}
-          isLoading={isExtracting}
+          isLoading={isExtracting || isExtractPending}
           onUrlChange={setUrl}
           onSubmit={handleUrlSubmit}
         />
-        <StatusBanner error={extractError} status={extractStatus} />
+        <StatusBanner
+          error={extractError}
+          status={extractStatus}
+          isPending={isExtractPending}
+          action={
+            isExtractInterrupted
+              ? { label: "Resume", onClick: resumeExtract, isLoading: isExtractResuming }
+              : undefined
+          }
+        />
       </Stack>
 
       <HStack spacing={4}>

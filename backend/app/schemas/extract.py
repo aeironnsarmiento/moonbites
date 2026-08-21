@@ -163,6 +163,7 @@ class ExtractResponse(BaseModel):
     database_message: Optional[str] = None
     parse_status: str = "recipe"
     parse_reason: Optional[str] = None
+    linked_recipe_url: Optional[str] = None
 
 
 class RecipeImportRecord(BaseModel):
@@ -177,6 +178,7 @@ class RecipeImportRecord(BaseModel):
     is_favorite: bool = False
     servings: Optional[int] = None
     fallback_video_url: Optional[str] = None
+    linked_recipe_url: Optional[str] = None
     created_at: datetime
 
 

@@ -1,4 +1,4 @@
-export type VideoPlatform = "youtube" | "tiktok";
+export type VideoPlatform = "youtube" | "tiktok" | "instagram";
 
 export type VideoOrientation = "landscape" | "portrait";
 
@@ -31,9 +31,16 @@ const TIKTOK_HOSTS = new Set([
   "vm.tiktok.com",
   "vt.tiktok.com",
 ]);
+// Mirrors backend/app/services/instagram/urls.py's INSTAGRAM_HOSTS.
+const INSTAGRAM_HOSTS = new Set([
+  "instagram.com",
+  "www.instagram.com",
+  "m.instagram.com",
+]);
 
 const YOUTUBE_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 const TIKTOK_ID_PATTERN = /^\d+$/;
+const INSTAGRAM_SHORTCODE_PATTERN = /^[A-Za-z0-9_-]+$/;
 const YOUTUBE_PATH_PREFIXES = ["shorts", "embed", "live"];
 
 function parseHttpUrl(value: string | null | undefined): URL | null {
@@ -112,6 +119,26 @@ function buildTikTokEmbedUrl(videoId: string): string {
   return `https://www.tiktok.com/embed/v2/${encodeURIComponent(videoId)}?autoplay=1`;
 }
 
+function extractInstagramShortcode(url: URL): string | null {
+  if (!INSTAGRAM_HOSTS.has(url.hostname.toLowerCase())) {
+    return null;
+  }
+
+  // Only the canonical /reel/<shortcode> form is playable here; /p/,
+  // /stories/, profile pages, and extra path segments are all rejected,
+  // mirroring backend/app/services/instagram/urls.py's strict parser.
+  const segments = pathSegments(url);
+  if (segments.length !== 2 || segments[0].toLowerCase() !== "reel") {
+    return null;
+  }
+
+  return segments[1];
+}
+
+function buildInstagramEmbedUrl(shortcode: string): string {
+  return `https://www.instagram.com/reel/${encodeURIComponent(shortcode)}/embed/`;
+}
+
 export function resolveVideoEmbed(value: string | null | undefined): VideoEmbedSource | null {
   const url = parseHttpUrl(value);
   if (!url) {
@@ -134,6 +161,16 @@ export function resolveVideoEmbed(value: string | null | undefined): VideoEmbedS
       platform: "tiktok",
       videoId: tiktokVideoId,
       embedUrl: buildTikTokEmbedUrl(tiktokVideoId),
+      orientation: "portrait",
+    };
+  }
+
+  const instagramShortcode = extractInstagramShortcode(url);
+  if (instagramShortcode && INSTAGRAM_SHORTCODE_PATTERN.test(instagramShortcode)) {
+    return {
+      platform: "instagram",
+      videoId: instagramShortcode,
+      embedUrl: buildInstagramEmbedUrl(instagramShortcode),
       orientation: "portrait",
     };
   }

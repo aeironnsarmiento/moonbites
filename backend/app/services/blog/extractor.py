@@ -11,11 +11,9 @@ from ...utils.text import clean_text, unique_strings
 from ..extraction_types import ExtractionResult
 from ..http_utils import build_request_headers, get_with_403_retry
 from ..image_extraction import extract_image_url
-from ..normalizer import (
-    collect_recipe_nodes,
-    dedupe_normalized_recipes,
-    normalize_recipe,
-)
+from ..normalizer import collect_recipe_nodes, normalize_recipe
+from ..public_web import HTML_POLICY, Resolver, safe_fetch, upgrade_to_https
+from ..recipe_identity import dedupe_by_content
 
 
 INGREDIENT_HEADING_KEYWORDS = {"ingredient", "ingredients"}
@@ -381,6 +379,44 @@ def extract_html_instruction_lines(html: str) -> list[str]:
 
 
 
+def parse_recipes_from_html(
+    html: str, *, source_url: str, final_url: str
+) -> ExtractionResult:
+    title, blocks = extract_json_ld_blocks(html)
+    html_ingredient_sections = extract_html_ingredient_sections(html)
+    html_instruction_lines = extract_html_instruction_lines(html)
+    recipes: list[NormalizedRecipe] = []
+    recipe_nodes: list[dict] = []
+
+    for block in blocks:
+        if block.parsed is not None:
+            recipe_nodes.extend(collect_recipe_nodes(block.parsed))
+
+    fallback_sections = html_ingredient_sections if len(recipe_nodes) == 1 else None
+    fallback_instructions = html_instruction_lines if len(recipe_nodes) == 1 else None
+    image_url = extract_image_url(html, recipe_nodes)
+
+    for recipe in recipe_nodes:
+        normalized = normalize_recipe(
+            recipe,
+            fallback_ingredient_sections=fallback_sections,
+            fallback_instructions=fallback_instructions,
+        )
+        if normalized is not None:
+            recipes.append(normalized)
+
+    recipes = dedupe_by_content(recipes)
+
+    return ExtractionResult(
+        source_url=source_url,
+        final_url=final_url,
+        title=title,
+        image_url=image_url,
+        recipe_node_count=len(recipe_nodes),
+        recipes=recipes,
+    )
+
+
 async def extract_recipes_from_url(url: str) -> ExtractionResult:
     settings = get_settings()
     target_url = normalize_url(url)
@@ -409,36 +445,36 @@ async def extract_recipes_from_url(url: str) -> ExtractionResult:
             detail="Unable to fetch the target URL",
         ) from error
 
-    title, blocks = extract_json_ld_blocks(response.text)
-    html_ingredient_sections = extract_html_ingredient_sections(response.text)
-    html_instruction_lines = extract_html_instruction_lines(response.text)
-    recipes: list[NormalizedRecipe] = []
-    recipe_nodes: list[dict] = []
+    return parse_recipes_from_html(
+        response.text, source_url=target_url, final_url=str(response.url)
+    )
 
-    for block in blocks:
-        if block.parsed is not None:
-            recipe_nodes.extend(collect_recipe_nodes(block.parsed))
 
-    fallback_sections = html_ingredient_sections if len(recipe_nodes) == 1 else None
-    fallback_instructions = html_instruction_lines if len(recipe_nodes) == 1 else None
-    image_url = extract_image_url(response.text, recipe_nodes)
+async def extract_blog_recipes_from_safe_url(
+    url: str,
+    *,
+    transport: Optional[httpx.AsyncBaseTransport] = None,
+    resolver: Optional[Resolver] = None,
+) -> ExtractionResult:
+    """Fetch and parse a URL found in provider-returned content (a TikTok
+    caption, a YouTube description) rather than pasted directly by an admin.
 
-    for recipe in recipe_nodes:
-        normalized = normalize_recipe(
-            recipe,
-            fallback_ingredient_sections=fallback_sections,
-            fallback_instructions=fallback_instructions,
-        )
-        if normalized is not None:
-            recipes.append(normalized)
+    Unlike extract_recipes_from_url (the admin-paste path, which keeps its
+    existing fetch behavior on purpose), this always goes through safe_fetch:
+    such a link is text an untrusted third party wrote, not input an admin
+    chose to trust.
+    """
+    target_url = upgrade_to_https(url) or url
 
-    recipes = dedupe_normalized_recipes(recipes)
+    kwargs: dict = {"deadline_seconds": 15.0}
+    if transport is not None:
+        kwargs["transport"] = transport
+    if resolver is not None:
+        kwargs["resolver"] = resolver
 
-    return ExtractionResult(
-        source_url=target_url,
-        final_url=str(response.url),
-        title=title,
-        image_url=image_url,
-        recipe_node_count=len(recipe_nodes),
-        recipes=recipes,
+    result = await safe_fetch(target_url, HTML_POLICY, **kwargs)
+    html = result.body.decode("utf-8", errors="replace")
+
+    return parse_recipes_from_html(
+        html, source_url=target_url, final_url=result.final_url
     )

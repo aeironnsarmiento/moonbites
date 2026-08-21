@@ -9,7 +9,13 @@ import "./VideoEmbed.scss";
 const PLATFORM_LABELS: Record<VideoPlatform, string> = {
   youtube: "YouTube",
   tiktok: "TikTok",
+  instagram: "Instagram",
 };
+
+// Meta and TikTok do not treat their direct iframe embeds as a versioned
+// API contract, so a generic no-API-error social iframe gets a load timeout
+// instead of relying on a player callback the way YouTube's does.
+const SOCIAL_LOAD_TIMEOUT_MS = 12000;
 
 type VideoEmbedProps = {
   embed: VideoEmbedSource;
@@ -74,13 +80,27 @@ function YouTubeFrame({
   );
 }
 
-function TikTokFrame({ embed, title }: { embed: VideoEmbedSource; title: string }) {
+function SocialFrame({
+  embed,
+  title,
+  retryToken,
+  onLoad,
+}: {
+  embed: VideoEmbedSource;
+  title: string;
+  retryToken: number;
+  onLoad: () => void;
+}) {
   return (
     <div className="videoEmbed__player">
       <iframe
+        // Remounts the iframe on retry rather than relying on a src change
+        // alone, since a stuck embed may not react to that.
+        key={retryToken}
         className="videoEmbed__frame"
         src={embed.embedUrl}
         title={title}
+        onLoad={onLoad}
         allow="autoplay; encrypted-media; picture-in-picture"
         allowFullScreen
       />
@@ -113,9 +133,42 @@ export function VideoEmbed({
   overlay,
 }: VideoEmbedProps) {
   const [status, setStatus] = useState<PlaybackStatus>("facade");
-  // Stable so mounting the player does not re-run on every parent render.
-  const handleUnavailable = useCallback(() => setStatus("unavailable"), []);
+  const [retryToken, setRetryToken] = useState(0);
+  const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isGenericSocial = embed.platform !== "youtube";
   const platformLabel = PLATFORM_LABELS[embed.platform];
+
+  const clearLoadTimeout = useCallback(() => {
+    if (loadTimeoutRef.current) {
+      clearTimeout(loadTimeoutRef.current);
+      loadTimeoutRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearLoadTimeout, [clearLoadTimeout]);
+
+  // Stable so mounting the player does not re-run on every parent render.
+  const handleUnavailable = useCallback(() => {
+    clearLoadTimeout();
+    setStatus("unavailable");
+  }, [clearLoadTimeout]);
+
+  const handleSocialLoad = useCallback(() => {
+    clearLoadTimeout();
+  }, [clearLoadTimeout]);
+
+  const play = useCallback(() => {
+    setStatus("playing");
+    if (isGenericSocial) {
+      clearLoadTimeout();
+      loadTimeoutRef.current = setTimeout(handleUnavailable, SOCIAL_LOAD_TIMEOUT_MS);
+    }
+  }, [isGenericSocial, clearLoadTimeout, handleUnavailable]);
+
+  const retry = useCallback(() => {
+    setRetryToken((token) => token + 1);
+    play();
+  }, [play]);
 
   return (
     <div className="videoEmbed">
@@ -124,7 +177,12 @@ export function VideoEmbed({
           embed.platform === "youtube" ? (
             <YouTubeFrame embed={embed} title={title} onUnavailable={handleUnavailable} />
           ) : (
-            <TikTokFrame embed={embed} title={title} />
+            <SocialFrame
+              embed={embed}
+              title={title}
+              retryToken={retryToken}
+              onLoad={handleSocialLoad}
+            />
           )
         ) : null}
 
@@ -133,7 +191,7 @@ export function VideoEmbed({
             type="button"
             className="videoEmbed__facade"
             aria-label={`Play video: ${title}`}
-            onClick={() => setStatus("playing")}
+            onClick={play}
           >
             <VideoThumbnail thumbnailUrl={thumbnailUrl} />
             <span className="videoEmbed__play" aria-hidden="true">
@@ -147,9 +205,20 @@ export function VideoEmbed({
         {status === "unavailable" ? (
           <>
             <VideoThumbnail thumbnailUrl={thumbnailUrl} />
-            <p className="videoEmbed__notice" role="status">
-              This video can’t be played here. Watch it on {platformLabel} instead.
-            </p>
+            <div className="videoEmbed__unavailable">
+              <p className="videoEmbed__notice" role="status">
+                This video can’t be played here. Watch it on {platformLabel} instead.
+              </p>
+              {isGenericSocial ? (
+                <button
+                  type="button"
+                  className="videoEmbed__retry"
+                  onClick={retry}
+                >
+                  Retry playback
+                </button>
+              ) : null}
+            </div>
           </>
         ) : null}
 
