@@ -10,11 +10,17 @@ type HomeHeroProps = {
   totalCount: number;
   favoriteCount: number;
   isLoadingCounts: boolean;
-  /** Resolves with the import result, or undefined when the import failed. */
+  url: string;
+  onUrlChange: (value: string) => void;
+  /** Resolves with the import result, or undefined while pending or on failure. */
   onSubmit: (url: string) => Promise<unknown>;
   isSubmitting: boolean;
   submitError: string;
   submitStatus: string;
+  isPending?: boolean;
+  isInterrupted?: boolean;
+  isResuming?: boolean;
+  onResume?: () => void;
 };
 
 export function HomeHero({
@@ -22,25 +28,27 @@ export function HomeHero({
   totalCount,
   favoriteCount,
   isLoadingCounts,
+  url,
+  onUrlChange,
   onSubmit,
   isSubmitting,
   submitError,
   submitStatus,
+  isPending = false,
+  isInterrupted = false,
+  isResuming = false,
+  onResume,
 }: HomeHeroProps) {
-  const [url, setUrl] = useState("");
   const [focused, setFocused] = useState(false);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const trimmed = url.trim();
     if (!trimmed) return;
-    const result = await onSubmit(trimmed);
-
-    // A failed import resolves undefined. Keep the URL in the box so it can be
-    // retried or carried over to the manual form instead of re-pasted.
-    if (result) {
-      setUrl("");
-    }
+    // A pending or failed import resolves undefined; the URL stays in the
+    // box either way so it stays visible while an Instagram job is in
+    // flight, or so it can be retried or carried over to the manual form.
+    await onSubmit(trimmed);
   };
 
   return (
@@ -75,18 +83,18 @@ export function HomeHero({
             <input
               type="url"
               value={url}
-              onChange={(e) => setUrl(e.target.value)}
+              onChange={(e) => onUrlChange(e.target.value)}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
-              placeholder="Paste a recipe URL"
+              placeholder="Paste a recipe URL, TikTok, or Instagram Reel"
               className="homeHero__input"
             />
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isPending}
               className="homeHero__submit"
             >
-              {isSubmitting ? "Saving…" : "Save recipe"}
+              {isSubmitting || isPending ? "Saving…" : "Save recipe"}
             </button>
           </div>
           <RouterLink
@@ -100,7 +108,16 @@ export function HomeHero({
           </RouterLink>
           {(submitError || submitStatus) && (
             <div className="homeHero__status">
-              <StatusBanner error={submitError} status={submitStatus} />
+              <StatusBanner
+                error={submitError}
+                status={submitStatus}
+                isPending={isPending}
+                action={
+                  isInterrupted && onResume
+                    ? { label: "Resume", onClick: onResume, isLoading: isResuming }
+                    : undefined
+                }
+              />
             </div>
           )}
         </form>

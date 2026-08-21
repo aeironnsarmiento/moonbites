@@ -35,9 +35,10 @@ export function UrlPasteForm({
             <Text className="urlPasteForm__eyebrow">Import recipe</Text>
             <Heading size="xl">Paste a recipe URL</Heading>
             <Text color="gray.600">
-              Submit any public recipe page — or a TikTok or YouTube link with
-              the recipe in its caption — and keep the cleaned result in your
-              saved recipe list.
+              Submit any public recipe page — or a TikTok, YouTube, or public
+              Instagram Reel link with the recipe in its caption or the
+              creator's site — and keep the cleaned result in your saved
+              recipe list.
             </Text>
           </Stack>
 
@@ -47,7 +48,7 @@ export function UrlPasteForm({
               <Input
                 id="recipe-url"
                 size="lg"
-                placeholder="https://example.com/recipe or a TikTok link"
+                placeholder="https://example.com/recipe, a TikTok link, or an Instagram Reel"
                 value={url}
                 onChange={(event) => onUrlChange(event.target.value)}
               />
