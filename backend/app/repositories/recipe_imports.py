@@ -306,15 +306,15 @@ def _cuisine_display_label(label: str) -> str:
     return _CUISINE_LABEL_BY_DB_KEY.get(label.casefold(), label)
 
 
-def _find_existing_records_by_exact_urls(
-    client, table_name: str, urls: list[str]
+def _find_existing_records_by_source_identity(
+    client, table_name: str, canonical_keys: list[str]
 ) -> list[dict]:
     records: list[dict] = []
-    for column in ("submitted_url", "final_url"):
+    for column in ("submitted_url_canonical", "final_url_canonical"):
         response = (
             client.table(table_name)
-            .select("id, submitted_url, final_url")
-            .in_(column, urls)
+            .select("id")
+            .in_(column, canonical_keys)
             .execute()
         )
         records.extend(response.data or [])
@@ -352,13 +352,13 @@ async def save_recipe_import(
     )
     submitted_url_key = source_identity(submitted_url)
     final_url_key = source_identity(final_url)
-    candidate_urls = sorted({submitted_url, final_url})
+    candidate_keys = sorted({submitted_url_key, final_url_key})
 
     try:
-        existing_records = _find_existing_records_by_exact_urls(
+        existing_records = _find_existing_records_by_source_identity(
             client,
             settings.supabase_table_name,
-            candidate_urls,
+            candidate_keys,
         )
     except Exception as error:
         return SaveRecipeImportResult(
@@ -367,18 +367,13 @@ async def save_recipe_import(
             image_url=image_url,
         )
 
-    for existing in existing_records:
-        existing_keys = {
-            source_identity(existing.get("submitted_url") or ""),
-            source_identity(existing.get("final_url") or ""),
-        }
-        if submitted_url_key in existing_keys or final_url_key in existing_keys:
-            return SaveRecipeImportResult(
-                saved=True,
-                message="Recipe import already exists, so the duplicate save was skipped.",
-                image_url=image_url,
-                id=existing.get("id"),
-            )
+    if existing_records:
+        return SaveRecipeImportResult(
+            saved=True,
+            message="Recipe import already exists, so the duplicate save was skipped.",
+            image_url=image_url,
+            id=existing_records[0].get("id"),
+        )
 
     recipe_import_id = str(uuid4())
     effective_image_url = image_url
@@ -403,6 +398,8 @@ async def save_recipe_import(
         "id": recipe_import_id,
         "submitted_url": submitted_url,
         "final_url": final_url,
+        "submitted_url_canonical": submitted_url_key,
+        "final_url_canonical": final_url_key,
         "page_title": title,
         "times_cooked": 0,
         "recipes_json": [recipe.model_dump() for recipe in unique_recipes],
@@ -486,6 +483,8 @@ def save_manual_recipe(
         "id": manual_id,
         "submitted_url": manual_url,
         "final_url": manual_url,
+        "submitted_url_canonical": source_identity(manual_url),
+        "final_url_canonical": source_identity(manual_url),
         "page_title": page_title,
         "times_cooked": 0,
         "recipes_json": [recipe.model_dump()],
@@ -1066,6 +1065,7 @@ def _build_metadata_update_payload(
     payload = {
         "page_title": metadata.title,
         "submitted_url": metadata.source_url,
+        "submitted_url_canonical": source_identity(metadata.source_url),
         "recipes_json": [recipe.model_dump() for recipe in recipes],
         "image_url": metadata.image_url,
         "servings": parse_yield(metadata.recipe_yield),
@@ -1080,6 +1080,7 @@ def _build_metadata_update_payload(
     # embed reads it.
     if not _is_same_source_identity(existing_record.submitted_url, metadata.source_url):
         payload["final_url"] = metadata.source_url
+        payload["final_url_canonical"] = source_identity(metadata.source_url)
         payload["linked_recipe_url"] = None
 
     return payload

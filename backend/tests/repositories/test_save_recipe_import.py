@@ -25,6 +25,7 @@ class _FakeQuery:
     def in_(self, column, values):
         self._in_column = column
         self._in_values = values
+        self._table.client.in_queries.append((column, values))
         return self
 
     def eq(self, _column, _value):
@@ -66,6 +67,7 @@ class _FakeClient:
         self.existing_by_url: list[dict] = []
         self.insert_error: Exception | None = None
         self.insert_calls: list[dict] = []
+        self.in_queries: list[tuple[str, list[str]]] = []
 
     def table(self, name):
         return _FakeTable(self, name)
@@ -125,19 +127,56 @@ def test_save_recipe_import_persists_linked_recipe_url():
 
 def test_save_recipe_import_existing_duplicate_returns_existing_id():
     client = _FakeClient()
-    client.existing_by_url = [
-        {
-            "id": "existing-recipe-1",
-            "submitted_url": "https://www.instagram.com/reel/abc123/",
-            "final_url": "https://www.instagram.com/reel/abc123/",
-        }
-    ]
+    client.existing_by_url = [{"id": "existing-recipe-1"}]
 
     result = _run(client)
 
     assert result.saved is True
     assert result.id == "existing-recipe-1"
     assert client.insert_calls == []
+
+
+def test_save_recipe_import_checks_canonical_columns_not_raw_urls():
+    # Regression guard: the duplicate check used to query Supabase on the raw
+    # submitted/final URLs, so canonicalization ran only after the query
+    # already missed a tracking-param variant of a stored row. It must query
+    # the canonical columns instead.
+    client = _FakeClient()
+
+    _run(client)
+
+    assert client.in_queries
+    for column, _values in client.in_queries:
+        assert column in ("submitted_url_canonical", "final_url_canonical")
+
+
+def test_save_recipe_import_detects_duplicate_with_tracking_params_stripped():
+    client = _FakeClient()
+    client.existing_by_url = [{"id": "existing-recipe-1"}]
+
+    result = _run(
+        client,
+        submitted_url="https://www.instagram.com/reel/abc123/?utm_source=ig",
+        final_url="https://www.instagram.com/reel/abc123/?utm_source=ig",
+    )
+
+    assert result.saved is True
+    assert result.id == "existing-recipe-1"
+    assert client.insert_calls == []
+
+
+def test_save_recipe_import_writes_canonical_columns_on_insert():
+    client = _FakeClient()
+
+    _run(
+        client,
+        submitted_url="https://www.instagram.com/reel/abc123/?utm_source=ig",
+        final_url="https://www.instagram.com/reel/abc123/",
+    )
+
+    inserted = client.insert_calls[0]
+    assert inserted["submitted_url_canonical"] == "https://www.instagram.com/reel/abc123"
+    assert inserted["final_url_canonical"] == "https://www.instagram.com/reel/abc123"
 
 
 def test_save_recipe_import_uses_managed_image_storage_path_without_mirroring_tiktok():
