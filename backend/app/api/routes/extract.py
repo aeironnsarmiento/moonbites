@@ -1,11 +1,26 @@
-from fastapi import APIRouter, Depends, Request
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 
 from ..auth import AuthenticatedAdmin, require_admin_user
 from ...core.rate_limit import limiter
+from ...repositories.import_jobs import (
+    ImportJobStorageError,
+    create_or_reuse_job,
+    find_existing_recipe_by_canonical_url,
+)
 from ...repositories.recipe_imports import save_recipe_import
-from ...schemas.extract import ExtractRequest, ExtractResponse
+from ...schemas.extract import ExtractRequest, ExtractResponse, NormalizedRecipe
+from ...schemas.import_jobs import ResultImportResponse, pending_response
 from ...services.extraction_types import ParseStatus
 from ...services.extractor import extract_recipes_from_url
+from ...services.instagram.urls import (
+    InstagramUrlError,
+    is_instagram_url,
+    parse_instagram_reel_url,
+)
 
 
 router = APIRouter(prefix="/api", tags=["extract"])
@@ -19,6 +34,61 @@ def _sanitize_database_message(database_saved: bool, message: str) -> str:
     return message
 
 
+def _existing_recipe_response(record: dict) -> ExtractResponse:
+    recipes = [
+        NormalizedRecipe.model_validate(item)
+        for item in record.get("recipes_json") or []
+    ]
+    return ExtractResponse(
+        source_url=record["submitted_url"],
+        final_url=record["final_url"],
+        title=record.get("page_title"),
+        image_url=record.get("image_url"),
+        recipes=recipes,
+        database_saved=True,
+        database_message=GENERIC_SAVE_SUCCESS_MESSAGE,
+        parse_status="recipe",
+    )
+
+
+async def _handle_instagram_extract(
+    url: str, admin: AuthenticatedAdmin
+) -> JSONResponse:
+    try:
+        identity = parse_instagram_reel_url(url)
+    except InstagramUrlError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    try:
+        existing = find_existing_recipe_by_canonical_url(identity.canonical_url)
+    except ImportJobStorageError as error:
+        raise HTTPException(
+            status_code=503, detail="Job storage is unavailable"
+        ) from error
+
+    if existing is not None:
+        envelope = ResultImportResponse(result=_existing_recipe_response(existing))
+        return JSONResponse(content=jsonable_encoder(envelope), status_code=200)
+
+    try:
+        outcome = create_or_reuse_job(admin.email, identity.canonical_url)
+    except ImportJobStorageError as error:
+        raise HTTPException(
+            status_code=503, detail="Job storage is unavailable"
+        ) from error
+
+    if outcome.outcome in {"owner_ceiling", "global_ceiling"}:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many active Instagram imports right now. Wait for one to finish.",
+        )
+    if outcome.job is None:
+        raise HTTPException(status_code=503, detail="Job storage is unavailable")
+
+    envelope = pending_response(outcome.job, now=datetime.now(timezone.utc))
+    return JSONResponse(content=jsonable_encoder(envelope), status_code=202)
+
+
 @router.get("/health")
 async def health_check() -> dict[str, str]:
     return {"status": "ok"}
@@ -30,7 +100,10 @@ async def extract_ld_json(
     request: Request,
     payload: ExtractRequest,
     admin: AuthenticatedAdmin = Depends(require_admin_user),
-) -> ExtractResponse:
+):
+    if is_instagram_url(payload.url):
+        return await _handle_instagram_extract(payload.url, admin)
+
     result = await extract_recipes_from_url(payload.url)
 
     if result.parse_status == ParseStatus.NOT_RECIPE:

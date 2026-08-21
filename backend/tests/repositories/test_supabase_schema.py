@@ -221,3 +221,199 @@ def test_search_recipe_imports_grants_execute():
         "(text, text, boolean, text, integer, integer) to anon, authenticated"
         in normalized_sql
     )
+
+
+# --- U9: Instagram import job and provider admission schema ----------------
+
+
+def test_instagram_import_jobs_table_has_bounded_ktd15_columns():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    assert "create table if not exists public.instagram_import_jobs" in normalized_sql
+    for column in (
+        "owner_email text not null",
+        "canonical_reel_url text not null",
+        "state text not null",
+        "version integer not null default 0",
+        "lease_token uuid",
+        "lease_expires_at timestamptz",
+        "next_advance_at timestamptz not null",
+        "stale_deadline timestamptz not null",
+        "reel_run_id text",
+        "reel_dataset_id text",
+        "profile_run_id text",
+        "profile_dataset_id text",
+        "candidate_name text",
+        "normalized_result_json jsonb",
+        "linked_recipe_url text",
+        "recipe_id uuid references public.recipe_imports (id)",
+        "error_code text",
+    ):
+        assert column in normalized_sql, column
+
+    # KTD15 explicitly excludes these from persistence.
+    for forbidden in ("caption text", "profile_links", "owner_handle", "cdn_url", "bearer_token"):
+        assert forbidden not in normalized_sql
+
+
+def test_instagram_import_jobs_has_one_active_job_per_owner_and_reel():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    assert (
+        "create unique index if not exists instagram_import_jobs_active_owner_reel_idx "
+        "on public.instagram_import_jobs (owner_email, canonical_reel_url) "
+        "where state not in ('succeeded', 'not_recipe', 'failed')"
+    ) in normalized_sql
+
+
+def test_instagram_import_jobs_rls_enabled_and_browser_roles_revoked():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    assert "alter table public.instagram_import_jobs enable row level security" in normalized_sql
+    assert (
+        "revoke all on table public.instagram_import_jobs from anon, authenticated, public"
+        in normalized_sql
+    )
+
+
+def test_instagram_provider_admission_is_a_seeded_singleton_with_rls_revoked():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    assert "create table if not exists public.instagram_provider_admission" in normalized_sql
+    assert "id boolean primary key default true" in normalized_sql
+    assert "constraint instagram_provider_admission_singleton check (id)" in normalized_sql
+    assert "insert into public.instagram_provider_admission (id) values (true)" in normalized_sql
+    assert "on conflict (id) do nothing" in normalized_sql
+    assert (
+        "alter table public.instagram_provider_admission enable row level security"
+        in normalized_sql
+    )
+    assert (
+        "revoke all on table public.instagram_provider_admission from anon, authenticated, public"
+        in normalized_sql
+    )
+
+
+def test_create_or_reuse_instagram_import_job_reuses_before_enforcing_ceilings():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    start = normalized_sql.index(
+        "create or replace function public.create_or_reuse_instagram_import_job"
+    )
+    end = normalized_sql.index(
+        "revoke execute on function public.create_or_reuse_instagram_import_job"
+    )
+    function_sql = normalized_sql[start:end]
+
+    reuse_index = function_sql.index("'reused'::text")
+    owner_ceiling_index = function_sql.index("raise exception 'owner_active_job_ceiling'")
+    global_ceiling_index = function_sql.index("raise exception 'global_active_job_ceiling'")
+
+    assert reuse_index < owner_ceiling_index < global_ceiling_index
+    assert "on unique_violation" in function_sql or "when unique_violation" in function_sql
+    assert "'created'::text" in function_sql
+
+
+def test_claim_instagram_import_job_lease_is_a_version_and_owner_gated_cas():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    start = normalized_sql.index(
+        "create or replace function public.claim_instagram_import_job_lease"
+    )
+    end = normalized_sql.index(
+        "revoke execute on function public.claim_instagram_import_job_lease"
+    )
+    function_sql = normalized_sql[start:end]
+
+    assert "j.owner_email = p_owner_email" in function_sql
+    assert "j.version = p_expected_version" in function_sql
+    assert "j.state not in ('succeeded', 'not_recipe', 'failed')" in function_sql
+    assert "j.lease_expires_at is null or j.lease_expires_at <= timezone('utc', now())" in function_sql
+    assert "version = j.version + 1" in function_sql
+
+
+def test_checkpoint_instagram_import_job_is_lease_and_version_gated():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    start = normalized_sql.index(
+        "create or replace function public.checkpoint_instagram_import_job"
+    )
+    end = normalized_sql.index(
+        "revoke execute on function public.checkpoint_instagram_import_job"
+    )
+    function_sql = normalized_sql[start:end]
+
+    assert "j.lease_token = p_lease_token" in function_sql
+    assert "j.version = p_expected_version" in function_sql
+    assert "coalesce(p_reel_run_id, j.reel_run_id)" in function_sql
+    assert "coalesce(p_normalized_result_json, j.normalized_result_json)" in function_sql
+    assert "case when p_release_lease then null else j.lease_token end" in function_sql
+
+
+def test_provider_admission_reserve_and_release_are_singleton_scoped():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    reserve_start = normalized_sql.index(
+        "create or replace function public.reserve_instagram_provider_admission"
+    )
+    reserve_end = normalized_sql.index(
+        "revoke execute on function public.reserve_instagram_provider_admission"
+    )
+    reserve_sql = normalized_sql[reserve_start:reserve_end]
+    assert "a.id = true" in reserve_sql
+    assert "a.active_job_id is null or a.active_job_id = p_job_id" in reserve_sql
+
+    release_start = normalized_sql.index(
+        "create or replace function public.release_instagram_provider_admission"
+    )
+    release_end = normalized_sql.index(
+        "revoke execute on function public.release_instagram_provider_admission"
+    )
+    release_sql = normalized_sql[release_start:release_end]
+    assert "a.id = true" in release_sql
+    assert "a.active_job_id = p_job_id" in release_sql
+
+
+def test_stale_and_retention_cleanup_functions_default_to_dry_run_shape():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    assert "create or replace function public.terminalize_stale_instagram_import_jobs" in normalized_sql
+    assert "create or replace function public.delete_expired_instagram_import_jobs" in normalized_sql
+    assert "create or replace function public.reconcile_instagram_provider_admission" in normalized_sql
+
+    terminalize_start = normalized_sql.index(
+        "create or replace function public.terminalize_stale_instagram_import_jobs"
+    )
+    terminalize_end = normalized_sql.index(
+        "revoke execute on function public.terminalize_stale_instagram_import_jobs"
+    )
+    terminalize_sql = normalized_sql[terminalize_start:terminalize_end]
+    assert "if p_dry_run then" in terminalize_sql
+    assert "stale_deadline < timezone('utc', now())" in terminalize_sql
+
+    delete_start = normalized_sql.index(
+        "create or replace function public.delete_expired_instagram_import_jobs"
+    )
+    delete_end = normalized_sql.index(
+        "revoke execute on function public.delete_expired_instagram_import_jobs"
+    )
+    delete_sql = normalized_sql[delete_start:delete_end]
+    assert "if p_dry_run then" in delete_sql
+    assert "delete from public.instagram_import_jobs" in delete_sql
+
+
+def test_instagram_job_rpcs_revoke_execute_from_browser_roles():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    for fragment in (
+        "revoke execute on function public.create_or_reuse_instagram_import_job",
+        "revoke execute on function public.claim_instagram_import_job_lease",
+        "revoke execute on function public.checkpoint_instagram_import_job",
+        "revoke execute on function public.reserve_instagram_provider_admission",
+        "revoke execute on function public.release_instagram_provider_admission",
+        "revoke execute on function public.reconcile_instagram_provider_admission",
+        "revoke execute on function public.terminalize_stale_instagram_import_jobs",
+        "revoke execute on function public.delete_expired_instagram_import_jobs",
+    ):
+        assert fragment in normalized_sql
+        assert "from anon, authenticated, public" in normalized_sql[normalized_sql.index(fragment):normalized_sql.index(fragment) + 400]
