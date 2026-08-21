@@ -24,7 +24,6 @@ from ..services.cuisine_catalog import (
     CANONICAL_CUISINES,
     OTHER_CUISINE_LABEL,
     canonical_cuisine,
-    collect_canonical_cuisines,
 )
 from ..services.instagram.urls import (
     InstagramUrlError,
@@ -144,32 +143,12 @@ def _sanitize_record(record: dict) -> RecipeImportRecord:
     return RecipeImportRecord.model_validate(normalized_record)
 
 
-def _fetch_all_recipe_import_records(
-    client, table_name: str
-) -> list[RecipeImportRecord]:
-    response = (
-        client.table(table_name)
-        .select(RECIPE_IMPORT_SELECT)
-        .order("created_at", desc=True)
-        .execute()
-    )
-
-    records = response.data or []
-    return [_sanitize_record(record) for record in records]
-
-
 def is_manual_recipe_url(value: str) -> bool:
     return value.strip().lower().startswith("manual://")
 
 
 def _build_manual_recipe_url(manual_id: str) -> str:
     return f"manual://{manual_id}"
-
-
-def _record_cuisines(record: RecipeImportRecord) -> set[str]:
-    return collect_canonical_cuisines(
-        recipe.recipeCuisine for recipe in record.recipes_json
-    )
 
 
 def _normalize_cuisine_filter(cuisine: Optional[str]) -> Optional[str]:
@@ -184,94 +163,6 @@ def _normalize_cuisine_filter(cuisine: Optional[str]) -> Optional[str]:
         return OTHER_CUISINE_LABEL
 
     return canonical_cuisine(stripped_cuisine) or stripped_cuisine
-
-
-def _filter_recipe_import_records(
-    records: list[RecipeImportRecord], cuisine: Optional[str]
-) -> list[RecipeImportRecord]:
-    normalized_cuisine = _normalize_cuisine_filter(cuisine)
-    if normalized_cuisine is None:
-        return records
-
-    return [
-        record for record in records if normalized_cuisine in _record_cuisines(record)
-    ]
-
-
-def _primary_recipe_name(record: RecipeImportRecord) -> str:
-    primary_recipe = record.recipes_json[0] if record.recipes_json else None
-    name = primary_recipe.name if primary_recipe else record.page_title or ""
-    return name.casefold()
-
-
-def _sort_recipe_import_records(
-    records: list[RecipeImportRecord], sort: RecipeSortOption
-) -> list[RecipeImportRecord]:
-    if sort == RecipeSortOption.az:
-        return sorted(
-            records,
-            key=lambda record: (
-                _primary_recipe_name(record),
-                -record.created_at.timestamp(),
-            ),
-        )
-
-    if sort == RecipeSortOption.za:
-        return sorted(
-            records,
-            key=lambda record: (
-                _primary_recipe_name(record),
-                record.created_at.timestamp(),
-            ),
-            reverse=True,
-        )
-
-    if sort == RecipeSortOption.times_cooked:
-        return sorted(
-            records,
-            key=lambda record: (record.times_cooked, record.created_at.timestamp()),
-            reverse=True,
-        )
-
-    if sort == RecipeSortOption.favorites:
-        return sorted(
-            records,
-            key=lambda record: (
-                record.is_favorite,
-                record.created_at.timestamp(),
-            ),
-            reverse=True,
-        )
-
-    return sorted(records, key=lambda record: record.created_at, reverse=True)
-
-
-def _prepare_recipe_import_records(
-    records: list[RecipeImportRecord],
-    sort: RecipeSortOption,
-    cuisine: Optional[str],
-    favorite: Optional[bool] = None,
-) -> list[RecipeImportRecord]:
-    unique_records = dedupe_by_source(records)
-    filtered_records = _filter_recipe_import_records(unique_records, cuisine)
-    if favorite is True:
-        filtered_records = [record for record in filtered_records if record.is_favorite]
-    return _sort_recipe_import_records(filtered_records, sort)
-
-
-def _build_cuisine_facets(
-    records: list[RecipeImportRecord],
-) -> list[CuisineFacet]:
-    cuisine_counts: dict[str, int] = {}
-
-    for record in records:
-        for cuisine in _record_cuisines(record):
-            cuisine_counts[cuisine] = cuisine_counts.get(cuisine, 0) + 1
-
-    return [
-        CuisineFacet(label=label, count=count)
-        for label, count in sorted(cuisine_counts.items())
-    ]
 
 
 _SORT_CLAUSES: dict[RecipeSortOption, list[tuple[str, bool]]] = {
@@ -512,9 +403,26 @@ def _build_paginated_response(
     page_size: int,
     total_count: Optional[int],
 ) -> PaginatedRecipeImportsResponse:
-    items = dedupe_by_source(
-        [_sanitize_record(record) for record in raw_records]
-    )
+    sanitized_records = [_sanitize_record(record) for record in raw_records]
+    items = dedupe_by_source(sanitized_records)
+    if len(items) != len(sanitized_records):
+        # Recipe Source Identity is enforced by a unique constraint at write
+        # time (submitted_url_canonical/final_url_canonical), so two rows on
+        # one page should never collide -- this dedupe is a safety net, not
+        # the normal path (see recipe_identity.py). total_count below is an
+        # exact SQL count over the full result set, not just this page, so if
+        # dedupe ever removes a row here that count silently stops matching
+        # what's returned. That mismatch is a symptom: it means a duplicate
+        # reached storage despite the constraint. Surface it instead of
+        # quietly shipping a short page with a stale total_pages.
+        logger.warning(
+            "Recipe Source Identity dedupe removed %d row(s) from a page "
+            "that should already be unique at the database level -- the "
+            "unique constraint on submitted_url_canonical/final_url_canonical "
+            "may have been bypassed or dropped.",
+            len(sanitized_records) - len(items),
+        )
+
     if total_count is None:
         total_count = len(items)
     total_pages = (
