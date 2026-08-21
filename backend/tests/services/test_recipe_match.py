@@ -76,6 +76,10 @@ SITE_BRAND_CORPUS = [
         True,
     ),
     ("Miso Salmon Rice by Tiffycooks", "www.tiffycooks.com", "Miso Salmon Rice", True),
+    # A multi-word brand signs the title as separate tokens, while the label
+    # derived from the domain has no word boundaries -- this is the case that
+    # a single-token trailing match misses.
+    ("Pasta Recipe by Smitten Kitchen", "smittenkitchen.com", "Pasta", True),
     # Only the fetched host's own label is stripped, never another site's.
     ("Miso Salmon Rice by Tasty", "tiffycooks.com", "Miso Salmon Rice", False),
     # A dish word that happens to match the brand is not a trailing signature.

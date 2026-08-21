@@ -348,7 +348,7 @@ def test_queued_actor_start_failure_is_ambiguous_and_keeps_admission():
 
 @pytest.mark.parametrize(
     "state",
-    [ImportJobState.STARTING_REEL, ImportJobState.PARSING_CAPTION, ImportJobState.STARTING_PROFILE],
+    [ImportJobState.STARTING_REEL, ImportJobState.STARTING_PROFILE],
 )
 def test_stale_intent_states_are_always_ambiguous(state):
     job = _job(state=state)
@@ -367,6 +367,28 @@ def test_stale_intent_states_are_always_ambiguous(state):
     # one might still be in flight server-side.
     release.assert_not_called()
     assert result.state == ImportJobState.FAILED
+
+
+def test_parsing_caption_resumes_after_a_crash_instead_of_failing_ambiguous():
+    # Unlike the states above, PARSING_CAPTION follows no paid Apify run --
+    # only a persisted, already-complete reel_dataset_id and a Gemini call
+    # with no side effect. A crash here must retry, not die as ambiguous.
+    job = _job(state=ImportJobState.PARSING_CAPTION, reel_dataset_id="dataset1")
+    script = _ApifyScript(
+        **{"/datasets/dataset1/items": lambda r: _reel_dataset_response()}
+    )
+    checkpoints: list[dict] = []
+
+    def _checkpoint(*_args, **kwargs):
+        checkpoints.append(kwargs)
+        return job.model_copy(update={"state": ImportJobState(kwargs["state"])})
+
+    with patch("app.services.instagram.import_job.checkpoint_job", side_effect=_checkpoint):
+        deps = _gemini_deps(_complete_parsed(), apify_transport=httpx.MockTransport(script))
+        result = _run_advance(job, deps=deps)
+
+    assert checkpoints[-1]["state"] == "saving"
+    assert result.state == ImportJobState.SAVING
 
 
 # --- waiting_reel --------------------------------------------------------------
@@ -909,6 +931,9 @@ def test_saving_failure_when_save_recipe_import_does_not_save():
             ),
         ),
         patch("app.services.instagram.import_job.save_recipe_import", side_effect=_fake_save),
+        patch(
+            "app.services.instagram.import_job.delete_social_thumbnail"
+        ) as delete_thumbnail,
     ):
         checkpoint.return_value = job.model_copy(update={"state": ImportJobState.FAILED})
         deps = OrchestrationDeps(apify_transport=httpx.MockTransport(script))
@@ -916,6 +941,66 @@ def test_saving_failure_when_save_recipe_import_does_not_save():
 
     assert checkpoint.call_args.kwargs["error_code"] == "save_failed"
     assert result.state == ImportJobState.FAILED
+    # The thumbnail was uploaded before the save failed -- it must not be
+    # left orphaned in storage.
+    delete_thumbnail.assert_called_once_with(
+        "instagram/job-1/x.jpg", settings=delete_thumbnail.call_args.kwargs["settings"]
+    )
+
+
+def test_saving_failure_cleans_up_thumbnail_when_recipe_payload_is_missing():
+    job = _job(
+        state=ImportJobState.SAVING,
+        reel_dataset_id="dataset1",
+        normalized_result_json={
+            "source_url": CANONICAL_URL,
+            "final_url": CANONICAL_URL,
+            "title": "Raspberry Chia Pudding",
+            "image_url": None,
+            "recipes": [],
+            "database_saved": False,
+            "database_message": "",
+            "parse_status": "recipe",
+        },
+    )
+    script = _ApifyScript(
+        **{"/datasets/dataset1/items": lambda r: _reel_dataset_response()}
+    )
+
+    async def _fetch_image(url, policy, **kwargs):
+        from app.services.public_web import SafeFetchResult
+
+        return SafeFetchResult(
+            requested_url=url, final_url=url, status_code=200,
+            content_type="image/jpeg", body=b"jpeg-bytes",
+        )
+
+    from app.services.social.thumbnail_storage import MirroredSocialThumbnail
+
+    with (
+        patch("app.services.instagram.import_job.checkpoint_job") as checkpoint,
+        patch("app.services.instagram.import_job.release_provider_admission"),
+        patch("app.services.instagram.import_job.safe_fetch", side_effect=_fetch_image),
+        patch(
+            "app.services.instagram.import_job.store_social_thumbnail",
+            return_value=MirroredSocialThumbnail(
+                image_url="https://cdn.example/instagram/job-1/x.jpg",
+                storage_path="instagram/job-1/x.jpg",
+            ),
+        ),
+        patch(
+            "app.services.instagram.import_job.delete_social_thumbnail"
+        ) as delete_thumbnail,
+    ):
+        checkpoint.return_value = job.model_copy(update={"state": ImportJobState.FAILED})
+        deps = OrchestrationDeps(apify_transport=httpx.MockTransport(script))
+        result = _run_advance(job, deps=deps)
+
+    assert checkpoint.call_args.kwargs["error_code"] == "save_failed"
+    assert result.state == ImportJobState.FAILED
+    delete_thumbnail.assert_called_once_with(
+        "instagram/job-1/x.jpg", settings=delete_thumbnail.call_args.kwargs["settings"]
+    )
 
 
 def test_saving_failure_when_thumbnail_download_fails():

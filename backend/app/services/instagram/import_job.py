@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional
 
@@ -23,14 +24,18 @@ from ..public_web import HTML_POLICY, IMAGE_POLICY, PublicWebError, safe_fetch
 from ..recipe_match import RecipeCandidate, select_unique_match
 from ..social.caption_recipe import MAX_CAPTION_LINKS
 from ..social.recipe_links import extract_ranked_recipe_urls
-from ..social.thumbnail_storage import SocialThumbnailStorageError, store_social_thumbnail
+from ..social.thumbnail_storage import (
+    SocialThumbnailStorageError,
+    delete_social_thumbnail,
+    store_social_thumbnail,
+)
 from .apify import (
     PROFILE_MAX_CHARGE_USD,
     REEL_MAX_CHARGE_USD,
     ApifyClient,
 )
 from .creator_site_lookup import FetchedPage, find_creator_site_recipe
-from .models import ApifyProviderError, ApifyRunStatus
+from .models import ApifyProviderError, ApifyRunStatus, InstagramReelMetadata
 from .urls import InstagramReelIdentity, InstagramUrlError, parse_instagram_reel_url
 from ..import_deadline import Deadline, DeadlineExceededError
 
@@ -41,6 +46,8 @@ NOT_RECIPE_MESSAGE = (
     "Moonbites could not find one complete, confidently matching recipe."
 )
 SAVE_SUCCESS_MESSAGE = "Recipe saved to your collection."
+
+logger = logging.getLogger(__name__)
 
 
 class OrchestrationHalted(RuntimeError):
@@ -167,6 +174,24 @@ async def _checkpoint(
         release_lease=release_lease,
     )
     return _require(updated)
+
+
+def _cleanup_orphaned_thumbnail(storage_path: Optional[str], settings: Settings) -> None:
+    """Best-effort delete of a thumbnail mirrored just before a save that failed.
+
+    A failed cleanup here must not change the job's own failure outcome, so
+    it only logs -- the periodic thumbnail audit remains the backstop for
+    whatever this misses.
+    """
+    if storage_path is None:
+        return
+    try:
+        delete_social_thumbnail(storage_path, settings=settings)
+    except SocialThumbnailStorageError:
+        logger.warning(
+            "Failed to clean up orphaned Instagram thumbnail %s after a failed save.",
+            storage_path,
+        )
 
 
 async def _fail(
@@ -339,6 +364,41 @@ async def _handle_waiting_reel(
         return await _fail(job, _map_apify_error(error))
 
     job = await _checkpoint(job, state=ImportJobState.PARSING_CAPTION, reel_dataset_id=run.default_dataset_id)
+
+    return await _handle_parsing_caption(job, deadline=deadline, deps=deps, reel=reel)
+
+
+async def _handle_parsing_caption(
+    job: ImportJobRecord,
+    *,
+    deadline: Deadline,
+    deps: OrchestrationDeps,
+    reel: Optional[InstagramReelMetadata] = None,
+) -> ImportJobRecord:
+    """Parse the reel's caption with Gemini, resuming here after a crash.
+
+    Unlike STARTING_REEL/STARTING_PROFILE, this checkpoint does not follow a
+    paid, non-idempotent Apify run -- the reel dataset it reads is already
+    persisted as `job.reel_dataset_id`, and Gemini parsing has no side effect.
+    A crash here can simply be retried from scratch, so this is not routed
+    through `_handle_stale_intent_state`.
+
+    `reel` is already in hand when entered straight from `_handle_waiting_reel`;
+    a dispatch-table resume after a crash has no such value and re-fetches it
+    from the persisted dataset id.
+    """
+    identity = _identity(job)
+    settings = get_settings()
+    client = _apify_client(settings, deps)
+
+    if not deadline.has_budget_for_side_effect():
+        return await _fail(job, ImportJobErrorCode.RESOLUTION_TIMEOUT)
+
+    if reel is None:
+        try:
+            reel = await client.get_reel_result(job.reel_dataset_id, identity)
+        except ApifyProviderError as error:
+            return await _fail(job, _map_apify_error(error))
 
     try:
         parsed = await deps.gemini_parse(
@@ -544,6 +604,7 @@ async def _handle_saving(
 
     recipe_payload = (job.normalized_result_json or {}).get("recipes") or []
     if not recipe_payload:
+        _cleanup_orphaned_thumbnail(managed_image_storage_path, settings)
         return await _fail(job, ImportJobErrorCode.SAVE_FAILED)
 
     recipe = NormalizedRecipe.model_validate(recipe_payload[0])
@@ -559,6 +620,7 @@ async def _handle_saving(
     )
 
     if not save_result.saved:
+        _cleanup_orphaned_thumbnail(managed_image_storage_path, settings)
         return await _fail(job, ImportJobErrorCode.SAVE_FAILED)
 
     saved_result = ExtractResponse(
@@ -590,7 +652,7 @@ _STATE_HANDLERS: dict[
     ImportJobState.QUEUED: _handle_queued,
     ImportJobState.STARTING_REEL: _handle_stale_intent_state,
     ImportJobState.WAITING_REEL: _handle_waiting_reel,
-    ImportJobState.PARSING_CAPTION: _handle_stale_intent_state,
+    ImportJobState.PARSING_CAPTION: _handle_parsing_caption,
     ImportJobState.RESOLVING_RECIPE: _handle_resolving_recipe,
     ImportJobState.STARTING_PROFILE: _handle_stale_intent_state,
     ImportJobState.WAITING_PROFILE: _handle_waiting_profile,

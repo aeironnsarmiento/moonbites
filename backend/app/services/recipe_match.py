@@ -125,10 +125,24 @@ def strip_site_brand(normalized_title: str, domain: Optional[str]) -> str:
         return normalized_title
 
     tokens = normalized_title.split()
-    while tokens and tokens[-1] == label:
-        tokens.pop()
-        if tokens and tokens[-1] == "by":
-            tokens.pop()
+
+    # The label has no word boundaries ("smittenkitchen"), but a multi-word
+    # brand signs its title as separate tokens ("Smitten Kitchen"). Walk
+    # backward accumulating a trailing run of tokens until its concatenation
+    # matches the label, rather than requiring a single trailing token to
+    # match it whole.
+    end = len(tokens)
+    joined = ""
+    while end > 0:
+        end -= 1
+        joined = tokens[end] + joined
+        if joined == label:
+            tokens = tokens[:end]
+            if tokens and tokens[-1] == "by":
+                tokens.pop()
+            break
+        if len(joined) > len(label):
+            break
     return " ".join(tokens)
 
 
