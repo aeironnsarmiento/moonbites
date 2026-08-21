@@ -148,6 +148,44 @@ def test_matcher_locked_holdout_corpus(title, dish_name, expected):
     assert is_matching_title(title, dish_name) is expected
 
 
+SITE_BRAND_CORPUS = [
+    # The live Tasty case: the site signs its own JSON-LD title.
+    (
+        "Shanghai-Inspired Veggie-Packed Rice Recipe by Tasty",
+        "tasty.co",
+        "Easy Shanghai-Inspired Veggie-Packed Rice",
+        True,
+    ),
+    ("Miso Salmon Rice by Tiffycooks", "www.tiffycooks.com", "Miso Salmon Rice", True),
+    # Only the fetched host's own label is stripped, never another site's.
+    ("Miso Salmon Rice by Tasty", "tiffycooks.com", "Miso Salmon Rice", False),
+    # A dish word that happens to match the brand is not a trailing signature.
+    ("Chicken of the Sea", "tasty.co", "Chicken of the Sea", True),
+    # Stripping the signature must not rescue a genuinely different dish.
+    (
+        "Miso Salmon Brothy Rice With Egg Recipe by Tasty",
+        "tasty.co",
+        "Miso Salmon Brothy Rice",
+        False,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("title", "domain", "dish_name", "expected"), SITE_BRAND_CORPUS
+)
+def test_matcher_ignores_trailing_site_brand(title, domain, dish_name, expected):
+    assert is_matching_title(title, dish_name, site_domain=domain) is expected
+
+
+def test_site_brand_is_only_stripped_when_the_domain_is_known():
+    title = "Shanghai-Inspired Veggie-Packed Rice Recipe by Tasty"
+    dish = "Shanghai-Inspired Veggie-Packed Rice"
+
+    assert is_matching_title(title, dish) is False
+    assert is_matching_title(title, dish, site_domain="tasty.co") is True
+
+
 def test_matcher_holdout_corpus_has_zero_false_positives():
     false_positives = [
         (title, dish_name)

@@ -310,8 +310,38 @@ def normalize_dish_name(name: str) -> str:
     return " ".join(tokens)
 
 
-def is_matching_title(candidate_title: str, dish_name: str) -> bool:
-    candidate_norm = normalize_dish_name(candidate_title)
+def _site_brand_label(domain: Optional[str]) -> Optional[str]:
+    if not domain:
+        return None
+    host = domain.casefold()
+    if host.startswith("www."):
+        host = host[len("www."):]
+    return host.split(".")[0] or None
+
+
+def strip_site_brand(normalized_title: str, domain: Optional[str]) -> str:
+    """Drop a trailing "by <brand>" naming the site the page was served from.
+
+    Sites sign their own titles ("... Recipe by Tasty"), which the Reel never
+    does. Only the fetched host's own label is removed, so a dish word can
+    never be stripped by accident.
+    """
+    label = _site_brand_label(domain)
+    if not label:
+        return normalized_title
+
+    tokens = normalized_title.split()
+    while tokens and tokens[-1] == label:
+        tokens.pop()
+        if tokens and tokens[-1] == "by":
+            tokens.pop()
+    return " ".join(tokens)
+
+
+def is_matching_title(
+    candidate_title: str, dish_name: str, *, site_domain: Optional[str] = None
+) -> bool:
+    candidate_norm = strip_site_brand(normalize_dish_name(candidate_title), site_domain)
     dish_norm = normalize_dish_name(dish_name)
     if not dish_norm or not candidate_norm:
         return False
@@ -339,16 +369,21 @@ def select_unique_match(
 ) -> Optional[RecipeCandidate]:
     deduped: dict[tuple[str, str], RecipeCandidate] = {}
     for candidate in candidates:
+        host = _hostname(candidate.canonical_url)
         key = (
             canonicalize_candidate_url(candidate.canonical_url),
-            normalize_dish_name(candidate.title),
+            strip_site_brand(normalize_dish_name(candidate.title), host),
         )
         deduped.setdefault(key, candidate)
 
     matches = [
         candidate
         for candidate in deduped.values()
-        if is_matching_title(candidate.title, dish_name)
+        if is_matching_title(
+            candidate.title,
+            dish_name,
+            site_domain=_hostname(candidate.canonical_url),
+        )
     ]
     if len(matches) != 1:
         return None
