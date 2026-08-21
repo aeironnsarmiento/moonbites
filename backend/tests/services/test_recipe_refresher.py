@@ -119,6 +119,27 @@ def test_refetch_skips_caption_parsed_youtube_imports():
     extract.assert_not_called()
 
 
+def test_refetch_skips_instagram_reel_imports_including_linked_recipe():
+    instagram_record = _record(
+        submitted_url="https://www.instagram.com/reel/DZuzc9PNedT/",
+        final_url="https://www.instagram.com/reel/DZuzc9PNedT/",
+        overrides=None,
+    ).model_copy(update={"linked_recipe_url": "https://tasty.co/recipe/miso-salmon-rice"})
+
+    with (
+        patch(
+            "app.services.recipe_refresher.iter_recipe_import_records_for_refresh",
+            return_value=[instagram_record],
+        ),
+        patch("app.services.recipe_refresher.extract_recipes_from_url") as extract,
+    ):
+        summary = asyncio.run(refetch_recipe_imports())
+
+    assert summary.skipped == 1
+    assert summary.updated == 0
+    extract.assert_not_called()
+
+
 def test_refetch_link_followed_video_import_uses_blog_url_only():
     record = _record(
         submitted_url="https://youtu.be/abc123XYZ09",

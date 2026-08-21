@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -5,17 +6,15 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
 from ..auth import AuthenticatedAdmin, require_admin_user
-from ...repositories.import_jobs import (
-    DEFAULT_NEXT_ADVANCE_SECONDS,
-    ImportJobStorageError,
-    checkpoint_job,
-    claim_job_lease,
-    get_job_for_owner,
-)
+from ...core.config import get_settings
+from ...repositories.import_jobs import ImportJobStorageError, claim_job_lease, get_job_for_owner
 from ...schemas.import_jobs import TERMINAL_JOB_STATES, pending_response, terminal_response
+from ...services.import_deadline import Deadline
+from ...services.instagram.import_job import advance_instagram_job
 
 
 router = APIRouter(prefix="/api/extract/jobs", tags=["import-jobs"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/{job_id}/advance")
@@ -56,24 +55,31 @@ async def advance_import_job(
             status_code=202,
         )
 
+    settings = get_settings()
+    deadline = Deadline.start(settings.instagram_request_deadline_seconds)
     try:
-        released = checkpoint_job(
-            claimed.id,
-            claimed.lease_token,
-            claimed.version,
-            state=claimed.state.value,
-            next_advance_seconds=DEFAULT_NEXT_ADVANCE_SECONDS,
-            release_lease=True,
+        updated = await advance_instagram_job(claimed, deadline=deadline)
+    except Exception:
+        # A crash mid-advance leaves the job in whatever intent state it last
+        # checkpointed; the next advance call detects and terminalizes that
+        # state as ambiguous rather than repeating the external operation, so
+        # the safe response here is just the current snapshot.
+        logger.exception("Instagram job advance failed unexpectedly for %s", claimed.id)
+        return JSONResponse(
+            content=jsonable_encoder(
+                pending_response(claimed, now=datetime.now(timezone.utc))
+            ),
+            status_code=202,
         )
-    except ImportJobStorageError as error:
-        raise HTTPException(
-            status_code=503, detail="Job storage is unavailable"
-        ) from error
 
-    snapshot = released or claimed
+    if updated.state in TERMINAL_JOB_STATES:
+        return JSONResponse(
+            content=jsonable_encoder(terminal_response(updated)), status_code=200
+        )
+
     return JSONResponse(
         content=jsonable_encoder(
-            pending_response(snapshot, now=datetime.now(timezone.utc))
+            pending_response(updated, now=datetime.now(timezone.utc))
         ),
         status_code=202,
     )
