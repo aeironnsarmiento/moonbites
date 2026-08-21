@@ -98,6 +98,23 @@ def _https_url(value: Any) -> str:
     return value
 
 
+def _is_https_url(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme.casefold() == "https"
+        and bool(parsed.hostname)
+        and parsed.username is None
+        and parsed.password is None
+        and port is None
+    )
+
+
 def _content_url_matches(value: Any, identity: InstagramReelIdentity) -> bool:
     if not isinstance(value, str):
         return False
@@ -399,9 +416,12 @@ class ApifyClient:
             raw_urls.append(parsed_item.external_url)
         raw_urls.extend(entry.url for entry in parsed_item.external_urls)
 
+        # Real bios commonly mix in non-HTTPS links (e.g. a plain http://
+        # link-in-bio host); those are simply unusable candidates for the
+        # HTTPS-only downstream fetch, not a sign of a malformed provider
+        # response, so they are filtered out rather than failing the call.
         urls: list[str] = []
         for raw_url in raw_urls:
-            url = _https_url(raw_url)
-            if url not in urls:
-                urls.append(url)
+            if _is_https_url(raw_url) and raw_url not in urls:
+                urls.append(raw_url)
         return InstagramProfileMetadata(username=username, external_urls=tuple(urls))

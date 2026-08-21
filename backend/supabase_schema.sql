@@ -682,10 +682,10 @@ declare
   v_owner_count integer;
   v_global_count integer;
 begin
-  select * into v_job from public.instagram_import_jobs
-    where owner_email = p_owner_email
-      and canonical_reel_url = p_canonical_reel_url
-      and state not in ('succeeded', 'not_recipe', 'failed')
+  select * into v_job from public.instagram_import_jobs j
+    where j.owner_email = p_owner_email
+      and j.canonical_reel_url = p_canonical_reel_url
+      and j.state not in ('succeeded', 'not_recipe', 'failed')
     limit 1;
 
   if found then
@@ -693,15 +693,15 @@ begin
     return;
   end if;
 
-  select count(*) into v_owner_count from public.instagram_import_jobs
-    where owner_email = p_owner_email
-      and state not in ('succeeded', 'not_recipe', 'failed');
+  select count(*) into v_owner_count from public.instagram_import_jobs j
+    where j.owner_email = p_owner_email
+      and j.state not in ('succeeded', 'not_recipe', 'failed');
   if v_owner_count >= p_max_per_owner then
     raise exception 'owner_active_job_ceiling';
   end if;
 
-  select count(*) into v_global_count from public.instagram_import_jobs
-    where state not in ('succeeded', 'not_recipe', 'failed');
+  select count(*) into v_global_count from public.instagram_import_jobs j
+    where j.state not in ('succeeded', 'not_recipe', 'failed');
   if v_global_count >= p_max_global then
     raise exception 'global_active_job_ceiling';
   end if;
@@ -718,10 +718,10 @@ begin
     )
     returning * into v_job;
   exception when unique_violation then
-    select * into v_job from public.instagram_import_jobs
-      where owner_email = p_owner_email
-        and canonical_reel_url = p_canonical_reel_url
-        and state not in ('succeeded', 'not_recipe', 'failed')
+    select * into v_job from public.instagram_import_jobs j
+      where j.owner_email = p_owner_email
+        and j.canonical_reel_url = p_canonical_reel_url
+        and j.state not in ('succeeded', 'not_recipe', 'failed')
       limit 1;
     return query select v_job.*, 'reused'::text;
     return;

@@ -352,6 +352,7 @@ def test_profile_dataset_requires_matching_public_owner_and_allowlists_direct_li
                     "externalUrls": [
                         {"url": "https://linktr.ee/tasty", "title": "recipes"},
                         {"url": "https://tasty.co/recipes"},
+                        {"url": "http://plain-http-bio-link.example/tasty"},
                     ],
                     "private": False,
                     "biography": "must be ignored",
@@ -361,6 +362,8 @@ def test_profile_dataset_requires_matching_public_owner_and_allowlists_direct_li
 
     result = asyncio.run(_client(handler).get_profile_result(DATASET_ID, "tasty"))
     assert result.username == "Tasty"
+    # A real-world mixed-scheme bio link list: the plain-http entry is
+    # silently dropped rather than failing the whole profile.
     assert result.external_urls == (
         "https://tasty.co/",
         "https://linktr.ee/tasty",
@@ -374,11 +377,10 @@ def test_profile_dataset_requires_matching_public_owner_and_allowlists_direct_li
         {"username": "other", "externalUrl": "https://example.com", "private": False},
         {"username": "tasty", "externalUrl": "https://example.com", "private": True},
         {"username": "tasty", "externalUrl": 3, "private": False},
-        {"username": "tasty", "externalUrls": [{"url": "http://example.com"}], "private": False},
         {"username": "tasty", "error": "gone", "private": False},
     ],
 )
-def test_profile_adapter_rejects_identity_privacy_error_and_wrong_link_types(item):
+def test_profile_adapter_rejects_identity_privacy_and_error_rows(item):
     with pytest.raises(ApifyProviderError) as exc_info:
         asyncio.run(
             _client(lambda _request: _json_response([item])).get_profile_result(
@@ -391,6 +393,26 @@ def test_profile_adapter_rejects_identity_privacy_error_and_wrong_link_types(ite
         else ProviderErrorCode.PROVIDER_INVALID_RESPONSE
     )
     assert exc_info.value.code is expected
+
+
+def test_profile_adapter_filters_non_https_links_instead_of_failing():
+    # A real bio can be entirely non-HTTPS links; that is unusable for the
+    # HTTPS-only downstream fetch but is not itself a malformed response.
+    item = {
+        "username": "tasty",
+        "externalUrl": "http://example.com",
+        "externalUrls": [{"url": "http://also-plain.example"}],
+        "private": False,
+    }
+
+    result = asyncio.run(
+        _client(lambda _request: _json_response([item])).get_profile_result(
+            DATASET_ID, "tasty"
+        )
+    )
+
+    assert result.username == "tasty"
+    assert result.external_urls == ()
 
 
 @pytest.mark.parametrize(
