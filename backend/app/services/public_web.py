@@ -10,6 +10,9 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
 
+from ..core.config import get_settings
+from .http_utils import build_request_headers
+
 
 class PublicWebError(RuntimeError):
     """A safe-fetch policy violation, or the public resource is unavailable."""
@@ -160,6 +163,12 @@ async def safe_fetch(
     deadline = loop.time() + deadline_seconds
     requested_url = url
     current_url = url
+    # A realistic browser User-Agent/Accept set, matching the rest of the
+    # app's outbound fetches: many sites' baseline bot-protection silently
+    # serves a near-empty stub page to unidentified/default-httpx clients
+    # rather than an error, which would otherwise look like "no recipe here"
+    # instead of the request simply being fingerprinted as a bot.
+    browser_headers = build_request_headers(get_settings())
 
     for _hop in range(MAX_REDIRECTS + 1):
         remaining = deadline - loop.time()
@@ -180,7 +189,7 @@ async def safe_fetch(
                 request = client.build_request(
                     "GET",
                     pinned_url,
-                    headers={"Host": original_host},
+                    headers={**browser_headers, "Host": original_host},
                     extensions={"sni_hostname": original_host},
                 )
                 response = await client.send(request, stream=True)

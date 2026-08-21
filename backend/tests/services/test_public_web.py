@@ -94,6 +94,12 @@ def test_safe_fetch_resolves_once_and_pins_the_validated_address():
         assert request.url.host == "93.184.216.34"
         assert request.headers["host"] == "blog.example"
         assert request.extensions.get("sni_hostname") == "blog.example"
+        # A realistic browser identity, not httpx's default: some sites'
+        # baseline bot-protection silently serves a stub page to an
+        # unidentified client rather than an error.
+        assert "python-httpx" not in request.headers.get("user-agent", "")
+        assert request.headers.get("user-agent")
+        assert request.headers.get("accept")
         return _html_response()
 
     result = asyncio.run(
