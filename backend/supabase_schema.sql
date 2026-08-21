@@ -924,8 +924,13 @@ $$;
 revoke execute on function public.release_instagram_provider_admission(uuid)
   from anon, authenticated, public;
 
+-- The parameter list changed (p_min_age_seconds was added), so the previous
+-- single-argument overload has to go rather than linger alongside this one.
+drop function if exists public.reconcile_instagram_provider_admission(boolean);
+
 create or replace function public.reconcile_instagram_provider_admission(
-  p_dry_run boolean
+  p_dry_run boolean,
+  p_min_age_seconds integer default null
 ) returns setof public.instagram_provider_admission
 language plpgsql
 security invoker
@@ -937,7 +942,12 @@ begin
       select a.* from public.instagram_provider_admission a
       left join public.instagram_import_jobs j on j.id = a.active_job_id
       where a.active_job_id is not null
-        and (j.id is null or j.state in ('succeeded', 'not_recipe', 'failed'));
+        and (j.id is null or j.state in ('succeeded', 'not_recipe', 'failed'))
+        and (
+          p_min_age_seconds is null
+          or a.reserved_at < timezone('utc', now())
+             - make_interval(secs => p_min_age_seconds)
+        );
     return;
   end if;
 
@@ -952,13 +962,18 @@ begin
         left join public.instagram_import_jobs j on j.id = a2.active_job_id
         where a2.active_job_id is not null
           and (j.id is null or j.state in ('succeeded', 'not_recipe', 'failed'))
+          and (
+            p_min_age_seconds is null
+            or a2.reserved_at < timezone('utc', now())
+               - make_interval(secs => p_min_age_seconds)
+          )
       ) as stale
      where a.id = stale.id
     returning a.*;
 end;
 $$;
 
-revoke execute on function public.reconcile_instagram_provider_admission(boolean)
+revoke execute on function public.reconcile_instagram_provider_admission(boolean, integer)
   from anon, authenticated, public;
 
 create or replace function public.terminalize_stale_instagram_import_jobs(

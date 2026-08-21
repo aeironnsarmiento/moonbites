@@ -208,11 +208,20 @@ def release_provider_admission(job_id: str) -> bool:
     return bool(response.data)
 
 
-def reconcile_provider_admission(*, dry_run: bool = True) -> list[dict]:
+def reconcile_provider_admission(
+    *, dry_run: bool = True, min_age_seconds: Optional[int] = None
+) -> list[dict]:
+    """Clear an admission slot whose holder job is terminal or gone.
+
+    `min_age_seconds` gates the reclaim on how long the slot has been held,
+    so an ambiguous holder is only reclaimed once its Actor run could no
+    longer be in flight. `None` (the ops-sweep default) applies no age gate.
+    """
     client = _client()
     try:
         response = client.rpc(
-            "reconcile_instagram_provider_admission", {"p_dry_run": dry_run}
+            "reconcile_instagram_provider_admission",
+            {"p_dry_run": dry_run, "p_min_age_seconds": min_age_seconds},
         ).execute()
     except Exception as error:
         raise ImportJobStorageError(

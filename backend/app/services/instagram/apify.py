@@ -231,7 +231,14 @@ class ApifyClient:
         except (UnicodeDecodeError, json.JSONDecodeError):
             _fail(ProviderErrorCode.PROVIDER_INVALID_RESPONSE)
 
-    async def _preflight_spend(self) -> None:
+    async def preflight_spend(self) -> None:
+        """Read-only spend guard. Issues three GETs and starts no Actor run.
+
+        Exposed separately from `start_reel`/`start_profile` so a caller can
+        run it *before* committing to the non-idempotent run-creating POST: a
+        failure here provably charged nothing and left nothing in flight, so
+        it must not be treated as an ambiguous external operation.
+        """
         account = _data(await self._request_json("GET", "/v2/users/me"))
         plan = _mapping(account.get("plan"))
         if (
@@ -261,8 +268,11 @@ class ApifyClient:
         if current_usage >= APPLICATION_USAGE_STOP_USD:
             _fail(ProviderErrorCode.PROVIDER_UNAVAILABLE)
 
-    async def start_reel(self, identity: InstagramReelIdentity) -> ApifyRun:
-        await self._preflight_spend()
+    async def start_reel(
+        self, identity: InstagramReelIdentity, *, preflighted: bool = False
+    ) -> ApifyRun:
+        if not preflighted:
+            await self.preflight_spend()
         payload = await self._request_json(
             "POST",
             f"/v2/actors/{REEL_ACTOR_ID}/runs",
@@ -283,10 +293,13 @@ class ApifyClient:
         )
         return self._adapt_run(payload)
 
-    async def start_profile(self, username: str) -> ApifyRun:
+    async def start_profile(
+        self, username: str, *, preflighted: bool = False
+    ) -> ApifyRun:
         if not isinstance(username, str) or not _USERNAME_RE.fullmatch(username):
             _fail(ProviderErrorCode.PROVIDER_INVALID_RESPONSE)
-        await self._preflight_spend()
+        if not preflighted:
+            await self.preflight_spend()
         payload = await self._request_json(
             "POST",
             f"/v2/actors/{PROFILE_ACTOR_ID}/runs",

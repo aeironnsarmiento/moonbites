@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -8,6 +9,7 @@ import httpx
 import pytest
 
 from app.core.config import Settings
+from app.repositories.import_jobs import ImportJobStorageError
 from app.schemas.extract import NormalizedRecipe
 from app.schemas.import_jobs import ImportJobErrorCode, ImportJobRecord, ImportJobState
 from app.services.gemini.recipe_parser import ParsedCaption
@@ -97,15 +99,21 @@ def _preflight_response(request: httpx.Request):
 
 
 class _ApifyScript:
-    """Routes Apify calls by path; unhandled paths raise AssertionError."""
+    """Routes Apify calls by path; unhandled paths raise AssertionError.
 
-    def __init__(self, **handlers):
+    `preflight` overrides the default healthy spend-preflight responder so a
+    test can fail the read-only preflight leg on its own, independently of the
+    run-creating POST.
+    """
+
+    def __init__(self, preflight=_preflight_response, **handlers):
         self.handlers = handlers
+        self.preflight = preflight
         self.calls: list[str] = []
 
     def __call__(self, request: httpx.Request):
         self.calls.append(request.url.path)
-        if response := _preflight_response(request):
+        if response := self.preflight(request):
             return response
         for pattern, handler in self.handlers.items():
             if pattern in request.url.path:
@@ -252,6 +260,10 @@ def test_queued_stays_queued_when_admission_busy():
             "app.services.instagram.import_job.reserve_provider_admission",
             return_value=False,
         ),
+        patch(
+            "app.services.instagram.import_job.reconcile_provider_admission",
+            return_value=[],
+        ) as reconcile,
         patch("app.services.instagram.import_job.checkpoint_job") as checkpoint,
     ):
         checkpoint.return_value = job
@@ -259,6 +271,74 @@ def test_queued_stays_queued_when_admission_busy():
 
     assert result.state == ImportJobState.QUEUED
     assert checkpoint.call_args.kwargs["state"] == "queued"
+    # Nothing was reclaimable, so the live holder keeps its slot.
+    reconcile.assert_called_once()
+
+
+def test_queued_reclaims_a_stale_admission_slot_and_retries_the_reserve():
+    """A slot held by a long-dead job must not block every later import.
+
+    This is the deadlock that required a manual cleanup script to clear.
+    """
+    job = _job()
+    script = _ApifyScript(
+        **{f"/actors/{REEL_ACTOR_ID}/runs": lambda r: _run_response()},
+    )
+    checkpoints: list[dict] = []
+
+    def _checkpoint(*_args, **kwargs):
+        checkpoints.append(kwargs)
+        return job.model_copy(update={"state": ImportJobState(kwargs["state"])})
+
+    with (
+        patch(
+            "app.services.instagram.import_job.find_existing_recipe_by_canonical_url",
+            return_value=None,
+        ),
+        patch(
+            "app.services.instagram.import_job.reserve_provider_admission",
+            side_effect=[False, True],
+        ) as reserve,
+        patch(
+            "app.services.instagram.import_job.reconcile_provider_admission",
+            return_value=[{"id": True}],
+        ) as reconcile,
+        patch("app.services.instagram.import_job.checkpoint_job", side_effect=_checkpoint),
+    ):
+        deps = OrchestrationDeps(apify_transport=httpx.MockTransport(script))
+        result = _run_advance(job, deps=deps)
+
+    assert reconcile.call_args.kwargs["dry_run"] is False
+    # Only reclaimable once the Actor's own timeout has provably elapsed.
+    assert reconcile.call_args.kwargs["min_age_seconds"] == 180
+    assert reserve.call_count == 2
+    assert [c["state"] for c in checkpoints] == ["starting_reel", "waiting_reel"]
+    assert result.state == ImportJobState.WAITING_REEL
+
+
+def test_queued_survives_a_reconcile_storage_error():
+    """A failed reclaim degrades to today's behaviour, it does not crash."""
+    job = _job()
+
+    with (
+        patch(
+            "app.services.instagram.import_job.find_existing_recipe_by_canonical_url",
+            return_value=None,
+        ),
+        patch(
+            "app.services.instagram.import_job.reserve_provider_admission",
+            return_value=False,
+        ),
+        patch(
+            "app.services.instagram.import_job.reconcile_provider_admission",
+            side_effect=ImportJobStorageError("supabase down"),
+        ),
+        patch("app.services.instagram.import_job.checkpoint_job") as checkpoint,
+    ):
+        checkpoint.return_value = job
+        result = _run_advance(job)
+
+    assert result.state == ImportJobState.QUEUED
 
 
 def test_queued_fails_resolution_timeout_when_no_budget():
@@ -311,7 +391,13 @@ def test_queued_starts_reel_actor_and_checkpoints_waiting_reel():
     assert result.state == ImportJobState.WAITING_REEL
 
 
-def test_queued_actor_start_failure_is_ambiguous_and_keeps_admission():
+def test_queued_preflight_failure_releases_admission():
+    """The spend preflight is three read-only GETs that start no Actor run.
+
+    Failing there provably charged nothing, so the global admission slot must
+    be handed back rather than held -- holding it used to wedge every later
+    import for every user until an operator cleared it by hand.
+    """
     job = _job()
 
     def _explode(_request):
@@ -338,9 +424,123 @@ def test_queued_actor_start_failure_is_ambiguous_and_keeps_admission():
         deps = OrchestrationDeps(apify_transport=httpx.MockTransport(_explode))
         result = _run_advance(job, deps=deps)
 
+    # It never reached the irreversible call, so it never claimed the intent.
+    assert [c["state"] for c in checkpoints] == ["failed"]
+    assert checkpoints[-1]["error_code"] == "provider_unavailable"
+    release.assert_called_once_with("job-1")
+    assert result.state == ImportJobState.FAILED
+
+
+def test_queued_actor_start_failure_is_ambiguous_and_keeps_admission():
+    """Only the run-creating POST is genuinely ambiguous.
+
+    The preflight succeeds here and just the POST fails, so the Actor may or
+    may not have started -- the slot stays reserved so no second concurrent
+    run can be launched against it.
+    """
+    job = _job()
+
+    def _explode(request):
+        raise httpx.ConnectError("boom", request=request)
+
+    script = _ApifyScript(**{f"/actors/{REEL_ACTOR_ID}/runs": _explode})
+    checkpoints: list[dict] = []
+
+    def _checkpoint(*_args, **kwargs):
+        checkpoints.append(kwargs)
+        return job.model_copy(update={"state": ImportJobState(kwargs["state"])})
+
+    with (
+        patch(
+            "app.services.instagram.import_job.find_existing_recipe_by_canonical_url",
+            return_value=None,
+        ),
+        patch(
+            "app.services.instagram.import_job.reserve_provider_admission",
+            return_value=True,
+        ),
+        patch("app.services.instagram.import_job.checkpoint_job", side_effect=_checkpoint),
+        patch("app.services.instagram.import_job.release_provider_admission") as release,
+    ):
+        deps = OrchestrationDeps(apify_transport=httpx.MockTransport(script))
+        result = _run_advance(job, deps=deps)
+
+    assert [c["state"] for c in checkpoints] == ["starting_reel", "failed"]
     assert checkpoints[-1]["error_code"] == "ambiguous_external_operation"
     release.assert_not_called()
     assert result.state == ImportJobState.FAILED
+    # Exactly one preflight ran, and it ran before the start.
+    assert script.calls.count("/v2/users/me/usage/monthly") == 1
+
+
+def test_queued_preflights_exactly_once_before_starting_the_reel():
+    """Guards the `preflighted=True` hand-off: the caps must not be skipped,
+    and must not be paid for twice either."""
+    job = _job()
+    script = _ApifyScript(
+        **{f"/actors/{REEL_ACTOR_ID}/runs": lambda r: _run_response()},
+    )
+
+    def _checkpoint(*_args, **kwargs):
+        return job.model_copy(update={"state": ImportJobState(kwargs["state"])})
+
+    with (
+        patch(
+            "app.services.instagram.import_job.find_existing_recipe_by_canonical_url",
+            return_value=None,
+        ),
+        patch(
+            "app.services.instagram.import_job.reserve_provider_admission",
+            return_value=True,
+        ),
+        patch("app.services.instagram.import_job.checkpoint_job", side_effect=_checkpoint),
+    ):
+        deps = OrchestrationDeps(apify_transport=httpx.MockTransport(script))
+        _run_advance(job, deps=deps)
+
+    for path in ("/v2/users/me", "/v2/users/me/limits", "/v2/users/me/usage/monthly"):
+        assert script.calls.count(path) == 1, path
+    assert script.calls[-1] == f"/v2/actors/{REEL_ACTOR_ID}/runs"
+
+
+def test_queued_spend_cap_rejection_releases_admission():
+    """A refusal from the spend cap is a clean 'did not start', not ambiguity."""
+    job = _job()
+
+    def _capped_preflight(request: httpx.Request):
+        if request.url.path == "/v2/users/me/usage/monthly":
+            return _json_response(
+                {"data": {"totalUsageCreditsUsdAfterVolumeDiscount": 4.5}}
+            )
+        return _preflight_response(request)
+
+    script = _ApifyScript(preflight=_capped_preflight)
+    checkpoints: list[dict] = []
+
+    def _checkpoint(*_args, **kwargs):
+        checkpoints.append(kwargs)
+        return job.model_copy(update={"state": ImportJobState(kwargs["state"])})
+
+    with (
+        patch(
+            "app.services.instagram.import_job.find_existing_recipe_by_canonical_url",
+            return_value=None,
+        ),
+        patch(
+            "app.services.instagram.import_job.reserve_provider_admission",
+            return_value=True,
+        ),
+        patch("app.services.instagram.import_job.checkpoint_job", side_effect=_checkpoint),
+        patch("app.services.instagram.import_job.release_provider_admission") as release,
+    ):
+        deps = OrchestrationDeps(apify_transport=httpx.MockTransport(script))
+        result = _run_advance(job, deps=deps)
+
+    assert [c["state"] for c in checkpoints] == ["failed"]
+    assert checkpoints[-1]["error_code"] == "provider_unavailable"
+    release.assert_called_once_with("job-1")
+    assert result.state == ImportJobState.FAILED
+    assert f"/v2/actors/{REEL_ACTOR_ID}/runs" not in script.calls
 
 
 # --- stale intent states ------------------------------------------------------
@@ -631,6 +831,10 @@ def test_resolving_recipe_stays_put_when_profile_admission_busy():
             "app.services.instagram.import_job.reserve_provider_admission",
             return_value=False,
         ),
+        patch(
+            "app.services.instagram.import_job.reconcile_provider_admission",
+            return_value=[],
+        ),
     ):
         checkpoint.return_value = job
         deps = OrchestrationDeps(apify_transport=httpx.MockTransport(script))
@@ -638,6 +842,109 @@ def test_resolving_recipe_stays_put_when_profile_admission_busy():
 
     assert checkpoint.call_args.kwargs["state"] == "resolving_recipe"
     assert result.state == ImportJobState.RESOLVING_RECIPE
+
+
+def test_resolving_recipe_preflight_failure_releases_profile_admission():
+    """Same split on the profile leg: a preflight failure started no run."""
+    job = _job(
+        state=ImportJobState.RESOLVING_RECIPE,
+        reel_dataset_id="dataset1",
+        candidate_name="Miso Salmon Rice",
+    )
+
+    def _failing_preflight(request: httpx.Request):
+        if request.url.path.startswith("/v2/users/me"):
+            return _json_response({"error": "nope"}, 500)
+        return None
+
+    script = _ApifyScript(
+        preflight=_failing_preflight,
+        **{"/datasets/dataset1/items": lambda r: _reel_dataset_response(caption="no links here")},
+    )
+    checkpoints: list[dict] = []
+
+    def _checkpoint(*_args, **kwargs):
+        checkpoints.append(kwargs)
+        return job.model_copy(update={"state": ImportJobState(kwargs["state"])})
+
+    with (
+        patch("app.services.instagram.import_job.checkpoint_job", side_effect=_checkpoint),
+        patch(
+            "app.services.instagram.import_job.reserve_provider_admission",
+            return_value=True,
+        ),
+        patch("app.services.instagram.import_job.release_provider_admission") as release,
+    ):
+        deps = OrchestrationDeps(apify_transport=httpx.MockTransport(script))
+        result = _run_advance(job, deps=deps)
+
+    assert [c["state"] for c in checkpoints] == ["failed"]
+    assert checkpoints[-1]["error_code"] == "provider_unavailable"
+    release.assert_called_once_with("job-1")
+    assert result.state == ImportJobState.FAILED
+    assert f"/v2/actors/{PROFILE_ACTOR_ID}/runs" not in script.calls
+
+
+def test_resolving_recipe_profile_post_failure_holds_admission():
+    job = _job(
+        state=ImportJobState.RESOLVING_RECIPE,
+        reel_dataset_id="dataset1",
+        candidate_name="Miso Salmon Rice",
+    )
+
+    def _explode(request):
+        raise httpx.ConnectError("boom", request=request)
+
+    script = _ApifyScript(
+        **{
+            "/datasets/dataset1/items": lambda r: _reel_dataset_response(
+                caption="no links here"
+            ),
+            f"/actors/{PROFILE_ACTOR_ID}/runs": _explode,
+        }
+    )
+    checkpoints: list[dict] = []
+
+    def _checkpoint(*_args, **kwargs):
+        checkpoints.append(kwargs)
+        return job.model_copy(update={"state": ImportJobState(kwargs["state"])})
+
+    with (
+        patch("app.services.instagram.import_job.checkpoint_job", side_effect=_checkpoint),
+        patch(
+            "app.services.instagram.import_job.reserve_provider_admission",
+            return_value=True,
+        ),
+        patch("app.services.instagram.import_job.release_provider_admission") as release,
+    ):
+        deps = OrchestrationDeps(apify_transport=httpx.MockTransport(script))
+        result = _run_advance(job, deps=deps)
+
+    assert [c["state"] for c in checkpoints] == ["starting_profile", "failed"]
+    assert checkpoints[-1]["error_code"] == "ambiguous_external_operation"
+    release.assert_not_called()
+    assert result.state == ImportJobState.FAILED
+
+
+def test_polling_state_with_invalid_configuration_terminalizes_instead_of_spinning():
+    """A handler that builds its client outside a try must still terminalize.
+
+    Previously the ApifyProviderError escaped to the route, which checkpoints
+    nothing and answers 202, so the job spun in its state forever.
+    """
+    job = _job(state=ImportJobState.WAITING_REEL, reel_run_id="runreel1")
+    broken = replace(_settings(), instagram_apify_token="")
+
+    with (
+        patch("app.services.instagram.import_job.checkpoint_job") as checkpoint,
+        patch("app.services.instagram.import_job.get_settings", return_value=broken),
+        patch("app.services.instagram.import_job.release_provider_admission"),
+    ):
+        checkpoint.return_value = job.model_copy(update={"state": ImportJobState.FAILED})
+        result = asyncio.run(advance_instagram_job(job, deadline=_deadline()))
+
+    assert checkpoint.call_args.kwargs["error_code"] == "provider_unavailable"
+    assert result.state == ImportJobState.FAILED
 
 
 # --- waiting_profile -------------------------------------------------------------

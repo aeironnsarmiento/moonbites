@@ -9,8 +9,10 @@ from fastapi import HTTPException
 
 from ...core.config import Settings, get_settings
 from ...repositories.import_jobs import (
+    ImportJobStorageError,
     checkpoint_job,
     find_existing_recipe_by_canonical_url,
+    reconcile_provider_admission,
     reserve_provider_admission,
     release_provider_admission,
 )
@@ -42,6 +44,11 @@ from ..import_deadline import Deadline, DeadlineExceededError
 
 POLL_RETRY_SECONDS = 7
 STALE_WINDOW_SECONDS = 30 * 60
+# How long past an Actor's own timeout a held admission slot must sit before
+# another job may reclaim it. The slot is only ever reclaimed from a *terminal*
+# holder; this grace keeps the fail-closed promise that no second run starts
+# while the first one could still be executing server-side.
+ADMISSION_RECLAIM_GRACE_SECONDS = 60
 NOT_RECIPE_MESSAGE = (
     "Moonbites could not find one complete, confidently matching recipe."
 )
@@ -194,15 +201,64 @@ def _cleanup_orphaned_thumbnail(storage_path: Optional[str], settings: Settings)
         )
 
 
+def _reserve_with_reclaim(
+    job_id: str,
+    run_kind: str,
+    max_charge_usd: float,
+    *,
+    actor_timeout_seconds: float,
+) -> bool:
+    """Reserve the singleton admission slot, reclaiming a dead one if needed.
+
+    A job that crashed or failed ambiguously at its intent checkpoint keeps
+    the slot reserved on purpose, so without this every later import would
+    queue behind it forever. Reclaim is limited to holders that are already
+    terminal *and* older than the Actor timeout plus a grace window.
+    """
+    if reserve_provider_admission(job_id, run_kind, max_charge_usd):
+        return True
+
+    reclaim_after = int(actor_timeout_seconds) + ADMISSION_RECLAIM_GRACE_SECONDS
+    try:
+        reclaimed = reconcile_provider_admission(
+            dry_run=False, min_age_seconds=reclaim_after
+        )
+    except ImportJobStorageError:
+        # Reclaim is opportunistic; a storage failure just leaves the job
+        # queued for its next poll rather than failing the advance.
+        logger.warning("Could not reconcile the provider admission slot for %s.", job_id)
+        return False
+    if not reclaimed:
+        return False
+
+    logger.warning(
+        "Job %s reclaimed a stale Instagram provider admission slot "
+        "(%d) held by a terminal job for over %ss.",
+        job_id,
+        len(reclaimed),
+        reclaim_after,
+    )
+    return reserve_provider_admission(job_id, run_kind, max_charge_usd)
+
+
 async def _fail(
     job: ImportJobRecord, error_code: ImportJobErrorCode, *, release_admission: bool = True
 ) -> ImportJobRecord:
-    updated = await _checkpoint(
+    # The admission slot is released *before* the terminal checkpoint: if the
+    # checkpoint were to fail afterwards the release would never run and the
+    # slot would leak, wedging every later import. Freeing it early is the
+    # safe direction -- the slot is keyed on this job id, so the worst case is
+    # an already-free slot for a job that then retries.
+    if release_admission:
+        try:
+            release_provider_admission(job.id)
+        except ImportJobStorageError:
+            logger.warning(
+                "Could not release the provider admission slot for job %s.", job.id
+            )
+    return await _checkpoint(
         job, state=ImportJobState.FAILED, error_code=error_code, release_lease=True
     )
-    if release_admission:
-        release_provider_admission(job.id)
-    return updated
 
 
 async def _not_recipe(job: ImportJobRecord, identity: InstagramReelIdentity) -> ImportJobRecord:
@@ -251,20 +307,42 @@ async def _handle_queued(
         )
 
     settings = get_settings()
-    if not reserve_provider_admission(
-        job.id, "reel", float(REEL_MAX_CHARGE_USD)
+    if not _reserve_with_reclaim(
+        job.id,
+        "reel",
+        float(REEL_MAX_CHARGE_USD),
+        actor_timeout_seconds=settings.instagram_reel_actor_timeout_seconds,
     ):
         return await _checkpoint(
             job, state=ImportJobState.QUEUED, next_advance_seconds=POLL_RETRY_SECONDS,
             release_lease=True,
         )
 
+    # Everything up to the run-creating POST is side-effect free: building the
+    # client only validates configuration, and the spend preflight is three
+    # read-only GETs. Failing here charged nothing and started nothing, so the
+    # admission slot is released rather than burned.
+    try:
+        client = _apify_client(settings, deps)
+        await client.preflight_spend()
+    except ApifyProviderError as error:
+        logger.warning(
+            "Instagram job %s could not start a reel run: %s", job.id, error.code.value
+        )
+        return await _fail(job, _map_apify_error(error))
+    except Exception:
+        logger.exception("Instagram job %s hit an unexpected reel preflight failure", job.id)
+        return await _fail(job, ImportJobErrorCode.PROVIDER_UNAVAILABLE)
+
     job = await _checkpoint(job, state=ImportJobState.STARTING_REEL)
 
     try:
-        client = _apify_client(settings, deps)
-        run = await client.start_reel(identity)
+        run = await client.start_reel(identity, preflighted=True)
     except Exception:
+        logger.exception(
+            "Instagram job %s left the reel Actor start ambiguous; holding admission",
+            job.id,
+        )
         return await _fail(
             job, ImportJobErrorCode.AMBIGUOUS_EXTERNAL_OPERATION, release_admission=False
         )
@@ -285,7 +363,13 @@ async def _handle_stale_intent_state(
     the job here; the external operation's outcome is unknown, so this is
     always terminal -- it is never re-entered as a fresh transition. Any
     provider admission this job holds is left reserved for stale cleanup
-    rather than released, since an Actor may genuinely have started."""
+    rather than released, since an Actor may genuinely have started. The
+    reclaim path in `_reserve_with_reclaim` is what eventually frees it."""
+    logger.warning(
+        "Instagram job %s resumed in intent state %s; terminalizing as ambiguous.",
+        job.id,
+        job.state.value,
+    )
     return await _fail(
         job, ImportJobErrorCode.AMBIGUOUS_EXTERNAL_OPERATION, release_admission=False
     )
@@ -470,17 +554,43 @@ async def _handle_resolving_recipe(
     if not deadline.has_budget_for_side_effect():
         return await _fail(job, ImportJobErrorCode.RESOLUTION_TIMEOUT)
 
-    if not reserve_provider_admission(job.id, "profile", float(PROFILE_MAX_CHARGE_USD)):
+    if not _reserve_with_reclaim(
+        job.id,
+        "profile",
+        float(PROFILE_MAX_CHARGE_USD),
+        actor_timeout_seconds=settings.instagram_profile_actor_timeout_seconds,
+    ):
         return await _checkpoint(
             job, state=ImportJobState.RESOLVING_RECIPE,
             next_advance_seconds=POLL_RETRY_SECONDS, release_lease=True,
         )
 
+    # Side-effect-free prologue, as in _handle_queued: a preflight failure
+    # started no Actor run, so it must not burn the admission slot.
+    try:
+        await client.preflight_spend()
+    except ApifyProviderError as error:
+        logger.warning(
+            "Instagram job %s could not start a profile run: %s",
+            job.id,
+            error.code.value,
+        )
+        return await _fail(job, _map_apify_error(error))
+    except Exception:
+        logger.exception(
+            "Instagram job %s hit an unexpected profile preflight failure", job.id
+        )
+        return await _fail(job, ImportJobErrorCode.PROVIDER_UNAVAILABLE)
+
     job = await _checkpoint(job, state=ImportJobState.STARTING_PROFILE)
 
     try:
-        run = await client.start_profile(reel.owner_username)
+        run = await client.start_profile(reel.owner_username, preflighted=True)
     except Exception:
+        logger.exception(
+            "Instagram job %s left the profile Actor start ambiguous; holding admission",
+            job.id,
+        )
         return await _fail(
             job, ImportJobErrorCode.AMBIGUOUS_EXTERNAL_OPERATION, release_admission=False
         )
@@ -674,3 +784,15 @@ async def advance_instagram_job(
         return await handler(job, deadline=deadline, deps=resolved_deps)
     except DeadlineExceededError:
         return await _fail(job, ImportJobErrorCode.RESOLUTION_TIMEOUT)
+    except ApifyProviderError as error:
+        # Reaching here means a handler built its ApifyClient outside a try --
+        # configuration validation only, with no request issued. Without this
+        # the error escapes to the route, which checkpoints nothing and
+        # answers 202, leaving the job to spin in its state forever.
+        logger.warning(
+            "Instagram job %s failed in state %s before any provider call: %s",
+            job.id,
+            job.state.value,
+            error.code.value,
+        )
+        return await _fail(job, _map_apify_error(error))
