@@ -5,7 +5,7 @@ import ipaddress
 import re
 import socket
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
@@ -45,6 +45,37 @@ IMAGE_POLICY = FetchPolicy(
     ),
     max_bytes=5 * 1024 * 1024,
 )
+
+
+def upgrade_to_https(value: Any) -> Optional[str]:
+    """Accepts a direct https:// URL as-is, or upgrades a plain http:// one to
+    https:// by rewriting the scheme -- never by issuing a cleartext request.
+    A bare http:// link in third-party content almost always still serves
+    https (frequently via an immediate redirect, sometimes with HSTS), and
+    the downstream fetch is https-only regardless; rewriting the scheme
+    string here means a stale http-only host still fails closed on connect,
+    exactly as it would if it had been written as https:// to begin with.
+    Anything that isn't a well-formed http(s) URL is dropped, not upgraded.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return None
+    scheme = parsed.scheme.casefold()
+    if (
+        scheme not in ("http", "https")
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is not None
+    ):
+        return None
+    if scheme == "https":
+        return value
+    return urlunsplit(("https", parsed.netloc, parsed.path, parsed.query, parsed.fragment))
 
 
 @dataclass(frozen=True)

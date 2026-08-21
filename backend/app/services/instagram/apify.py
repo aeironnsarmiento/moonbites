@@ -4,12 +4,13 @@ import json
 import re
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Optional
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 import httpx
 from pydantic import ValidationError
 
 from ...core.config import Settings
+from ..public_web import upgrade_to_https
 from .models import (
     ApifyProviderError,
     ApifyProfileItem,
@@ -96,37 +97,6 @@ def _https_url(value: Any) -> str:
     ):
         _fail(ProviderErrorCode.PROVIDER_INVALID_RESPONSE)
     return value
-
-
-def _upgrade_to_https(value: Any) -> Optional[str]:
-    """Accepts a direct https:// URL as-is, or upgrades a plain http:// one to
-    https:// by rewriting the scheme -- never by issuing a cleartext request.
-    A bare http:// link in third-party profile metadata almost always still
-    serves https (frequently via an immediate redirect, sometimes with HSTS),
-    and the downstream fetch is https-only regardless; rewriting the scheme
-    string here means a stale http-only host still fails closed on connect,
-    exactly as it would if it had been written as https:// to begin with.
-    Anything that isn't a well-formed http(s) URL is dropped, not upgraded.
-    """
-    if not isinstance(value, str):
-        return None
-    try:
-        parsed = urlsplit(value)
-        port = parsed.port
-    except ValueError:
-        return None
-    scheme = parsed.scheme.casefold()
-    if (
-        scheme not in ("http", "https")
-        or not parsed.hostname
-        or parsed.username is not None
-        or parsed.password is not None
-        or port is not None
-    ):
-        return None
-    if scheme == "https":
-        return value
-    return urlunsplit(("https", parsed.netloc, parsed.path, parsed.query, parsed.fragment))
 
 
 def _content_url_matches(value: Any, identity: InstagramReelIdentity) -> bool:
@@ -437,7 +407,7 @@ class ApifyClient:
         # actual cleartext request.
         urls: list[str] = []
         for raw_url in raw_urls:
-            upgraded = _upgrade_to_https(raw_url)
+            upgraded = upgrade_to_https(raw_url)
             if upgraded is not None and upgraded not in urls:
                 urls.append(upgraded)
         return InstagramProfileMetadata(username=username, external_urls=tuple(urls))

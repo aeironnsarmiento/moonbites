@@ -161,7 +161,7 @@ def _run(url: str, *clients, gemini, blog=None):
             new=gemini,
         ),
         patch(
-            "app.services.tiktok.extractor.extract_blog_recipes_from_url",
+            "app.services.tiktok.extractor.extract_blog_recipes_from_safe_url",
             new=blog or AsyncMock(),
         ),
     ]

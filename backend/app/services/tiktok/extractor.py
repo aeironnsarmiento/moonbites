@@ -10,10 +10,7 @@ from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
 from ...core.config import Settings, get_settings
-from ..blog.extractor import (
-    extract_recipes_from_url as extract_blog_recipes_from_url,
-    normalize_url,
-)
+from ..blog.extractor import extract_blog_recipes_from_safe_url, normalize_url
 from ..extraction_types import ExtractionResult, ParseStatus
 from ..gemini.recipe_parser import ParsedCaption, parse_caption_with_gemini
 from ..http_utils import build_request_headers, get_with_403_retry
@@ -290,7 +287,7 @@ async def _extract_first_recipe_link(
 ) -> Optional[ExtractionResult]:
     for recipe_url in extract_ranked_recipe_urls(caption):
         try:
-            result = await extract_blog_recipes_from_url(recipe_url)
+            result = await extract_blog_recipes_from_safe_url(recipe_url)
         except HTTPException:
             continue
         except Exception:  # pragma: no cover - defensive network fallback

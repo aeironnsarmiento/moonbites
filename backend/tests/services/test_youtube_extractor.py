@@ -136,7 +136,7 @@ def _run(url: str, response, *, gemini, blog=None):
             new=gemini,
         ),
         patch(
-            "app.services.youtube.extractor.extract_blog_recipes_from_url",
+            "app.services.youtube.extractor.extract_blog_recipes_from_safe_url",
             new=blog or AsyncMock(),
         ),
     ):

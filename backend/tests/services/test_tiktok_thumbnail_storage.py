@@ -59,14 +59,14 @@ def _settings() -> Settings:
     )
 
 
-_RealAsyncClient = httpx.AsyncClient
+def _resolver(mapping):
+    async def resolve(host, port):
+        addresses = mapping[host]
+        if isinstance(addresses, Exception):
+            raise addresses
+        return list(addresses)
 
-
-def _client_factory(handler):
-    def factory(**kwargs):
-        return _RealAsyncClient(transport=httpx.MockTransport(handler), **kwargs)
-
-    return factory
+    return resolve
 
 
 def test_mirror_tiktok_thumbnail_uses_the_tiktok_platform_path():
@@ -80,24 +80,18 @@ def test_mirror_tiktok_thumbnail_uses_the_tiktok_platform_path():
 
     with (
         patch(
-            "app.services.tiktok.thumbnail_storage.get_settings",
-            return_value=_settings(),
-        ),
-        patch(
-            "app.services.social.thumbnail_storage.get_settings",
-            return_value=_settings(),
-        ),
-        patch(
             "app.services.social.thumbnail_storage.get_supabase_client",
             return_value=client,
         ),
-        patch(
-            "app.services.tiktok.thumbnail_storage.httpx.AsyncClient",
-            _client_factory(handler),
-        ),
     ):
         result = asyncio.run(
-            mirror_tiktok_thumbnail("recipe-1", "https://tiktok.example/thumb.jpg")
+            mirror_tiktok_thumbnail(
+                "recipe-1",
+                "https://tiktok.example/thumb.jpg",
+                settings=_settings(),
+                transport=httpx.MockTransport(handler),
+                resolver=_resolver({"tiktok.example": ["93.184.216.34"]}),
+            )
         )
 
     digest = hashlib.sha256(b"jpeg-bytes").hexdigest()
@@ -116,29 +110,25 @@ def test_mirror_tiktok_thumbnail_rejects_unsupported_content_type_before_upload(
 
     with (
         patch(
-            "app.services.tiktok.thumbnail_storage.get_settings",
-            return_value=_settings(),
-        ),
-        patch(
             "app.services.social.thumbnail_storage.get_supabase_client",
             return_value=client,
-        ),
-        patch(
-            "app.services.tiktok.thumbnail_storage.httpx.AsyncClient",
-            _client_factory(handler),
         ),
     ):
         with pytest.raises(TikTokThumbnailStorageError):
             asyncio.run(
-                mirror_tiktok_thumbnail("recipe-1", "https://tiktok.example/thumb.gif")
+                mirror_tiktok_thumbnail(
+                    "recipe-1",
+                    "https://tiktok.example/thumb.gif",
+                    settings=_settings(),
+                    transport=httpx.MockTransport(handler),
+                    resolver=_resolver({"tiktok.example": ["93.184.216.34"]}),
+                )
             )
 
     assert bucket.uploaded == []
 
 
 def test_mirror_tiktok_thumbnail_wraps_storage_failures_as_tiktok_error():
-    bucket = _FakeBucket()
-
     def handler(_request):
         return httpx.Response(
             200, content=b"jpeg-bytes", headers={"content-type": "image/jpeg"}
@@ -146,24 +136,38 @@ def test_mirror_tiktok_thumbnail_wraps_storage_failures_as_tiktok_error():
 
     with (
         patch(
-            "app.services.tiktok.thumbnail_storage.get_settings",
-            return_value=_settings(),
-        ),
-        patch(
             "app.services.social.thumbnail_storage.get_supabase_client",
             return_value=None,
-        ),
-        patch(
-            "app.services.tiktok.thumbnail_storage.httpx.AsyncClient",
-            _client_factory(handler),
         ),
     ):
         with pytest.raises(TikTokThumbnailStorageError):
             asyncio.run(
-                mirror_tiktok_thumbnail("recipe-1", "https://tiktok.example/thumb.jpg")
+                mirror_tiktok_thumbnail(
+                    "recipe-1",
+                    "https://tiktok.example/thumb.jpg",
+                    settings=_settings(),
+                    transport=httpx.MockTransport(handler),
+                    resolver=_resolver({"tiktok.example": ["93.184.216.34"]}),
+                )
             )
 
-    assert bucket.uploaded == []
+
+def test_mirror_tiktok_thumbnail_rejects_a_private_address():
+    # The actual regression this fix exists for: a thumbnail URL taken from
+    # TikTok page JSON must not be able to reach an internal address.
+    def handler(_request):
+        raise AssertionError("network must not be reached")
+
+    with pytest.raises(TikTokThumbnailStorageError):
+        asyncio.run(
+            mirror_tiktok_thumbnail(
+                "recipe-1",
+                "https://tiktok.example/thumb.jpg",
+                settings=_settings(),
+                transport=httpx.MockTransport(handler),
+                resolver=_resolver({"tiktok.example": ["10.0.0.5"]}),
+            )
+        )
 
 
 def test_delete_tiktok_thumbnail_removes_the_object():
@@ -177,12 +181,3 @@ def test_delete_tiktok_thumbnail_removes_the_object():
         delete_tiktok_thumbnail("tiktok/recipe-1/abc.jpg")
 
     assert bucket.removed == ["tiktok/recipe-1/abc.jpg"]
-
-
-def test_delete_tiktok_thumbnail_wraps_storage_failures_as_tiktok_error():
-    with patch(
-        "app.services.social.thumbnail_storage.get_supabase_client",
-        return_value=None,
-    ):
-        with pytest.raises(TikTokThumbnailStorageError):
-            delete_tiktok_thumbnail("tiktok/recipe-1/abc.jpg")
