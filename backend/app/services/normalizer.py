@@ -1,6 +1,4 @@
 import re
-from hashlib import sha256
-from json import dumps
 from typing import Any, Optional
 
 from ..schemas.extract import IngredientSection, NormalizedRecipe
@@ -382,33 +380,3 @@ def normalize_recipe(
     )
 
 
-def build_recipe_fingerprint(recipe: NormalizedRecipe) -> str:
-    normalized_payload = {
-        "cookTime": recipe.cookTime,
-        "ingredients": recipe.ingredients,
-        "instructions": recipe.instructions,
-        "name": recipe.name.casefold(),
-        "nutrition": recipe.nutrition,
-        "recipeCuisine": recipe.recipeCuisine,
-        "recipeYield": recipe.recipeYield,
-    }
-
-    serialized = dumps(normalized_payload, ensure_ascii=False, sort_keys=True)
-    return sha256(serialized.encode("utf-8")).hexdigest()
-
-
-def dedupe_normalized_recipes(
-    recipes: list[NormalizedRecipe],
-) -> list[NormalizedRecipe]:
-    seen: set[str] = set()
-    unique_recipes: list[NormalizedRecipe] = []
-
-    for recipe in recipes:
-        fingerprint = build_recipe_fingerprint(recipe)
-        if fingerprint in seen:
-            continue
-
-        seen.add(fingerprint)
-        unique_recipes.append(recipe)
-
-    return unique_recipes

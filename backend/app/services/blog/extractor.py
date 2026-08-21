@@ -11,11 +11,8 @@ from ...utils.text import clean_text, unique_strings
 from ..extraction_types import ExtractionResult
 from ..http_utils import build_request_headers, get_with_403_retry
 from ..image_extraction import extract_image_url
-from ..normalizer import (
-    collect_recipe_nodes,
-    dedupe_normalized_recipes,
-    normalize_recipe,
-)
+from ..normalizer import collect_recipe_nodes, normalize_recipe
+from ..recipe_identity import dedupe_by_content
 
 
 INGREDIENT_HEADING_KEYWORDS = {"ingredient", "ingredients"}
@@ -407,7 +404,7 @@ def parse_recipes_from_html(
         if normalized is not None:
             recipes.append(normalized)
 
-    recipes = dedupe_normalized_recipes(recipes)
+    recipes = dedupe_by_content(recipes)
 
     return ExtractionResult(
         source_url=source_url,

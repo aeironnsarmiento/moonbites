@@ -23,10 +23,6 @@ import type {
   UpdateRecipeMetadataPayload,
   UpdateRecipeOverridesPayload,
 } from "../types/recipe";
-import {
-  dedupeRecipeImportRecord,
-  dedupeRecipeImports,
-} from "../utils/recipeDedup";
 import { formatDate } from "../utils/formatDate";
 
 function isManualRecipeUrl(value: string) {
@@ -57,11 +53,9 @@ export async function getRecipeListPage(query: RecipeListQuery) {
     throw new Error("Recipes API returned an invalid list response.");
   }
 
-  const items = dedupeRecipeImports(response.items);
-
   return {
     ...response,
-    items: items.map(mapRecipeImportToCard),
+    items: response.items.map(mapRecipeImportToCard),
   };
 }
 
@@ -86,8 +80,8 @@ export async function getHighlightedRecipes(
   }
 
   return {
-    recent: dedupeRecipeImports(response.recent).map(mapRecipeImportToCard),
-    favorites: dedupeRecipeImports(response.favorites).map(mapRecipeImportToCard),
+    recent: response.recent.map(mapRecipeImportToCard),
+    favorites: response.favorites.map(mapRecipeImportToCard),
     totalCount: response.total_count,
     favoriteCount: response.favorite_count,
   };
@@ -109,7 +103,7 @@ export async function getRecipeImportDetail(recipeImportId: string) {
     throw new Error("Recipes API returned an invalid detail response.");
   }
 
-  return dedupeRecipeImportRecord(record);
+  return record;
 }
 
 export async function createManualRecipe(
@@ -122,7 +116,7 @@ export async function createManualRecipe(
     throw new Error("Recipes API returned an invalid create response.");
   }
 
-  return dedupeRecipeImportRecord(record);
+  return record;
 }
 
 export async function deleteRecipeImport(recipeImportId: string) {
@@ -145,7 +139,7 @@ export async function adjustRecipeImportTimesCooked(
     throw new Error("Recipes API returned an invalid update response.");
   }
 
-  return dedupeRecipeImportRecord(record);
+  return record;
 }
 
 export async function updateRecipeImportOverrides(
@@ -158,7 +152,7 @@ export async function updateRecipeImportOverrides(
     throw new Error("Recipes API returned an invalid update response.");
   }
 
-  return dedupeRecipeImportRecord(record);
+  return record;
 }
 
 export async function updateRecipeImportMetadata(
@@ -171,7 +165,7 @@ export async function updateRecipeImportMetadata(
     throw new Error("Recipes API returned an invalid metadata response.");
   }
 
-  return dedupeRecipeImportRecord(record);
+  return record;
 }
 
 export async function toggleFavorite(recipeImportId: string) {
@@ -181,7 +175,7 @@ export async function toggleFavorite(recipeImportId: string) {
     throw new Error("Recipes API returned an invalid favorite response.");
   }
 
-  return dedupeRecipeImportRecord(record);
+  return record;
 }
 
 export async function updateRecipeServings(
@@ -194,7 +188,7 @@ export async function updateRecipeServings(
     throw new Error("Recipes API returned an invalid servings response.");
   }
 
-  return dedupeRecipeImportRecord(record);
+  return record;
 }
 
 export type RecipeListPageData = Omit<

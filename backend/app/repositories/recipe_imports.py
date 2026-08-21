@@ -31,12 +31,15 @@ from ..services.instagram.urls import (
     is_instagram_url,
     parse_instagram_reel_url,
 )
-from ..services.normalizer import dedupe_normalized_recipes
+from ..services.recipe_identity import (
+    dedupe_by_content,
+    dedupe_by_source,
+    source_identity,
+)
 from ..services.tiktok.thumbnail_storage import (
     delete_tiktok_thumbnail,
     mirror_tiktok_thumbnail,
 )
-from ..utils.urls import canonicalize_url
 from ..utils.yield_parser import parse_yield
 
 
@@ -124,7 +127,7 @@ def _sanitize_record(record: dict) -> RecipeImportRecord:
         NormalizedRecipe.model_validate(item)
         for item in record.get("recipes_json") or []
     ]
-    unique_recipes = dedupe_normalized_recipes(recipes)
+    unique_recipes = dedupe_by_content(recipes)
 
     normalized_record = {
         **record,
@@ -155,36 +158,12 @@ def _fetch_all_recipe_import_records(
     return [_sanitize_record(record) for record in records]
 
 
-def _record_url_keys(record: RecipeImportRecord) -> set[str]:
-    return {
-        canonicalize_url(record.submitted_url),
-        canonicalize_url(record.final_url),
-    }
-
-
 def is_manual_recipe_url(value: str) -> bool:
     return value.strip().lower().startswith("manual://")
 
 
 def _build_manual_recipe_url(manual_id: str) -> str:
     return f"manual://{manual_id}"
-
-
-def _dedupe_recipe_import_records(
-    records: list[RecipeImportRecord],
-) -> list[RecipeImportRecord]:
-    seen: set[str] = set()
-    unique_records: list[RecipeImportRecord] = []
-
-    for record in records:
-        keys = _record_url_keys(record)
-        if seen.intersection(keys):
-            continue
-
-        seen.update(keys)
-        unique_records.append(record)
-
-    return unique_records
 
 
 def _record_cuisines(record: RecipeImportRecord) -> set[str]:
@@ -273,7 +252,7 @@ def _prepare_recipe_import_records(
     cuisine: Optional[str],
     favorite: Optional[bool] = None,
 ) -> list[RecipeImportRecord]:
-    unique_records = _dedupe_recipe_import_records(records)
+    unique_records = dedupe_by_source(records)
     filtered_records = _filter_recipe_import_records(unique_records, cuisine)
     if favorite is True:
         filtered_records = [record for record in filtered_records if record.is_favorite]
@@ -362,7 +341,7 @@ async def save_recipe_import(
             image_url=image_url,
         )
 
-    unique_recipes = dedupe_normalized_recipes(recipes)
+    unique_recipes = dedupe_by_content(recipes)
     servings = next(
         (
             parsed
@@ -371,8 +350,8 @@ async def save_recipe_import(
         ),
         None,
     )
-    submitted_url_key = canonicalize_url(submitted_url)
-    final_url_key = canonicalize_url(final_url)
+    submitted_url_key = source_identity(submitted_url)
+    final_url_key = source_identity(final_url)
     candidate_urls = sorted({submitted_url, final_url})
 
     try:
@@ -390,8 +369,8 @@ async def save_recipe_import(
 
     for existing in existing_records:
         existing_keys = {
-            canonicalize_url(existing.get("submitted_url") or ""),
-            canonicalize_url(existing.get("final_url") or ""),
+            source_identity(existing.get("submitted_url") or ""),
+            source_identity(existing.get("final_url") or ""),
         }
         if submitted_url_key in existing_keys or final_url_key in existing_keys:
             return SaveRecipeImportResult(
@@ -534,7 +513,7 @@ def _build_paginated_response(
     page_size: int,
     total_count: Optional[int],
 ) -> PaginatedRecipeImportsResponse:
-    items = _dedupe_recipe_import_records(
+    items = dedupe_by_source(
         [_sanitize_record(record) for record in raw_records]
     )
     if total_count is None:
@@ -1194,7 +1173,7 @@ def _build_refetched_recipe_update_payload(
     image_url: Optional[str],
     recipes: list[NormalizedRecipe],
 ) -> dict:
-    unique_recipes = dedupe_normalized_recipes(recipes)
+    unique_recipes = dedupe_by_content(recipes)
     servings = next(
         (
             parsed
