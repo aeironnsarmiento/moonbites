@@ -12,6 +12,7 @@ from app.services.instagram.creator_site_lookup import (
     is_matching_title,
     is_social_or_storefront,
     normalize_dish_name,
+    rank_candidate_anchors,
     rank_profile_links,
     unwrap_instagram_redirect,
 )
@@ -105,6 +106,10 @@ DEVELOPMENT_CORPUS = [
     ("Fried Rice", "Rice", False),
     ("Brothy Rice Miso Salmon", "Miso Salmon Brothy Rice", True),
     ("Miso Salmon Rice Bowl With Extra Toppings", "Miso Salmon Rice", False),
+    # Prep-time and count qualifiers the site prepends to its own title.
+    ("15 Minute Miso Salmon Brothy Rice", "Miso Salmon Brothy Rice", True),
+    ("30-Minute Miso Salmon Brothy Rice", "Miso Salmon Brothy Rice", True),
+    ("5 Ingredient Chocolate Chia Pudding", "Chocolate Chia Pudding", True),
 ]
 
 # Locked holdout: same-creator siblings, common-title collisions, expansions,
@@ -125,6 +130,11 @@ HOLDOUT_CORPUS = [
     # Single-token dish names require exact match only.
     ("Fried Rice", "Rice", False),
     ("Rice", "Rice", True),
+    # A numeral that IS the dish must stay distinguishing. This is the guard
+    # against "just strip every number" -- that variant collapses these two
+    # into one title and produces a false-positive save.
+    ("5 Layer Dip", "7 Layer Dip", False),
+    ("7 Layer Dip", "7 Layer Dip", True),
 ]
 
 
@@ -149,6 +159,63 @@ def test_matcher_holdout_corpus_has_zero_false_positives():
 
 def test_normalize_dish_name_strips_accents_punctuation_and_generic_tokens():
     assert normalize_dish_name("The Best Café Crème Brûlée!") == "cafe creme brulee"
+
+
+def test_normalize_dish_name_strips_time_qualifiers_but_keeps_naming_numerals():
+    assert normalize_dish_name("15 Minute Miso Salmon") == "miso salmon"
+    assert normalize_dish_name("30-Minute Miso Salmon") == "miso salmon"
+    assert normalize_dish_name("5 Ingredient Chia Pudding") == "chia pudding"
+    # The numeral names the dish here, so it survives.
+    assert normalize_dish_name("7 Layer Dip") == "7 layer dip"
+
+
+# --- Candidate anchor ranking -----------------------------------------------
+
+
+def test_rank_candidate_anchors_keeps_recipe_permalinks_and_drops_navigation():
+    # Mirrors the real Tiffy Cooks search page: the recipe permalink contains no
+    # generic food word, while the category listings are full of them.
+    html = """
+    <html><body>
+      <a href="/category/blog/recipes/">Recipes</a>
+      <a href="/category/blog/recipes/recipe-by-ingredients/chicken/">Chicken</a>
+      <a href="/how-much-money-do-i-make-as-a-food-blogger/">Food blogging</a>
+      <a href="/miso-salmon-brothy-rice/">15 Minute Miso Salmon Brothy Rice</a>
+    </body></html>
+    """
+
+    ranked = rank_candidate_anchors(
+        html, "https://tiffycooks.com/", "Miso Salmon Brothy Rice"
+    )
+
+    assert ranked == ["https://tiffycooks.com/miso-salmon-brothy-rice/"]
+
+
+def test_rank_candidate_anchors_orders_by_dish_token_overlap():
+    html = """
+    <html><body>
+      <a href="/salmon-toast/">Salmon Toast</a>
+      <a href="/miso-salmon-brothy-rice/">Miso Salmon Brothy Rice</a>
+      <a href="/miso-salmon-bowl/">Miso Salmon Bowl</a>
+    </body></html>
+    """
+
+    ranked = rank_candidate_anchors(
+        html, "https://tiffycooks.com/", "Miso Salmon Brothy Rice"
+    )
+
+    assert ranked == [
+        "https://tiffycooks.com/miso-salmon-brothy-rice/",
+        "https://tiffycooks.com/miso-salmon-bowl/",
+        "https://tiffycooks.com/salmon-toast/",
+    ]
+
+
+def test_rank_candidate_anchors_drops_zero_overlap_and_requires_a_dish_name():
+    html = '<html><body><a href="/pantry-staples/">Pantry Staples</a></body></html>'
+
+    assert rank_candidate_anchors(html, "https://tiffycooks.com/", "Miso Salmon") == []
+    assert rank_candidate_anchors(html, "https://tiffycooks.com/", "  ") == []
 
 
 # --- Orchestrator ------------------------------------------------------------

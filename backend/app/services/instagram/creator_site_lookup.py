@@ -82,6 +82,25 @@ _GENERIC_TITLE_TOKENS = frozenset(
     }
 )
 
+_TIME_QUALIFIER_UNITS = frozenset(
+    {
+        "minute",
+        "minutes",
+        "min",
+        "mins",
+        "hour",
+        "hours",
+        "hr",
+        "hrs",
+        "second",
+        "seconds",
+        "ingredient",
+        "ingredients",
+    }
+)
+
+TAXONOMY_PATH_MARKERS = ("/category/", "/tag/", "/author/", "/page/")
+
 _PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
 
 
@@ -200,6 +219,51 @@ def extract_recipe_like_anchors(html: str, base_url: str) -> list[str]:
     return result
 
 
+def _anchor_tokens(path: str, text: str) -> set[str]:
+    slug = path.replace("-", " ").replace("_", " ").replace("/", " ")
+    return set(normalize_dish_name(f"{slug} {text}").split())
+
+
+def rank_candidate_anchors(html: str, base_url: str, dish_name: str) -> list[str]:
+    """Rank on-site anchors by overlap with the dish named by the Reel.
+
+    A recipe permalink rarely contains a generic food word, while category and
+    tag listings always do, so selecting on food words picks up navigation and
+    discards the recipes themselves. Overlap with the dish name is the signal
+    that actually separates them. Ordering only: `select_unique_match` remains
+    the sole acceptance gate.
+    """
+    dish_tokens = set(normalize_dish_name(dish_name).split())
+    if not dish_tokens:
+        return []
+
+    soup = BeautifulSoup(html, "html.parser")
+    scored: list[tuple[int, int, str]] = []
+    seen: set[str] = set()
+
+    for order, anchor in enumerate(soup.find_all("a", href=True)):
+        href = anchor["href"].strip()
+        if not href or href.startswith("#"):
+            continue
+        absolute = urljoin(base_url, href)
+        if absolute in seen:
+            continue
+        parsed = urlsplit(absolute)
+        if parsed.scheme.casefold() != "https" or not parsed.hostname:
+            continue
+        if any(marker in parsed.path.casefold() for marker in TAXONOMY_PATH_MARKERS):
+            continue
+        text = anchor.get_text(" ", strip=True)
+        overlap = len(dish_tokens & _anchor_tokens(parsed.path, text))
+        if overlap == 0:
+            continue
+        seen.add(absolute)
+        scored.append((-overlap, order, absolute))
+
+    scored.sort()
+    return [url for _, _, url in scored]
+
+
 def build_search_urls(domain: str, dish_name: str) -> list[str]:
     query = quote(dish_name)
     return [
@@ -220,9 +284,29 @@ def normalize_dish_name(name: str) -> str:
     stripped = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
     lowered = stripped.casefold()
     no_punct = _PUNCT_RE.sub(" ", lowered)
-    tokens = [
-        token for token in no_punct.split() if token and token not in _GENERIC_TITLE_TOKENS
-    ]
+
+    raw = no_punct.split()
+    tokens: list[str] = []
+    index = 0
+    while index < len(raw):
+        token = raw[index]
+        # "15 Minute", "5 Ingredient": a prep-time or count qualifier the site
+        # adds, never part of the dish. The numeral is dropped only alongside
+        # its unit, because a bare numeral can itself name the dish and must
+        # stay distinguishing ("7 Layer Dip" is not "5 Layer Dip").
+        if (
+            token.isdigit()
+            and index + 1 < len(raw)
+            and raw[index + 1] in _TIME_QUALIFIER_UNITS
+        ):
+            index += 2
+            continue
+        if token in _TIME_QUALIFIER_UNITS:
+            index += 1
+            continue
+        if token not in _GENERIC_TITLE_TOKENS:
+            tokens.append(token)
+        index += 1
     return " ".join(tokens)
 
 
@@ -390,7 +474,7 @@ async def find_creator_site_recipe(
                     )
                 )
 
-            for anchor in extract_recipe_like_anchors(page.html, page.final_url):
+            for anchor in rank_candidate_anchors(page.html, page.final_url, dish_name):
                 if is_social_or_storefront(anchor) or is_link_hub(anchor):
                     continue
                 anchor_host = _hostname(anchor)
