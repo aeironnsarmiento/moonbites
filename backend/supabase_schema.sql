@@ -236,6 +236,74 @@ begin
   end if;
 end$$;
 
+-- Recipe Source Identity: the canonicalized form of submitted_url/final_url
+-- (tracking params stripped, trailing slash and default port normalized),
+-- computed by app/services/recipe_identity.py::source_identity and written
+-- on every insert/update. This is the sole implementation -- there is no SQL
+-- equivalent, so a fresh environment starts with these columns empty until
+-- the app backfills them; an environment migrating from raw-URL uniqueness
+-- must run a one-time Python backfill (source_identity over every existing
+-- row) before this constraint can attach, exactly as was done live.
+--
+-- Superset of the raw submitted_url/final_url uniqueness above: this is what
+-- the write path actually checks against, since the raw check alone let
+-- tracking-param variants of the same page insert as duplicates.
+alter table public.recipe_imports
+  add column if not exists submitted_url_canonical text;
+
+alter table public.recipe_imports
+  add column if not exists final_url_canonical text;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'recipe_imports_submitted_url_canonical_key'
+  ) then
+    if exists (
+      select 1
+      from (
+        select submitted_url_canonical
+        from public.recipe_imports
+        where submitted_url_canonical is not null
+        group by submitted_url_canonical
+        having count(*) > 1
+      ) duplicates
+    ) then
+      raise notice
+        'Skipping recipe_imports_submitted_url_canonical_key; duplicate submitted_url_canonical values exist. Backfill via source_identity() and resolve duplicates before rerunning this schema.';
+    else
+      alter table public.recipe_imports
+        add constraint recipe_imports_submitted_url_canonical_key unique (submitted_url_canonical);
+    end if;
+  end if;
+end$$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'recipe_imports_final_url_canonical_key'
+  ) then
+    if exists (
+      select 1
+      from (
+        select final_url_canonical
+        from public.recipe_imports
+        where final_url_canonical is not null
+        group by final_url_canonical
+        having count(*) > 1
+      ) duplicates
+    ) then
+      raise notice
+        'Skipping recipe_imports_final_url_canonical_key; duplicate final_url_canonical values exist. Backfill via source_identity() and resolve duplicates before rerunning this schema.';
+    else
+      alter table public.recipe_imports
+        add constraint recipe_imports_final_url_canonical_key unique (final_url_canonical);
+    end if;
+  end if;
+end$$;
+
 create or replace function public.recipe_cuisine_bucket(value text)
 returns text
 language sql
