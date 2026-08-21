@@ -14,7 +14,7 @@ from ..blog.extractor import (
 from ..extraction_types import ExtractionResult, ParseStatus
 from ..gemini.recipe_parser import ParsedCaption, parse_caption_with_gemini
 from ..normalizer import normalize_recipe
-from .description_parser import extract_ranked_recipe_urls
+from ..social.recipe_links import extract_ranked_recipe_urls
 
 
 YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3/videos"

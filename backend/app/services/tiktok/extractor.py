@@ -18,7 +18,7 @@ from ..extraction_types import ExtractionResult, ParseStatus
 from ..gemini.recipe_parser import ParsedCaption, parse_caption_with_gemini
 from ..http_utils import build_request_headers, get_with_403_retry
 from ..normalizer import normalize_recipe
-from ..youtube.description_parser import extract_ranked_recipe_urls
+from ..social.recipe_links import extract_ranked_recipe_urls
 
 
 TIKTOK_HOSTS = {
