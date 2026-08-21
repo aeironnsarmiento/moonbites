@@ -346,8 +346,13 @@ async def find_creator_site_recipe(
         if pages_fetched >= MAX_CANDIDATE_PAGES:
             break
 
-        queue = list(dict.fromkeys(entry_urls[domain]))
-        queue.extend(build_search_urls(domain, dish_name))
+        # Search-result pages are purpose-built to surface the dish; landing
+        # pages are generic and can burn the page budget on irrelevant
+        # anchors before a search page is ever reached. Try search first.
+        queue = build_search_urls(domain, dish_name)
+        for url in entry_urls[domain]:
+            if url not in queue:
+                queue.append(url)
 
         index = 0
         while index < len(queue) and pages_fetched < MAX_CANDIDATE_PAGES:

@@ -303,6 +303,34 @@ def test_find_creator_site_recipe_respects_candidate_page_cap():
     assert len(calls) <= 5
 
 
+def test_find_creator_site_recipe_prefers_search_pages_over_landing_page_anchors():
+    calls: list[str] = []
+    hub_anchors = "".join(
+        f'<a href="https://tasty.co/recipe/unrelated-{i}">Some Recipe {i}</a>'
+        for i in range(5)
+    )
+    pages = {
+        "https://linktr.ee/tasty": f"<html><body>{hub_anchors}</body></html>",
+        # The search page carries the real match; landing-page anchors alone
+        # (5 of them) exhaust the page-budget before ever reaching it if
+        # landing links are queued ahead of search links.
+        "https://tasty.co/?s=Rice%20Bowl": _recipe_page("Rice Bowl"),
+    }
+    for i in range(5):
+        pages[f"https://tasty.co/recipe/unrelated-{i}"] = _recipe_page(f"Some Recipe {i}")
+
+    fetch_html = _fetcher(pages, calls)
+
+    result = asyncio.run(
+        find_creator_site_recipe(
+            ["https://linktr.ee/tasty"], "Rice Bowl", fetch_html=fetch_html
+        )
+    )
+
+    assert result is not None
+    assert result.recipes[0].name == "Rice Bowl"
+
+
 def test_find_creator_site_recipe_returns_none_when_profile_links_are_only_social():
     calls: list[str] = []
     fetch_html = _fetcher({}, calls)
