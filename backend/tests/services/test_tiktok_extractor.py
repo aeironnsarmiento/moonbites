@@ -140,7 +140,10 @@ def _parsed_recipe() -> ParsedCaption:
     )
 
 
-def _not_recipe(reason: str = "The caption does not contain a recipe.") -> ParsedCaption:
+def _not_recipe(
+    reason: str = "The caption does not contain a recipe.",
+    candidate_name: str | None = None,
+) -> ParsedCaption:
     return ParsedCaption(
         raw_recipe={},
         ingredients=[],
@@ -148,6 +151,7 @@ def _not_recipe(reason: str = "The caption does not contain a recipe.") -> Parse
         is_complete=False,
         parse_status="not_recipe",
         parse_reason=reason,
+        candidate_name=candidate_name,
     )
 
 
@@ -157,11 +161,11 @@ def _run(url: str, *clients, gemini, blog=None):
         patch("app.services.tiktok.extractor.get_settings", return_value=_settings()),
         patch("app.services.tiktok.extractor.httpx.AsyncClient", client_factory),
         patch(
-            "app.services.tiktok.extractor.parse_caption_with_gemini",
+            "app.services.social.caption_recipe.parse_caption_with_gemini",
             new=gemini,
         ),
         patch(
-            "app.services.tiktok.extractor.extract_blog_recipes_from_safe_url",
+            "app.services.social.caption_recipe.extract_blog_recipes_from_safe_url",
             new=blog or AsyncMock(),
         ),
     ]
@@ -275,7 +279,7 @@ def test_scrape_403_twice_falls_back_to_oembed():
 def test_caption_with_link_only_uses_blog_link_follow():
     caption = "Full recipe: https://example.com/pasta #recipes"
     page = _ClientContext([_PageResponse(_hydration_html(_item(caption=caption)))])
-    gemini = AsyncMock(return_value=_not_recipe())
+    gemini = AsyncMock(return_value=_not_recipe(candidate_name="Blog Pasta"))
     blog_result = ExtractionResult(
         source_url="https://example.com/pasta",
         final_url="https://example.com/pasta",
@@ -308,36 +312,28 @@ def test_caption_with_link_only_uses_blog_link_follow():
     )
 
 
-def test_gemini_429_with_link_in_caption_still_imports_via_link_follow():
+def test_gemini_429_with_link_in_caption_does_not_follow_it():
+    # Was: "still imports via link follow". A Linked Recipe is the one candidate
+    # matching the dish the post named, and a failed Gemini call names no dish --
+    # so there is nothing to check a candidate against and the link is not
+    # followed at all.
     caption = "Full recipe: https://example.com/pasta #recipes"
     page = _ClientContext([_PageResponse(_hydration_html(_item(caption=caption)))])
     gemini = AsyncMock(
         side_effect=HTTPException(status_code=429, detail="parser busy")
     )
-    blog_result = ExtractionResult(
-        source_url="https://example.com/pasta",
-        final_url="https://example.com/pasta",
-        title="Blog Pasta",
-        image_url=None,
-        recipe_node_count=1,
-        recipes=[
-            NormalizedRecipe(
-                name="Blog Pasta",
-                ingredients=["1 lb pasta"],
-                instructions=["Boil pasta."],
-            )
-        ],
-    )
-    blog = AsyncMock(return_value=blog_result)
+    blog = AsyncMock()
 
-    result = _run(
-        "https://www.tiktok.com/@emma.recify/video/7448335796416843051",
-        page,
-        gemini=gemini,
-        blog=blog,
-    )
+    with pytest.raises(HTTPException) as error:
+        _run(
+            "https://www.tiktok.com/@emma.recify/video/7448335796416843051",
+            page,
+            gemini=gemini,
+            blog=blog,
+        )
 
-    assert result.recipes == blog_result.recipes
+    assert error.value.status_code == 429
+    blog.assert_not_awaited()
 
 
 def test_gemini_429_without_links_reraises_the_error():

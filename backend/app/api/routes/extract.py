@@ -122,8 +122,8 @@ async def extract_ld_json(
 
     if result.recipes:
         thumbnail_candidate = (
-            result.tiktok_thumbnail_url
-            if isinstance(result.tiktok_thumbnail_url, str)
+            result.provider_thumbnail_url
+            if isinstance(result.provider_thumbnail_url, str)
             else None
         )
         save_result = await save_recipe_import(
@@ -132,7 +132,7 @@ async def extract_ld_json(
             title=result.title,
             recipes=result.recipes,
             image_url=result.image_url,
-            tiktok_thumbnail_url=thumbnail_candidate,
+            provider_thumbnail_url=thumbnail_candidate,
             access_token=admin.access_token,
         )
         database_saved = save_result.saved

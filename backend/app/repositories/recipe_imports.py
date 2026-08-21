@@ -218,7 +218,7 @@ async def save_recipe_import(
     title: Optional[str],
     recipes: list[NormalizedRecipe],
     image_url: Optional[str] = None,
-    tiktok_thumbnail_url: Optional[str] = None,
+    provider_thumbnail_url: Optional[str] = None,
     linked_recipe_url: Optional[str] = None,
     managed_image_storage_path: Optional[str] = None,
     access_token: Optional[str] = None,
@@ -269,11 +269,11 @@ async def save_recipe_import(
     recipe_import_id = str(uuid4())
     effective_image_url = image_url
     image_storage_path: Optional[str] = managed_image_storage_path
-    if not managed_image_storage_path and tiktok_thumbnail_url:
+    if not managed_image_storage_path and provider_thumbnail_url:
         try:
             mirrored = await mirror_tiktok_thumbnail(
                 recipe_import_id,
-                tiktok_thumbnail_url,
+                provider_thumbnail_url,
                 settings=settings,
             )
             effective_image_url = mirrored.image_url

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Iterable, Optional
 from urllib.parse import parse_qs, quote, urljoin, urlsplit, urlunsplit
@@ -11,6 +10,12 @@ from bs4 import BeautifulSoup
 from ..blog.extractor import parse_recipes_from_html
 from ..extraction_types import ExtractionResult
 from ..public_web import HTML_POLICY, PublicWebError, safe_fetch
+from ..recipe_match import (
+    RecipeCandidate,
+    hostname,
+    normalize_dish_name,
+    select_unique_match,
+)
 
 
 MAX_RANKED_PROFILE_LINKS = 3
@@ -63,72 +68,27 @@ _FOOD_SIGNAL_RE = re.compile(
     re.IGNORECASE,
 )
 
-_GENERIC_TITLE_TOKENS = frozenset(
-    {
-        "recipe",
-        "recipes",
-        "easy",
-        "quick",
-        "best",
-        "homemade",
-        "classic",
-        "the",
-        "a",
-        "an",
-        "simple",
-        "delicious",
-        "perfect",
-        "healthy",
-    }
-)
-
-_TIME_QUALIFIER_UNITS = frozenset(
-    {
-        "minute",
-        "minutes",
-        "min",
-        "mins",
-        "hour",
-        "hours",
-        "hr",
-        "hrs",
-        "second",
-        "seconds",
-        "ingredient",
-        "ingredients",
-    }
-)
-
 TAXONOMY_PATH_MARKERS = ("/category/", "/tag/", "/author/", "/page/")
 
-_PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
 
-
-def _hostname(url: str) -> Optional[str]:
-    try:
-        return urlsplit(url).hostname
-    except ValueError:
-        return None
-
-
-def _host_matches(hostname: Optional[str], hosts: frozenset[str]) -> bool:
-    if not hostname:
+def _host_matches(host: Optional[str], hosts: frozenset[str]) -> bool:
+    if not host:
         return False
-    folded = hostname.casefold()
-    return any(folded == host or folded.endswith(f".{host}") for host in hosts)
+    folded = host.casefold()
+    return any(folded == known or folded.endswith(f".{known}") for known in hosts)
 
 
 def is_social_or_storefront(url: str) -> bool:
-    return _host_matches(_hostname(url), SOCIAL_STOREFRONT_HOSTS)
+    return _host_matches(hostname(url), SOCIAL_STOREFRONT_HOSTS)
 
 
 def is_link_hub(url: str) -> bool:
-    return _host_matches(_hostname(url), LINK_HUB_HOSTS)
+    return _host_matches(hostname(url), LINK_HUB_HOSTS)
 
 
 def unwrap_instagram_redirect(url: str) -> str:
-    hostname = _hostname(url)
-    if hostname is None or hostname.casefold() != "l.instagram.com":
+    host = hostname(url)
+    if host is None or host.casefold() != "l.instagram.com":
         return url
     query = parse_qs(urlsplit(url).query)
     targets = query.get("u")
@@ -169,7 +129,7 @@ def normalize_profile_links(raw_links: Iterable[str]) -> list[str]:
 
 
 def _link_tier(url: str) -> int:
-    if _FOOD_SIGNAL_RE.search(_hostname(url) or ""):
+    if _FOOD_SIGNAL_RE.search(hostname(url) or ""):
         return 0
     if is_link_hub(url):
         return 1
@@ -272,124 +232,6 @@ def build_search_urls(domain: str, dish_name: str) -> list[str]:
     ]
 
 
-def canonicalize_candidate_url(url: str) -> str:
-    parsed = urlsplit(url)
-    hostname = (parsed.hostname or "").casefold()
-    path = parsed.path.rstrip("/") or "/"
-    return urlunsplit((parsed.scheme.casefold(), hostname, path, "", ""))
-
-
-def normalize_dish_name(name: str) -> str:
-    decomposed = unicodedata.normalize("NFKD", name)
-    stripped = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
-    lowered = stripped.casefold()
-    no_punct = _PUNCT_RE.sub(" ", lowered)
-
-    raw = no_punct.split()
-    tokens: list[str] = []
-    index = 0
-    while index < len(raw):
-        token = raw[index]
-        # "15 Minute", "5 Ingredient": a prep-time or count qualifier the site
-        # adds, never part of the dish. The numeral is dropped only alongside
-        # its unit, because a bare numeral can itself name the dish and must
-        # stay distinguishing ("7 Layer Dip" is not "5 Layer Dip").
-        if (
-            token.isdigit()
-            and index + 1 < len(raw)
-            and raw[index + 1] in _TIME_QUALIFIER_UNITS
-        ):
-            index += 2
-            continue
-        if token in _TIME_QUALIFIER_UNITS:
-            index += 1
-            continue
-        if token not in _GENERIC_TITLE_TOKENS:
-            tokens.append(token)
-        index += 1
-    return " ".join(tokens)
-
-
-def _site_brand_label(domain: Optional[str]) -> Optional[str]:
-    if not domain:
-        return None
-    host = domain.casefold()
-    if host.startswith("www."):
-        host = host[len("www."):]
-    return host.split(".")[0] or None
-
-
-def strip_site_brand(normalized_title: str, domain: Optional[str]) -> str:
-    """Drop a trailing "by <brand>" naming the site the page was served from.
-
-    Sites sign their own titles ("... Recipe by Tasty"), which the Reel never
-    does. Only the fetched host's own label is removed, so a dish word can
-    never be stripped by accident.
-    """
-    label = _site_brand_label(domain)
-    if not label:
-        return normalized_title
-
-    tokens = normalized_title.split()
-    while tokens and tokens[-1] == label:
-        tokens.pop()
-        if tokens and tokens[-1] == "by":
-            tokens.pop()
-    return " ".join(tokens)
-
-
-def is_matching_title(
-    candidate_title: str, dish_name: str, *, site_domain: Optional[str] = None
-) -> bool:
-    candidate_norm = strip_site_brand(normalize_dish_name(candidate_title), site_domain)
-    dish_norm = normalize_dish_name(dish_name)
-    if not dish_norm or not candidate_norm:
-        return False
-    if candidate_norm == dish_norm:
-        return True
-
-    dish_tokens = dish_norm.split()
-    if len(dish_tokens) < 2:
-        return False
-
-    # Order-independent match only: any additional or missing substantive
-    # (non-generic) token is treated as a distinct dish, favoring precision.
-    return set(candidate_norm.split()) == set(dish_tokens)
-
-
-@dataclass(frozen=True)
-class RecipeCandidate:
-    canonical_url: str
-    title: str
-    result: ExtractionResult
-
-
-def select_unique_match(
-    candidates: list[RecipeCandidate], dish_name: str
-) -> Optional[RecipeCandidate]:
-    deduped: dict[tuple[str, str], RecipeCandidate] = {}
-    for candidate in candidates:
-        host = _hostname(candidate.canonical_url)
-        key = (
-            canonicalize_candidate_url(candidate.canonical_url),
-            strip_site_brand(normalize_dish_name(candidate.title), host),
-        )
-        deduped.setdefault(key, candidate)
-
-    matches = [
-        candidate
-        for candidate in deduped.values()
-        if is_matching_title(
-            candidate.title,
-            dish_name,
-            site_domain=_hostname(candidate.canonical_url),
-        )
-    ]
-    if len(matches) != 1:
-        return None
-    return matches[0]
-
-
 @dataclass(frozen=True)
 class FetchedPage:
     final_url: str
@@ -437,7 +279,7 @@ async def find_creator_site_recipe(
         entry_urls[domain].append(url)
 
     for link in ranked_links:
-        host = _hostname(link)
+        host = hostname(link)
         if not host:
             continue
         if is_link_hub(link):
@@ -451,7 +293,7 @@ async def find_creator_site_recipe(
             for anchor in extract_recipe_like_anchors(page.html, page.final_url):
                 if is_social_or_storefront(anchor) or is_link_hub(anchor):
                     continue
-                anchor_host = _hostname(anchor)
+                anchor_host = hostname(anchor)
                 if not anchor_host:
                     continue
                 _register(anchor_host, anchor_host, anchor)
@@ -478,7 +320,7 @@ async def find_creator_site_recipe(
             candidate_url = queue[index]
             index += 1
 
-            candidate_host = _hostname(candidate_url)
+            candidate_host = hostname(candidate_url)
             if candidate_host is None:
                 continue
             if candidate_host != domain and candidate_host not in allowed_hosts[domain]:
@@ -490,7 +332,7 @@ async def find_creator_site_recipe(
             except PublicWebError:
                 continue
 
-            final_host = _hostname(page.final_url)
+            final_host = hostname(page.final_url)
             if final_host is None:
                 continue
             if final_host != domain and final_host not in allowed_hosts[domain]:
@@ -512,7 +354,7 @@ async def find_creator_site_recipe(
             for anchor in rank_candidate_anchors(page.html, page.final_url, dish_name):
                 if is_social_or_storefront(anchor) or is_link_hub(anchor):
                     continue
-                anchor_host = _hostname(anchor)
+                anchor_host = hostname(anchor)
                 if anchor_host is None:
                     continue
                 if anchor_host == domain or anchor_host in allowed_hosts[domain]:

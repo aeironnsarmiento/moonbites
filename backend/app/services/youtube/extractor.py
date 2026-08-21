@@ -6,12 +6,9 @@ import httpx
 from fastapi import HTTPException
 
 from ...core.config import get_settings
-from ...schemas.extract import NormalizedRecipe
-from ..blog.extractor import extract_blog_recipes_from_safe_url, normalize_url
-from ..extraction_types import ExtractionResult, ParseStatus
-from ..gemini.recipe_parser import ParsedCaption, parse_caption_with_gemini
-from ..normalizer import normalize_recipe
-from ..social.recipe_links import extract_ranked_recipe_urls
+from ..blog.extractor import normalize_url
+from ..extraction_types import ExtractionResult
+from ..social.caption_recipe import CaptionPost, extract_recipe_from_caption
 
 
 YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3/videos"
@@ -139,90 +136,16 @@ async def fetch_youtube_snippet(url: str) -> YouTubeSnippet:
     )
 
 
-async def _extract_first_recipe_link(
-    description: str,
-    *,
-    youtube_url: str,
-    youtube_title: str,
-    youtube_thumbnail_url: Optional[str],
-) -> Optional[ExtractionResult]:
-    for recipe_url in extract_ranked_recipe_urls(description):
-        try:
-            result = await extract_blog_recipes_from_safe_url(recipe_url)
-        except HTTPException:
-            continue
-        except Exception:  # pragma: no cover - defensive network fallback
-            continue
-
-        if result.recipes:
-            return ExtractionResult(
-                source_url=youtube_url,
-                final_url=result.final_url,
-                title=result.title or youtube_title,
-                image_url=result.image_url or youtube_thumbnail_url,
-                recipe_node_count=result.recipe_node_count,
-                recipes=result.recipes,
-            )
-
-    return None
-
-
-def _description_mentions_recipe_link(description: str) -> bool:
-    text = description.casefold()
-    if "recipe" not in text:
-        return False
-    return bool(extract_ranked_recipe_urls(description))
-
-
 async def extract_recipe_from_youtube_url(url: str) -> ExtractionResult:
     target_url = normalize_url(url)
     video = await fetch_youtube_snippet(target_url)
-
-    parsed: Optional[ParsedCaption] = None
-    gemini_error: Optional[HTTPException] = None
-    try:
-        parsed = await parse_caption_with_gemini(
+    return await extract_recipe_from_caption(
+        CaptionPost(
+            source_url=target_url,
+            final_url=target_url,
             title=video.title,
             caption=video.description,
-            source_url=target_url,
-        )
-    except HTTPException as error:
-        gemini_error = error
-
-    if parsed is not None and parsed.is_complete:
-        recipe = normalize_recipe(parsed.raw_recipe)
-        if recipe is not None:
-            return ExtractionResult(
-                source_url=target_url,
-                final_url=target_url,
-                title=video.title,
-                image_url=video.thumbnail_url,
-                recipe_node_count=1,
-                recipes=[recipe],
-                parse_status=ParseStatus.RECIPE,
-            )
-
-    if _description_mentions_recipe_link(video.description):
-        fallback = await _extract_first_recipe_link(
-            video.description,
-            youtube_url=target_url,
-            youtube_title=video.title,
-            youtube_thumbnail_url=video.thumbnail_url,
-        )
-        if fallback is not None:
-            return fallback
-
-    if gemini_error is not None:
-        raise gemini_error
-
-    parse_reason = parsed.parse_reason if parsed is not None else None
-    return ExtractionResult(
-        source_url=target_url,
-        final_url=target_url,
-        title=video.title,
-        image_url=video.thumbnail_url,
-        recipe_node_count=0,
-        recipes=[],
-        parse_status=ParseStatus.NOT_RECIPE,
-        parse_reason=parse_reason or "No recipe was found in the video description.",
+            image_url=video.thumbnail_url,
+        ),
+        not_recipe_reason="No recipe was found in the video description.",
     )

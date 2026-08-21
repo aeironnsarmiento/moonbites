@@ -20,6 +20,8 @@ from ..blog.extractor import parse_recipes_from_html
 from ..gemini.recipe_parser import ParsedCaption, parse_caption_with_gemini
 from ..normalizer import normalize_recipe
 from ..public_web import HTML_POLICY, IMAGE_POLICY, PublicWebError, safe_fetch
+from ..recipe_match import RecipeCandidate, select_unique_match
+from ..social.caption_recipe import MAX_CAPTION_LINKS
 from ..social.recipe_links import extract_ranked_recipe_urls
 from ..social.thumbnail_storage import SocialThumbnailStorageError, store_social_thumbnail
 from .apify import (
@@ -27,18 +29,12 @@ from .apify import (
     REEL_MAX_CHARGE_USD,
     ApifyClient,
 )
-from .creator_site_lookup import (
-    FetchedPage,
-    RecipeCandidate,
-    find_creator_site_recipe,
-    select_unique_match,
-)
+from .creator_site_lookup import FetchedPage, find_creator_site_recipe
 from .models import ApifyProviderError, ApifyRunStatus
 from .urls import InstagramReelIdentity, InstagramUrlError, parse_instagram_reel_url
 from ..import_deadline import Deadline, DeadlineExceededError
 
 
-MAX_CAPTION_LINKS = 3
 POLL_RETRY_SECONDS = 7
 STALE_WINDOW_SECONDS = 30 * 60
 NOT_RECIPE_MESSAGE = (

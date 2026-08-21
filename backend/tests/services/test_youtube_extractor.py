@@ -113,7 +113,7 @@ def _parsed_recipe() -> ParsedCaption:
     )
 
 
-def _not_recipe(reason: str) -> ParsedCaption:
+def _not_recipe(reason: str, candidate_name: str | None = None) -> ParsedCaption:
     return ParsedCaption(
         raw_recipe={},
         ingredients=[],
@@ -121,6 +121,7 @@ def _not_recipe(reason: str) -> ParsedCaption:
         is_complete=False,
         parse_status="not_recipe",
         parse_reason=reason,
+        candidate_name=candidate_name,
     )
 
 
@@ -132,11 +133,11 @@ def _run(url: str, response, *, gemini, blog=None):
             return_value=_AsyncClientContext(response),
         ),
         patch(
-            "app.services.youtube.extractor.parse_caption_with_gemini",
+            "app.services.social.caption_recipe.parse_caption_with_gemini",
             new=gemini,
         ),
         patch(
-            "app.services.youtube.extractor.extract_blog_recipes_from_safe_url",
+            "app.services.social.caption_recipe.extract_blog_recipes_from_safe_url",
             new=blog or AsyncMock(),
         ),
     ):
@@ -179,7 +180,9 @@ def test_complete_gemini_parse_builds_recipe_result():
 
 
 def test_not_recipe_with_link_in_description_falls_back_to_link_follow():
-    gemini = AsyncMock(return_value=_not_recipe("Recipe lives on a linked page."))
+    gemini = AsyncMock(
+        return_value=_not_recipe("Recipe lives on a linked page.", "Blog Soup")
+    )
     response = _snippet_response("Full recipe: https://example.com/soup")
     blog_result = ExtractionResult(
         source_url="https://example.com/soup",
@@ -205,32 +208,24 @@ def test_not_recipe_with_link_in_description_falls_back_to_link_follow():
     assert result.recipes == blog_result.recipes
 
 
-def test_gemini_unconfigured_with_link_still_imports_via_link_follow():
+def test_gemini_unconfigured_with_link_does_not_follow_it():
+    # Was: "still imports via link follow". A Linked Recipe is the one candidate
+    # matching the dish the post named, and a failed Gemini call names no dish --
+    # so there is nothing to check a candidate against and the link is not
+    # followed at all.
     gemini = AsyncMock(
         side_effect=HTTPException(
             status_code=503, detail="Caption parsing is not configured"
         )
     )
     response = _snippet_response("Full recipe: https://example.com/soup")
-    blog_result = ExtractionResult(
-        source_url="https://example.com/soup",
-        final_url="https://example.com/soup/",
-        title="Blog Soup",
-        image_url=None,
-        recipe_node_count=1,
-        recipes=[
-            NormalizedRecipe(
-                name="Blog Soup",
-                ingredients=["2 cups stock"],
-                instructions=["Warm stock."],
-            )
-        ],
-    )
-    blog = AsyncMock(return_value=blog_result)
+    blog = AsyncMock()
 
-    result = _run("https://youtu.be/abc123XYZ09", response, gemini=gemini, blog=blog)
+    with pytest.raises(HTTPException) as error:
+        _run("https://youtu.be/abc123XYZ09", response, gemini=gemini, blog=blog)
 
-    assert result.recipes == blog_result.recipes
+    assert error.value.status_code == 503
+    blog.assert_not_awaited()
 
 
 def test_gemini_unconfigured_without_links_raises_503():
@@ -247,28 +242,17 @@ def test_gemini_unconfigured_without_links_raises_503():
     assert error.value.status_code == 503
 
 
-def test_gemini_transient_failure_with_link_still_imports_via_link_follow():
+def test_gemini_transient_failure_with_link_reraises_instead_of_following():
+    # Was: "still imports via link follow" -- same rule change as the 503 case.
     gemini = AsyncMock(side_effect=HTTPException(status_code=429, detail="busy"))
     response = _snippet_response("Full recipe: https://example.com/soup")
-    blog_result = ExtractionResult(
-        source_url="https://example.com/soup",
-        final_url="https://example.com/soup/",
-        title="Blog Soup",
-        image_url=None,
-        recipe_node_count=1,
-        recipes=[
-            NormalizedRecipe(
-                name="Blog Soup",
-                ingredients=["2 cups stock"],
-                instructions=["Warm stock."],
-            )
-        ],
-    )
-    blog = AsyncMock(return_value=blog_result)
+    blog = AsyncMock()
 
-    result = _run("https://youtu.be/abc123XYZ09", response, gemini=gemini, blog=blog)
+    with pytest.raises(HTTPException) as error:
+        _run("https://youtu.be/abc123XYZ09", response, gemini=gemini, blog=blog)
 
-    assert result.recipes == blog_result.recipes
+    assert error.value.status_code == 429
+    blog.assert_not_awaited()
 
 
 def test_not_recipe_description_returns_source_aware_status():
