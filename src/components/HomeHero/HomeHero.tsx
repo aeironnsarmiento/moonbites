@@ -7,6 +7,7 @@ import "./HomeHero.scss";
 
 type HomeHeroProps = {
   isAdmin: boolean;
+  canParse?: boolean;
   totalCount: number;
   favoriteCount: number;
   isLoadingCounts: boolean;
@@ -25,6 +26,7 @@ type HomeHeroProps = {
 
 export function HomeHero({
   isAdmin,
+  canParse = isAdmin,
   totalCount,
   favoriteCount,
   isLoadingCounts,
@@ -69,8 +71,8 @@ export function HomeHero({
         />
       </div>
 
-      {/* Paste URL form — admin only */}
-      {isAdmin && (
+      {/* Paste URL form */}
+      {canParse && (
         <form className="homeHero__form" onSubmit={handleSubmit}>
           <div className={`homeHero__inputRow${focused ? " homeHero__inputRow--focused" : ""}`}>
             <span className="homeHero__linkIcon" aria-hidden="true">
@@ -97,7 +99,8 @@ export function HomeHero({
               {isSubmitting || isPending ? "Saving…" : "Save recipe"}
             </button>
           </div>
-          <RouterLink
+          {isAdmin && (
+            <RouterLink
             to="/recipes/create"
             state={url.trim() ? { importUrl: url.trim() } : undefined}
             className="homeHero__altLink"
@@ -106,6 +109,7 @@ export function HomeHero({
               ? "Create this recipe manually instead →"
               : "Or enter the details yourself →"}
           </RouterLink>
+          )}
           {(submitError || submitStatus) && (
             <div className="homeHero__status">
               <StatusBanner

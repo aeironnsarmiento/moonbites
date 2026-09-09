@@ -4,8 +4,25 @@ Moonbites is a recipe extractor and cookbook app. Paste a recipe URL, let the
 FastAPI backend extract structured recipe data, save it to Supabase, then browse
 and edit the saved collection in a Vite + React frontend.
 
-Saved recipes are public to read. Creating, importing, favoriting, and editing
-recipes require an approved Google admin account through Supabase Auth.
+Saved recipes are public to read. URL imports are public by default and save to
+the shared collection. Manual creation, favoriting, editing, and deleting recipes
+require an approved Google admin account through Supabase Auth.
+
+## Toggle public recipe parsing
+
+Set `PUBLIC_RECIPE_PARSER_ENABLED` in the backend environment:
+
+- `true` (default): anyone can import recipes without signing in.
+- `false`: only approved admins can import recipes.
+
+Locally, put `PUBLIC_RECIPE_PARSER_ENABLED=false` in `backend/.env` and restart
+the backend. In production, change the same backend environment variable and
+redeploy. No separate frontend setting is needed: the homepage reads the backend
+setting automatically. Existing pages refresh it within 30 seconds.
+
+Public imports use the backend's existing database write credentials. Instagram
+jobs are scoped to a random browser-session secret; import rate limits and the
+existing Instagram usage ceilings still apply.
 
 ## Features
 

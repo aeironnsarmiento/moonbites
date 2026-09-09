@@ -114,3 +114,19 @@ def test_instagram_apify_settings_parse_env_values(monkeypatch):
         assert settings.instagram_request_deadline_seconds == 40.0
     finally:
         get_settings.cache_clear()
+
+
+def test_public_parser_defaults_enabled_and_can_be_disabled(monkeypatch):
+    monkeypatch.delenv("PUBLIC_RECIPE_PARSER_ENABLED", raising=False)
+    get_settings.cache_clear()
+    try:
+        assert get_settings().public_recipe_parser_enabled is True
+        for value in ("false", "", "typo"):
+            monkeypatch.setenv("PUBLIC_RECIPE_PARSER_ENABLED", value)
+            get_settings.cache_clear()
+            assert get_settings().public_recipe_parser_enabled is False
+        monkeypatch.setenv("PUBLIC_RECIPE_PARSER_ENABLED", " TRUE ")
+        get_settings.cache_clear()
+        assert get_settings().public_recipe_parser_enabled is True
+    finally:
+        get_settings.cache_clear()
