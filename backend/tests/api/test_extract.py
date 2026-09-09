@@ -5,7 +5,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import app
-from backend.app.api.auth import AuthenticatedAdmin, require_admin_user
+from backend.app.api.auth import AuthenticatedAdmin
+from backend.app.api.parser_access import require_parser_user
 from backend.app.core.rate_limit import limiter
 from backend.app.repositories.import_jobs import ImportJobStorageError, JobCreationOutcome
 from backend.app.repositories.recipe_imports import SaveRecipeImportResult
@@ -41,7 +42,7 @@ def _import_job(**overrides) -> ImportJobRecord:
 
 
 def test_extract_instagram_url_returns_existing_recipe_without_creating_a_job():
-    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+    app.dependency_overrides[require_parser_user] = lambda: AuthenticatedAdmin(
         email="admin@example.com", access_token="admin-token"
     )
 
@@ -85,7 +86,7 @@ def test_extract_instagram_url_returns_existing_recipe_without_creating_a_job():
 
 
 def test_extract_instagram_url_creates_job_and_returns_pending():
-    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+    app.dependency_overrides[require_parser_user] = lambda: AuthenticatedAdmin(
         email="admin@example.com", access_token="admin-token"
     )
 
@@ -119,7 +120,7 @@ def test_extract_instagram_url_creates_job_and_returns_pending():
 
 
 def test_extract_instagram_url_reuses_active_job_for_same_owner():
-    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+    app.dependency_overrides[require_parser_user] = lambda: AuthenticatedAdmin(
         email="admin@example.com", access_token="admin-token"
     )
 
@@ -148,7 +149,7 @@ def test_extract_instagram_url_reuses_active_job_for_same_owner():
 
 
 def test_extract_instagram_url_rejects_when_active_job_ceiling_exceeded():
-    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+    app.dependency_overrides[require_parser_user] = lambda: AuthenticatedAdmin(
         email="admin@example.com", access_token="admin-token"
     )
 
@@ -174,7 +175,7 @@ def test_extract_instagram_url_rejects_when_active_job_ceiling_exceeded():
 
 
 def test_extract_instagram_url_rejects_non_reel_paths():
-    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+    app.dependency_overrides[require_parser_user] = lambda: AuthenticatedAdmin(
         email="admin@example.com", access_token="admin-token"
     )
 
@@ -190,7 +191,7 @@ def test_extract_instagram_url_rejects_non_reel_paths():
 
 
 def test_extract_instagram_url_returns_503_when_job_storage_unavailable():
-    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+    app.dependency_overrides[require_parser_user] = lambda: AuthenticatedAdmin(
         email="admin@example.com", access_token="admin-token"
     )
 
@@ -210,7 +211,7 @@ def test_extract_instagram_url_returns_503_when_job_storage_unavailable():
 
 
 def test_extract_returns_incomplete_recipe_message_when_recipe_nodes_fail_to_normalize():
-    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+    app.dependency_overrides[require_parser_user] = lambda: AuthenticatedAdmin(
         email="admin@example.com",
         access_token="admin-token",
     )
@@ -245,7 +246,7 @@ def test_extract_returns_incomplete_recipe_message_when_recipe_nodes_fail_to_nor
 
 
 def test_extract_success_message_does_not_expose_supabase_table_name():
-    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+    app.dependency_overrides[require_parser_user] = lambda: AuthenticatedAdmin(
         email="admin@example.com",
         access_token="admin-token",
     )
@@ -297,7 +298,7 @@ def test_extract_success_message_does_not_expose_supabase_table_name():
 
 
 def test_extract_response_includes_image_url():
-    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+    app.dependency_overrides[require_parser_user] = lambda: AuthenticatedAdmin(
         email="admin@example.com",
         access_token="admin-token",
     )
@@ -333,7 +334,7 @@ def test_extract_response_includes_image_url():
 
 
 def test_extract_not_recipe_response_skips_db_write():
-    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+    app.dependency_overrides[require_parser_user] = lambda: AuthenticatedAdmin(
         email="admin@example.com",
         access_token="admin-token",
     )
@@ -377,7 +378,7 @@ def test_extract_not_recipe_response_skips_db_write():
 
 
 def test_extract_recipe_response_includes_parse_status_recipe():
-    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+    app.dependency_overrides[require_parser_user] = lambda: AuthenticatedAdmin(
         email="admin@example.com",
         access_token="admin-token",
     )
@@ -429,7 +430,7 @@ def test_extract_recipe_response_includes_parse_status_recipe():
 
 
 def test_extract_success_passes_image_url_to_save_recipe_import():
-    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+    app.dependency_overrides[require_parser_user] = lambda: AuthenticatedAdmin(
         email="admin@example.com",
         access_token="admin-token",
     )

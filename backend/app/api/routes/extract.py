@@ -4,8 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from ..auth import AuthenticatedAdmin, require_admin_user
+from ..parser_access import ParserUser, require_parser_user
 from ...core.rate_limit import limiter
+from ...core.config import get_settings
 from ...repositories.import_jobs import (
     ImportJobStorageError,
     create_or_reuse_job,
@@ -53,7 +54,7 @@ def _existing_recipe_response(record: dict) -> ExtractResponse:
 
 
 async def _handle_instagram_extract(
-    url: str, admin: AuthenticatedAdmin
+    url: str, user: ParserUser
 ) -> JSONResponse:
     try:
         identity = parse_instagram_reel_url(url)
@@ -72,7 +73,7 @@ async def _handle_instagram_extract(
         return JSONResponse(content=jsonable_encoder(envelope), status_code=200)
 
     try:
-        outcome = create_or_reuse_job(admin.email, identity.canonical_url)
+        outcome = create_or_reuse_job(user.email, identity.canonical_url)
     except ImportJobStorageError as error:
         raise HTTPException(
             status_code=503, detail="Job storage is unavailable"
@@ -95,15 +96,23 @@ async def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.get("/extract/access")
+async def parser_access() -> JSONResponse:
+    return JSONResponse(
+        {"public_enabled": get_settings().public_recipe_parser_enabled},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @router.post("/extract", response_model=ExtractResponse)
 @limiter.limit("10/minute")
 async def extract_ld_json(
     request: Request,
     payload: ExtractRequest,
-    admin: AuthenticatedAdmin = Depends(require_admin_user),
+    user: ParserUser = Depends(require_parser_user),
 ):
     if is_instagram_url(payload.url):
-        return await _handle_instagram_extract(payload.url, admin)
+        return await _handle_instagram_extract(payload.url, user)
 
     result = await extract_recipes_from_url(payload.url)
 
@@ -133,7 +142,7 @@ async def extract_ld_json(
             recipes=result.recipes,
             image_url=result.image_url,
             provider_thumbnail_url=thumbnail_candidate,
-            access_token=admin.access_token,
+            access_token=user.access_token,
         )
         database_saved = save_result.saved
         database_message = _sanitize_database_message(

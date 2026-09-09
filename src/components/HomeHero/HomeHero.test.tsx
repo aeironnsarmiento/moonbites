@@ -134,3 +134,14 @@ describe("HomeHero", () => {
     expect(screen.getByRole("button", { name: /Resume/ })).toBeDisabled();
   });
 });
+
+it("lets visitors import when public access is enabled without manual creation", () => {
+  renderHero({ isAdmin: false, canParse: true });
+  expect(urlInput()).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: /enter the details yourself/i })).not.toBeInTheDocument();
+});
+
+it("hides imports from visitors when public access is disabled", () => {
+  renderHero({ isAdmin: false, canParse: false });
+  expect(screen.queryByRole("button", { name: "Save recipe" })).not.toBeInTheDocument();
+});

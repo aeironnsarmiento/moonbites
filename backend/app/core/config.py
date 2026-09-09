@@ -27,6 +27,7 @@ class Settings:
     accept_header: str
     accept_language_header: str
     youtube_api_key: Optional[str]
+    public_recipe_parser_enabled: bool = True
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-3.1-flash-lite"
     gemini_timeout_seconds: float = 30.0
@@ -91,6 +92,7 @@ def get_settings() -> Settings:
             "en-US,en;q=0.9",
         ),
         youtube_api_key=os.getenv("YOUTUBE_API_KEY"),
+        public_recipe_parser_enabled=os.getenv("PUBLIC_RECIPE_PARSER_ENABLED", "true").strip().lower() == "true",
         gemini_api_key=os.getenv("GEMINI_API_KEY"),
         gemini_model=os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite",
         gemini_timeout_seconds=float(os.getenv("GEMINI_TIMEOUT_SECONDS") or "30.0"),

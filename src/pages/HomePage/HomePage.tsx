@@ -10,6 +10,7 @@ import {
   HomeRecentGridSkeleton,
 } from "../../components/HomeSkeletons/HomeSkeletons";
 import { StatusBanner } from "../../components/StatusBanner/StatusBanner";
+import { useParserAccess } from "../../hooks/useParserAccess";
 import { useAuth } from "../../hooks/useAuth";
 import { useExtractRecipe } from "../../hooks/useExtractRecipe";
 import { useHighlightedRecipes } from "../../hooks/useHighlightedRecipes";
@@ -18,6 +19,7 @@ import "./HomePage.scss";
 export function HomePage() {
   const navigate = useNavigate();
   const { isAdmin } = useAuth();
+  const publicParserEnabled = useParserAccess();
   const { data, error, isLoading } = useHighlightedRecipes();
   const [url, setUrl] = useState("");
   const onSaved = useCallback(() => setUrl(""), []);
@@ -36,6 +38,7 @@ export function HomePage() {
     <div className="homePage">
       <HomeHero
         isAdmin={isAdmin}
+        canParse={isAdmin || publicParserEnabled}
         totalCount={data.totalCount}
         favoriteCount={data.favoriteCount}
         isLoadingCounts={isLoading}

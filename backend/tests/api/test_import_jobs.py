@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from backend.main import app
-from backend.app.api.auth import AuthenticatedAdmin, require_admin_user
+from backend.app.api.auth import AuthenticatedAdmin
+from backend.app.api.parser_access import require_parser_user
 from backend.app.repositories.import_jobs import ImportJobStorageError
 from backend.app.schemas.import_jobs import ImportJobRecord, ImportJobState
 
@@ -32,7 +33,7 @@ def _job(**overrides) -> ImportJobRecord:
 
 
 def _authenticated():
-    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+    app.dependency_overrides[require_parser_user] = lambda: AuthenticatedAdmin(
         email="admin@example.com", access_token="admin-token"
     )
 

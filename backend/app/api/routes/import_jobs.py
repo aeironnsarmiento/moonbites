@@ -1,12 +1,13 @@
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from ..auth import AuthenticatedAdmin, require_admin_user
+from ..parser_access import ParserUser, require_parser_user
 from ...core.config import get_settings
+from ...core.rate_limit import limiter
 from ...repositories.import_jobs import ImportJobStorageError, claim_job_lease, get_job_for_owner
 from ...schemas.import_jobs import TERMINAL_JOB_STATES, pending_response, terminal_response
 from ...services.import_deadline import Deadline
@@ -18,11 +19,12 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/{job_id}/advance")
+@limiter.limit("30/minute")
 async def advance_import_job(
-    job_id: str, admin: AuthenticatedAdmin = Depends(require_admin_user)
+    request: Request, job_id: str, user: ParserUser = Depends(require_parser_user)
 ) -> JSONResponse:
     try:
-        job = get_job_for_owner(job_id, admin.email)
+        job = get_job_for_owner(job_id, user.email)
     except ImportJobStorageError as error:
         raise HTTPException(
             status_code=503, detail="Job storage is unavailable"
@@ -43,7 +45,7 @@ async def advance_import_job(
         )
 
     try:
-        claimed = claim_job_lease(job.id, admin.email, job.version)
+        claimed = claim_job_lease(job.id, user.email, job.version)
     except ImportJobStorageError as error:
         raise HTTPException(
             status_code=503, detail="Job storage is unavailable"
