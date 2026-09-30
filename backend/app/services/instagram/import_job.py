@@ -17,7 +17,13 @@ from ...repositories.import_jobs import (
     release_provider_admission,
 )
 from ...repositories.recipe_imports import save_recipe_import
-from ...schemas.extract import ExtractResponse, NormalizedRecipe
+from ...schemas.extract import (
+    NOT_RECIPE_SKIPPED_MESSAGE,
+    SAVE_SUCCESS_MESSAGE,
+    ExtractResponse,
+    NormalizedRecipe,
+    ParseStatus,
+)
 from ...schemas.import_jobs import ImportJobErrorCode, ImportJobRecord, ImportJobState
 from ..blog.extractor import parse_recipes_from_html
 from ..gemini.recipe_parser import ParsedCaption, parse_caption_with_gemini
@@ -56,7 +62,6 @@ ADMISSION_RECLAIM_GRACE_SECONDS = 60
 NOT_RECIPE_MESSAGE = (
     "Moonbites could not find one complete, confidently matching recipe."
 )
-SAVE_SUCCESS_MESSAGE = "Recipe saved to your collection."
 
 logger = logging.getLogger(__name__)
 
@@ -108,8 +113,8 @@ def _not_recipe_result(identity: InstagramReelIdentity) -> dict:
         image_url=None,
         recipes=[],
         database_saved=False,
-        database_message="Skipped — not a recipe.",
-        parse_status="not_recipe",
+        database_message=NOT_RECIPE_SKIPPED_MESSAGE,
+        parse_status=ParseStatus.NOT_RECIPE,
         parse_reason=NOT_RECIPE_MESSAGE,
         linked_recipe_url=None,
     ).model_dump(mode="json")
@@ -126,7 +131,7 @@ def _resolved_result(
         recipes=[recipe],
         database_saved=False,
         database_message="",
-        parse_status="recipe",
+        parse_status=ParseStatus.RECIPE,
         parse_reason=None,
         linked_recipe_url=linked_recipe_url,
     ).model_dump(mode="json")
@@ -292,7 +297,7 @@ async def _handle_queued(
                 recipes=recipes,
                 database_saved=True,
                 database_message=SAVE_SUCCESS_MESSAGE,
-                parse_status="recipe",
+                parse_status=ParseStatus.RECIPE,
                 linked_recipe_url=existing.get("linked_recipe_url"),
             ).model_dump(mode="json"),
             release_lease=True,
@@ -721,7 +726,7 @@ async def _handle_saving(
         recipes=[recipe],
         database_saved=True,
         database_message=SAVE_SUCCESS_MESSAGE,
-        parse_status="recipe",
+        parse_status=ParseStatus.RECIPE,
         linked_recipe_url=job.linked_recipe_url,
     )
     updated = await _checkpoint(

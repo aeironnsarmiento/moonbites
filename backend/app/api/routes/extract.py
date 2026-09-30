@@ -12,9 +12,15 @@ from ...repositories.import_jobs import (
     find_existing_recipe_by_canonical_url,
 )
 from ...repositories.recipe_imports import save_recipe_import
-from ...schemas.extract import ExtractRequest, ExtractResponse, NormalizedRecipe
+from ...schemas.extract import (
+    NOT_RECIPE_SKIPPED_MESSAGE,
+    SAVE_SUCCESS_MESSAGE,
+    ExtractRequest,
+    ExtractResponse,
+    NormalizedRecipe,
+    ParseStatus,
+)
 from ...schemas.import_jobs import ResultImportResponse, pending_response
-from ...services.extraction_types import ParseStatus
 from ...services.extractor import extract_recipes_from_url
 from ...services.instagram.urls import (
     InstagramUrlError,
@@ -24,12 +30,11 @@ from ...services.instagram.urls import (
 
 
 router = APIRouter(prefix="/api", tags=["extract"])
-GENERIC_SAVE_SUCCESS_MESSAGE = "Recipe saved to your collection."
 
 
 def _sanitize_database_message(database_saved: bool, message: str) -> str:
     if database_saved and "Supabase table" in message:
-        return GENERIC_SAVE_SUCCESS_MESSAGE
+        return SAVE_SUCCESS_MESSAGE
 
     return message
 
@@ -46,8 +51,8 @@ def _existing_recipe_response(record: dict) -> ExtractResponse:
         image_url=record.get("image_url"),
         recipes=recipes,
         database_saved=True,
-        database_message=GENERIC_SAVE_SUCCESS_MESSAGE,
-        parse_status="recipe",
+        database_message=SAVE_SUCCESS_MESSAGE,
+        parse_status=ParseStatus.RECIPE,
         linked_recipe_url=record.get("linked_recipe_url"),
     )
 
@@ -115,24 +120,19 @@ async def extract_ld_json(
             image_url=result.image_url,
             recipes=[],
             database_saved=False,
-            database_message="Skipped — not a recipe.",
-            parse_status="not_recipe",
+            database_message=NOT_RECIPE_SKIPPED_MESSAGE,
+            parse_status=ParseStatus.NOT_RECIPE,
             parse_reason=result.parse_reason,
         )
 
     if result.recipes:
-        thumbnail_candidate = (
-            result.provider_thumbnail_url
-            if isinstance(result.provider_thumbnail_url, str)
-            else None
-        )
         save_result = await save_recipe_import(
             submitted_url=result.source_url,
             final_url=result.final_url,
             title=result.title,
             recipes=result.recipes,
             image_url=result.image_url,
-            provider_thumbnail_url=thumbnail_candidate,
+            provider_thumbnail_url=result.provider_thumbnail_url,
             access_token=admin.access_token,
         )
         database_saved = save_result.saved
@@ -162,5 +162,5 @@ async def extract_ld_json(
         recipes=result.recipes,
         database_saved=database_saved,
         database_message=database_message,
-        parse_status="recipe",
+        parse_status=ParseStatus.RECIPE,
     )

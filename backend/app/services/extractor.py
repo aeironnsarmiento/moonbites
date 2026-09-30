@@ -7,6 +7,11 @@ from .tiktok.extractor import extract_recipe_from_tiktok_url, is_tiktok_url
 from .youtube.extractor import extract_recipe_from_youtube_url, is_youtube_url
 
 
+def is_social_video_url(url: str) -> bool:
+    """True for a YouTube, TikTok or Instagram URL."""
+    return is_youtube_url(url) or is_tiktok_url(url) or is_instagram_url(url)
+
+
 async def extract_recipes_from_url(url: str) -> ExtractionResult:
     if is_youtube_url(url):
         return await extract_recipe_from_youtube_url(url)
@@ -32,4 +37,5 @@ __all__ = [
     "extract_recipe_from_tiktok_url",
     "extract_recipe_from_youtube_url",
     "extract_recipes_from_url",
+    "is_social_video_url",
 ]

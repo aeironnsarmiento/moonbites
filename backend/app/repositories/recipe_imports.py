@@ -10,6 +10,8 @@ from ..clients.supabase_client import (
 )
 from ..core.config import get_settings
 from ..schemas.extract import (
+    DUPLICATE_SAVE_MESSAGE,
+    SAVE_SUCCESS_MESSAGE,
     CuisineFacet,
     CuisineFacetsResponse,
     HighlightedRecipesResponse,
@@ -263,7 +265,7 @@ async def save_recipe_import(
     if existing_records:
         return SaveRecipeImportResult(
             saved=True,
-            message="Recipe import already exists, so the duplicate save was skipped.",
+            message=DUPLICATE_SAVE_MESSAGE,
             image_url=image_url,
             id=existing_records[0].get("id"),
         )
@@ -328,7 +330,7 @@ async def save_recipe_import(
                 )
             return SaveRecipeImportResult(
                 saved=True,
-                message="Recipe import already exists, so the duplicate save was skipped.",
+                message=DUPLICATE_SAVE_MESSAGE,
                 image_url=image_url,
             )
 
@@ -340,7 +342,7 @@ async def save_recipe_import(
         if committed_record is not None:
             return SaveRecipeImportResult(
                 saved=True,
-                message="Recipe saved to your collection.",
+                message=SAVE_SUCCESS_MESSAGE,
                 image_url=committed_record.image_url,
                 id=recipe_import_id,
             )
@@ -358,7 +360,7 @@ async def save_recipe_import(
 
     return SaveRecipeImportResult(
         saved=True,
-        message="Recipe saved to your collection.",
+        message=SAVE_SUCCESS_MESSAGE,
         image_url=effective_image_url,
         id=recipe_import_id,
     )
