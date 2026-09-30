@@ -40,6 +40,17 @@ class ApifyRunStatus(str, Enum):
     ABORTED = "ABORTED"
 
 
+# Statuses that mean "poll again later" rather than a terminal outcome.
+IN_FLIGHT_RUN_STATUSES = frozenset(
+    {
+        ApifyRunStatus.READY,
+        ApifyRunStatus.RUNNING,
+        ApifyRunStatus.TIMING_OUT,
+        ApifyRunStatus.ABORTING,
+    }
+)
+
+
 class ApifyRun(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 

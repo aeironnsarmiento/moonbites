@@ -12,14 +12,7 @@ from ..repositories.recipe_imports import (
     update_recipe_import_from_extraction,
 )
 from ..schemas.extract import RecipeImportRecord
-from .extractor import ExtractionResult, extract_recipes_from_url
-from .instagram.urls import is_instagram_url
-from .tiktok.extractor import is_tiktok_url
-from .youtube.extractor import is_youtube_url
-
-
-def _is_video_host_url(value: str) -> bool:
-    return is_youtube_url(value) or is_tiktok_url(value) or is_instagram_url(value)
+from .extractor import ExtractionResult, extract_recipes_from_url, is_social_video_url
 
 
 @dataclass(frozen=True)
@@ -47,8 +40,8 @@ def _source_urls(record: RecipeImportRecord) -> list[str]:
             urls.append(value)
     # A link-followed video import refetches from its blog final_url only;
     # falling back to the video submitted_url would re-enter caption parsing.
-    if urls and not _is_video_host_url(urls[0]):
-        urls = [url for url in urls if not _is_video_host_url(url)]
+    if urls and not is_social_video_url(urls[0]):
+        urls = [url for url in urls if not is_social_video_url(url)]
     return urls
 
 
@@ -144,7 +137,7 @@ async def refetch_recipe_imports(
             )
             continue
 
-        if _is_video_host_url(record.final_url):
+        if is_social_video_url(record.final_url):
             results.append(
                 RefetchRecipeImportResult(
                     recipe_import_id=record.id,

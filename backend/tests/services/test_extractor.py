@@ -1,6 +1,10 @@
 import asyncio
 from unittest.mock import AsyncMock, patch
 
+import httpx
+import pytest
+from fastapi import HTTPException
+
 from app.schemas.extract import IngredientSection
 from app.core.config import Settings
 from app.services.blog.extractor import parse_recipes_from_html
@@ -22,14 +26,6 @@ def _settings() -> Settings:
         accept_language_header="en-US",
         youtube_api_key=None,
     )
-
-
-class _AsyncClientContext:
-    async def __aenter__(self):
-        return object()
-
-    async def __aexit__(self, exc_type, exc, tb):
-        return False
 
 
 class _Response:
@@ -110,11 +106,7 @@ def test_extract_recipes_from_url_uses_html_fallback_for_partial_recipe_schema()
     with (
         patch("app.services.blog.extractor.get_settings", return_value=_settings()),
         patch(
-            "app.services.blog.extractor.httpx.AsyncClient",
-            return_value=_AsyncClientContext(),
-        ),
-        patch(
-            "app.services.blog.extractor.get_with_403_retry",
+            "app.services.blog.extractor.get_page",
             new=AsyncMock(return_value=response),
         ),
     ):
@@ -284,11 +276,7 @@ def test_extract_recipes_from_url_prefers_json_ld_ingredients_over_html_fallback
     with (
         patch("app.services.blog.extractor.get_settings", return_value=_settings()),
         patch(
-            "app.services.blog.extractor.httpx.AsyncClient",
-            return_value=_AsyncClientContext(),
-        ),
-        patch(
-            "app.services.blog.extractor.get_with_403_retry",
+            "app.services.blog.extractor.get_page",
             new=AsyncMock(return_value=response),
         ),
     ):
@@ -365,11 +353,7 @@ def test_extract_recipes_from_url_uses_matching_wprm_headers_for_flat_json_ld_in
     with (
         patch("app.services.blog.extractor.get_settings", return_value=_settings()),
         patch(
-            "app.services.blog.extractor.httpx.AsyncClient",
-            return_value=_AsyncClientContext(),
-        ),
-        patch(
-            "app.services.blog.extractor.get_with_403_retry",
+            "app.services.blog.extractor.get_page",
             new=AsyncMock(return_value=response),
         ),
     ):
@@ -395,3 +379,44 @@ def test_extract_recipes_from_url_uses_matching_wprm_headers_for_flat_json_ld_in
             items=["1/4 cup sugar", "2 eggs"],
         ),
     ]
+
+
+def _patched_http_client(handler):
+    real_client = httpx.AsyncClient
+
+    def factory(**kwargs):
+        return real_client(transport=httpx.MockTransport(handler), **kwargs)
+
+    return patch("app.services.http_utils.httpx.AsyncClient", side_effect=factory)
+
+
+def test_extract_recipes_from_url_retries_a_403_and_parses_the_page():
+    calls: list[httpx.Request] = []
+
+    def handler(request):
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(403)
+        return httpx.Response(200, text="<html><title>Bread</title></html>")
+
+    with (
+        patch("app.services.blog.extractor.get_settings", return_value=_settings()),
+        _patched_http_client(handler),
+    ):
+        result = asyncio.run(extract_recipes_from_url("https://example.com/bread"))
+
+    assert len(calls) == 2
+    assert result.final_url == "https://example.com/bread"
+    assert result.title == "Bread"
+
+
+def test_extract_recipes_from_url_maps_upstream_404_to_502():
+    with (
+        patch("app.services.blog.extractor.get_settings", return_value=_settings()),
+        _patched_http_client(lambda _request: httpx.Response(404)),
+    ):
+        with pytest.raises(HTTPException) as error:
+            asyncio.run(extract_recipes_from_url("https://example.com/missing"))
+
+    assert error.value.status_code == 502
+    assert error.value.detail == "Target site returned HTTP 404"

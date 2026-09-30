@@ -227,3 +227,18 @@ def test_thumbnail_is_not_mirrored_when_the_caller_did_not_ask():
     result = _run(post, gemini=gemini)
 
     assert result.provider_thumbnail_url is None
+
+
+def test_a_link_raising_a_non_http_error_is_skipped():
+    gemini = AsyncMock(return_value=_incomplete("Miso Salmon Rice"))
+    blog = AsyncMock(
+        side_effect=[
+            RuntimeError("parser blew up"),
+            _page("https://b.example/miso", "Miso Salmon Rice"),
+        ]
+    )
+    caption = "Recipe: https://a.example/miso and https://b.example/miso"
+
+    result = _run(_post(caption), gemini=gemini, blog=blog)
+
+    assert result.recipes[0].name == "Miso Salmon Rice"

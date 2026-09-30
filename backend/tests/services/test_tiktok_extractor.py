@@ -414,3 +414,26 @@ def test_both_paths_timing_out_maps_to_504():
         _run("https://www.tiktok.com/@slow/video/1", page, oembed, gemini=gemini)
 
     assert error.value.status_code == 504
+
+
+@pytest.mark.parametrize("status_code", [400, 404])
+def test_oembed_not_found_statuses_map_to_404_detail(status_code):
+    page = _ClientContext([_PageResponse("<html></html>")])
+    oembed = _ClientContext([_OembedResponse({}, status_code=status_code)])
+
+    with pytest.raises(HTTPException) as error:
+        _run("https://www.tiktok.com/@gone/video/1", page, oembed, gemini=AsyncMock())
+
+    assert error.value.status_code == 404
+    assert error.value.detail == "TikTok post was not found"
+
+
+def test_oembed_server_error_maps_to_502_with_status():
+    page = _ClientContext([_PageResponse("<html></html>")])
+    oembed = _ClientContext([_OembedResponse({}, status_code=503)])
+
+    with pytest.raises(HTTPException) as error:
+        _run("https://www.tiktok.com/@down/video/1", page, oembed, gemini=AsyncMock())
+
+    assert error.value.status_code == 502
+    assert error.value.detail == "TikTok returned HTTP 503"

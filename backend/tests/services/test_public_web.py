@@ -9,6 +9,7 @@ from app.services.public_web import (
     HTML_POLICY,
     IMAGE_POLICY,
     PublicWebError,
+    fetch_public_html,
     safe_fetch,
 )
 
@@ -320,3 +321,28 @@ def test_safe_fetch_fails_closed_on_transport_error():
                 resolver=resolver,
             )
         )
+
+
+def test_fetch_public_html_decodes_with_replacement_and_returns_final_url():
+    resolver = _resolver(
+        {"blog.example": ["93.184.216.34"], "www.blog.example": ["93.184.216.34"]}
+    )
+
+    def handler(request: httpx.Request):
+        if request.url.path == "/start":
+            return httpx.Response(
+                301, headers={"location": "https://www.blog.example/recipe"}
+            )
+        return _html_response(body=b"<html>caf\xe9 \xff</html>")
+
+    page = asyncio.run(
+        fetch_public_html(
+            "https://blog.example/start",
+            deadline_seconds=5,
+            transport=httpx.MockTransport(handler),
+            resolver=resolver,
+        )
+    )
+
+    assert page.final_url == "https://www.blog.example/recipe"
+    assert page.html == "<html>caf\ufffd \ufffd</html>"

@@ -10,6 +10,8 @@ from ..clients.supabase_client import (
 )
 from ..core.config import get_settings
 from ..schemas.extract import (
+    DUPLICATE_SAVE_MESSAGE,
+    SAVE_SUCCESS_MESSAGE,
     CuisineFacet,
     CuisineFacetsResponse,
     HighlightedRecipesResponse,
@@ -35,10 +37,12 @@ from ..services.recipe_identity import (
     dedupe_by_source,
     source_identity,
 )
-from ..services.tiktok.thumbnail_storage import (
-    delete_tiktok_thumbnail,
-    mirror_tiktok_thumbnail,
+from ..services.social.thumbnail_storage import (
+    ThumbnailPlatform,
+    delete_social_thumbnail_best_effort,
+    mirror_social_thumbnail,
 )
+from ..services.tiktok.extractor import is_tiktok_url
 from ..utils.yield_parser import parse_yield
 
 
@@ -261,7 +265,7 @@ async def save_recipe_import(
     if existing_records:
         return SaveRecipeImportResult(
             saved=True,
-            message="Recipe import already exists, so the duplicate save was skipped.",
+            message=DUPLICATE_SAVE_MESSAGE,
             image_url=image_url,
             id=existing_records[0].get("id"),
         )
@@ -270,20 +274,29 @@ async def save_recipe_import(
     effective_image_url = image_url
     image_storage_path: Optional[str] = managed_image_storage_path
     if not managed_image_storage_path and provider_thumbnail_url:
-        try:
-            mirrored = await mirror_tiktok_thumbnail(
-                recipe_import_id,
-                provider_thumbnail_url,
-                settings=settings,
-            )
-            effective_image_url = mirrored.image_url
-            image_storage_path = mirrored.storage_path
-        except Exception as error:
+        platform = _thumbnail_platform(submitted_url, final_url)
+        if platform is None:
             logger.warning(
-                "TikTok thumbnail mirror failed for recipe import %s: %s",
+                "No thumbnail platform for recipe import %s; keeping the provider URL",
                 recipe_import_id,
-                error,
             )
+        else:
+            try:
+                mirrored = await mirror_social_thumbnail(
+                    platform,
+                    recipe_import_id,
+                    provider_thumbnail_url,
+                    deadline_seconds=settings.request_timeout_seconds,
+                    settings=settings,
+                )
+                effective_image_url = mirrored.image_url
+                image_storage_path = mirrored.storage_path
+            except Exception as error:
+                logger.warning(
+                    "Thumbnail mirror failed for recipe import %s: %s",
+                    recipe_import_id,
+                    error,
+                )
 
     payload = {
         "id": recipe_import_id,
@@ -317,7 +330,7 @@ async def save_recipe_import(
                 )
             return SaveRecipeImportResult(
                 saved=True,
-                message="Recipe import already exists, so the duplicate save was skipped.",
+                message=DUPLICATE_SAVE_MESSAGE,
                 image_url=image_url,
             )
 
@@ -329,7 +342,7 @@ async def save_recipe_import(
         if committed_record is not None:
             return SaveRecipeImportResult(
                 saved=True,
-                message="Recipe saved to your collection.",
+                message=SAVE_SUCCESS_MESSAGE,
                 image_url=committed_record.image_url,
                 id=recipe_import_id,
             )
@@ -347,7 +360,7 @@ async def save_recipe_import(
 
     return SaveRecipeImportResult(
         saved=True,
-        message="Recipe saved to your collection.",
+        message=SAVE_SUCCESS_MESSAGE,
         image_url=effective_image_url,
         id=recipe_import_id,
     )
@@ -794,20 +807,24 @@ def _get_managed_image_state(
     )
 
 
+def _thumbnail_platform(submitted_url: str, final_url: str) -> Optional[ThumbnailPlatform]:
+    """Storage-path platform segment for a provider thumbnail, from the
+    recipe's own URLs. Exact host match only, never a substring."""
+    if is_tiktok_url(final_url) or is_tiktok_url(submitted_url):
+        return "tiktok"
+    if is_instagram_url(final_url) or is_instagram_url(submitted_url):
+        return "instagram"
+    return None
+
+
 def _delete_managed_thumbnail_best_effort(
     storage_path: str,
     *,
     recipe_import_id: str,
 ) -> None:
-    try:
-        delete_tiktok_thumbnail(storage_path)
-    except Exception as error:
-        logger.warning(
-            "Managed thumbnail cleanup failed for recipe import %s (%s): %s",
-            recipe_import_id,
-            storage_path,
-            error,
-        )
+    delete_social_thumbnail_best_effort(
+        storage_path, context=f"recipe import {recipe_import_id}"
+    )
 
 
 def delete_recipe_import(

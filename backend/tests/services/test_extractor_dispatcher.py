@@ -6,7 +6,7 @@ from fastapi import HTTPException
 
 from app.schemas.extract import NormalizedRecipe
 from app.services.extraction_types import ExtractionResult
-from app.services.extractor import extract_recipes_from_url
+from app.services.extractor import extract_recipes_from_url, is_social_video_url
 
 
 def _result(source_url: str) -> ExtractionResult:
@@ -94,3 +94,18 @@ def test_extract_recipes_from_url_rejects_instagram_before_blog_fallback():
     youtube.assert_not_called()
     tiktok.assert_not_called()
     blog.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://www.youtube.com/watch?v=abc123XYZ09", True),
+        ("https://youtu.be/abc123XYZ09", True),
+        ("https://www.tiktok.com/@cook/video/123", True),
+        ("https://www.instagram.com/reel/DZuzc9PNedT/", True),
+        ("https://example.com/recipe", False),
+        ("https://notyoutube.com/watch?v=abc123XYZ09", False),
+    ],
+)
+def test_is_social_video_url_classifies_video_hosts(url, expected):
+    assert is_social_video_url(url) is expected

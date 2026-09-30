@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Optional
 from urllib.parse import urlsplit, urlunsplit
 
+from ..schemas.extract import NormalizedRecipe
 from .extraction_types import ExtractionResult
 
 
@@ -170,6 +171,20 @@ class RecipeCandidate:
     canonical_url: str
     title: str
     result: ExtractionResult
+    recipe: NormalizedRecipe
+
+
+def candidates_from_result(page: ExtractionResult) -> list[RecipeCandidate]:
+    """One candidate per recipe a fetched page yielded."""
+    return [
+        RecipeCandidate(
+            canonical_url=page.final_url,
+            title=recipe.name,
+            result=page,
+            recipe=recipe,
+        )
+        for recipe in page.recipes
+    ]
 
 
 def select_unique_match(

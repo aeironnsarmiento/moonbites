@@ -1,5 +1,6 @@
 import json
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -9,12 +10,18 @@ from ...core.config import Settings, get_settings
 from ...schemas.extract import IngredientSection, JsonLdBlock, NormalizedRecipe
 from ...utils.text import clean_text, unique_strings
 from ..extraction_types import ExtractionResult
-from ..http_utils import build_request_headers, get_with_403_retry
+from ..http_utils import UpstreamErrorDetails, get_page, translate_httpx_errors
 from ..image_extraction import extract_image_url
 from ..normalizer import collect_recipe_nodes, normalize_recipe
-from ..public_web import HTML_POLICY, Resolver, safe_fetch, upgrade_to_https
+from ..public_web import Resolver, fetch_public_html, upgrade_to_https
 from ..recipe_identity import dedupe_by_content
 
+
+TARGET_SITE_ERRORS = UpstreamErrorDetails(
+    timeout="Request to target URL timed out",
+    status="Target site returned HTTP {status_code}",
+    unreachable="Unable to fetch the target URL",
+)
 
 INGREDIENT_HEADING_KEYWORDS = {"ingredient", "ingredients"}
 INSTRUCTION_HEADING_KEYWORDS = {
@@ -69,8 +76,6 @@ CONTAINER_SELECTORS = (
 
 
 def normalize_url(value: str) -> str:
-    from urllib.parse import urlparse
-
     normalized = value.strip()
     parsed = urlparse(normalized)
 
@@ -421,29 +426,8 @@ async def extract_recipes_from_url(url: str) -> ExtractionResult:
     settings = get_settings()
     target_url = normalize_url(url)
 
-    try:
-        async with httpx.AsyncClient(
-            headers=build_request_headers(settings),
-            follow_redirects=True,
-            timeout=settings.request_timeout_seconds,
-        ) as client:
-            response = await get_with_403_retry(client, target_url, settings)
-            response.raise_for_status()
-    except httpx.TimeoutException as error:
-        raise HTTPException(
-            status_code=504, detail="Request to target URL timed out"
-        ) from error
-    except httpx.HTTPStatusError as error:
-        status_code = error.response.status_code
-        raise HTTPException(
-            status_code=502,
-            detail=f"Target site returned HTTP {status_code}",
-        ) from error
-    except httpx.HTTPError as error:
-        raise HTTPException(
-            status_code=502,
-            detail="Unable to fetch the target URL",
-        ) from error
+    with translate_httpx_errors(TARGET_SITE_ERRORS):
+        response = await get_page(target_url, settings)
 
     return parse_recipes_from_html(
         response.text, source_url=target_url, final_url=str(response.url)
@@ -465,16 +449,9 @@ async def extract_blog_recipes_from_safe_url(
     chose to trust.
     """
     target_url = upgrade_to_https(url) or url
-
-    kwargs: dict = {"deadline_seconds": 15.0}
-    if transport is not None:
-        kwargs["transport"] = transport
-    if resolver is not None:
-        kwargs["resolver"] = resolver
-
-    result = await safe_fetch(target_url, HTML_POLICY, **kwargs)
-    html = result.body.decode("utf-8", errors="replace")
-
+    page = await fetch_public_html(
+        target_url, deadline_seconds=15.0, transport=transport, resolver=resolver
+    )
     return parse_recipes_from_html(
-        html, source_url=target_url, final_url=result.final_url
+        page.html, source_url=target_url, final_url=page.final_url
     )

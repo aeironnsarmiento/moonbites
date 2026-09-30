@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from app.repositories.recipe_imports import save_recipe_import
 from app.schemas.extract import NormalizedRecipe, RecipeImportRecord
+from app.services.social.thumbnail_storage import (
+    MirroredSocialThumbnail,
+    SocialThumbnailStorageError,
+)
 
 
 class _Response:
@@ -183,7 +187,7 @@ def test_save_recipe_import_uses_managed_image_storage_path_without_mirroring_ti
     client = _FakeClient()
 
     with patch(
-        "app.repositories.recipe_imports.mirror_tiktok_thumbnail"
+        "app.repositories.recipe_imports.mirror_social_thumbnail"
     ) as mirror:
         result = _run(
             client,
@@ -201,7 +205,7 @@ def test_save_recipe_import_deletes_provisional_thumbnail_on_duplicate_key_confl
     client.insert_error = RuntimeError('duplicate key value violates unique constraint "x"')
 
     with patch(
-        "app.repositories.recipe_imports.delete_tiktok_thumbnail"
+        "app.repositories.recipe_imports.delete_social_thumbnail_best_effort"
     ) as delete_thumb:
         result = _run(
             client,
@@ -210,7 +214,8 @@ def test_save_recipe_import_deletes_provisional_thumbnail_on_duplicate_key_confl
         )
 
     assert result.saved is True
-    delete_thumb.assert_called_once_with("instagram/recipe.jpg")
+    delete_thumb.assert_called_once()
+    assert delete_thumb.call_args.args[0] == "instagram/recipe.jpg"
 
 
 def test_save_recipe_import_ambiguous_failure_with_committed_row_keeps_thumbnail():
@@ -227,7 +232,7 @@ def test_save_recipe_import_ambiguous_failure_with_committed_row_keeps_thumbnail
 
     with (
         patch(
-            "app.repositories.recipe_imports.delete_tiktok_thumbnail"
+            "app.repositories.recipe_imports.delete_social_thumbnail_best_effort"
         ) as delete_thumb,
         patch(
             "app.repositories.recipe_imports.get_recipe_import",
@@ -251,7 +256,7 @@ def test_save_recipe_import_ambiguous_failure_without_committed_row_deletes_thum
 
     with (
         patch(
-            "app.repositories.recipe_imports.delete_tiktok_thumbnail"
+            "app.repositories.recipe_imports.delete_social_thumbnail_best_effort"
         ) as delete_thumb,
         patch(
             "app.repositories.recipe_imports.get_recipe_import",
@@ -265,4 +270,76 @@ def test_save_recipe_import_ambiguous_failure_without_committed_row_deletes_thum
         )
 
     assert result.saved is False
-    delete_thumb.assert_called_once_with("instagram/recipe.jpg")
+    delete_thumb.assert_called_once()
+    assert delete_thumb.call_args.args[0] == "instagram/recipe.jpg"
+
+
+TIKTOK_URL = "https://www.tiktok.com/@cook/video/123"
+PROVIDER_THUMBNAIL = "https://p16.tiktokcdn.com/thumb.jpg"
+
+
+def test_save_recipe_import_mirrors_a_tiktok_thumbnail_under_the_tiktok_path():
+    client = _FakeClient()
+    mirrored = MirroredSocialThumbnail(
+        image_url="https://cdn.example/tiktok/rid/digest.jpg",
+        storage_path="tiktok/rid/digest.jpg",
+    )
+
+    with patch(
+        "app.repositories.recipe_imports.mirror_social_thumbnail",
+        new=AsyncMock(return_value=mirrored),
+    ) as mirror:
+        result = _run(
+            client,
+            submitted_url=TIKTOK_URL,
+            final_url=TIKTOK_URL,
+            image_url=PROVIDER_THUMBNAIL,
+            provider_thumbnail_url=PROVIDER_THUMBNAIL,
+        )
+
+    assert mirror.call_args.args[0] == "tiktok"
+    assert mirror.call_args.args[2] == PROVIDER_THUMBNAIL
+    assert result.image_url == mirrored.image_url
+    assert client.insert_calls[0]["image_url"] == mirrored.image_url
+    assert client.insert_calls[0]["image_storage_path"] == "tiktok/rid/digest.jpg"
+
+
+def test_save_recipe_import_keeps_the_provider_url_when_mirroring_fails():
+    client = _FakeClient()
+
+    with patch(
+        "app.repositories.recipe_imports.mirror_social_thumbnail",
+        new=AsyncMock(side_effect=SocialThumbnailStorageError("fetch failed")),
+    ):
+        result = _run(
+            client,
+            submitted_url=TIKTOK_URL,
+            final_url=TIKTOK_URL,
+            image_url=PROVIDER_THUMBNAIL,
+            provider_thumbnail_url=PROVIDER_THUMBNAIL,
+        )
+
+    assert result.saved is True
+    assert client.insert_calls[0]["image_url"] == PROVIDER_THUMBNAIL
+    assert client.insert_calls[0]["image_storage_path"] is None
+
+
+def test_save_recipe_import_skips_mirroring_for_a_non_social_url():
+    client = _FakeClient()
+
+    with patch(
+        "app.repositories.recipe_imports.mirror_social_thumbnail",
+        new=AsyncMock(),
+    ) as mirror:
+        result = _run(
+            client,
+            submitted_url="https://blog.example/miso-salmon",
+            final_url="https://blog.example/miso-salmon",
+            image_url=PROVIDER_THUMBNAIL,
+            provider_thumbnail_url=PROVIDER_THUMBNAIL,
+        )
+
+    mirror.assert_not_called()
+    assert result.saved is True
+    assert client.insert_calls[0]["image_url"] == PROVIDER_THUMBNAIL
+    assert client.insert_calls[0]["image_storage_path"] is None

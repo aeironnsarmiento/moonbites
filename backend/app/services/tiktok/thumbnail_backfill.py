@@ -7,11 +7,11 @@ from urllib.parse import urlparse
 
 from ...clients.supabase_client import get_supabase_client
 from ...core.config import get_settings
-from .extractor import fetch_tiktok_source_metadata, is_tiktok_url
-from .thumbnail_storage import (
-    delete_tiktok_thumbnail,
-    mirror_tiktok_thumbnail,
+from ..social.thumbnail_storage import (
+    delete_social_thumbnail_best_effort,
+    mirror_social_thumbnail,
 )
+from .extractor import fetch_tiktok_source_metadata, is_tiktok_url
 
 
 logger = logging.getLogger(__name__)
@@ -276,9 +276,11 @@ async def backfill_tiktok_thumbnails(
 
         storage_path: Optional[str] = None
         try:
-            mirrored = await mirror_tiktok_thumbnail(
+            mirrored = await mirror_social_thumbnail(
+                "tiktok",
                 record.id,
                 metadata.image_url,
+                deadline_seconds=get_settings().request_timeout_seconds,
             )
             storage_path = mirrored.storage_path
             _update_thumbnail_reference(
@@ -287,16 +289,9 @@ async def backfill_tiktok_thumbnails(
                 storage_path=mirrored.storage_path,
             )
         except Exception as error:
-            if storage_path:
-                try:
-                    delete_tiktok_thumbnail(storage_path)
-                except Exception as cleanup_error:
-                    logger.warning(
-                        "Backfill cleanup failed for recipe import %s (%s): %s",
-                        record.id,
-                        storage_path,
-                        cleanup_error,
-                    )
+            delete_social_thumbnail_best_effort(
+                storage_path, context=f"backfill of recipe import {record.id}"
+            )
             results.append(
                 TikTokThumbnailBackfillResult(
                     recipe_import_id=record.id,

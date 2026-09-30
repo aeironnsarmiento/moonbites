@@ -1,4 +1,4 @@
-from app.services.youtube.description_parser import extract_ranked_recipe_urls
+from app.services.social.recipe_links import extract_ranked_recipe_urls
 
 
 def test_extract_ranked_recipe_urls_prefers_recipe_context_and_skips_social_links():

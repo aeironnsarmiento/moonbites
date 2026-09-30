@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from typing import Awaitable, Callable, Iterable, Optional
 from urllib.parse import parse_qs, quote, urljoin, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup
 
 from ..blog.extractor import parse_recipes_from_html
+from ...utils.text import unique_strings
 from ..extraction_types import ExtractionResult
-from ..public_web import HTML_POLICY, PublicWebError, safe_fetch
+from ..public_web import FetchedPage, PublicWebError, fetch_public_html
 from ..recipe_match import (
     RecipeCandidate,
+    candidates_from_result,
     hostname,
     normalize_dish_name,
     select_unique_match,
@@ -141,15 +142,7 @@ def rank_profile_links(raw_links: Iterable[str]) -> list[str]:
     unwrapped = [unwrap_instagram_redirect(url) for url in normalized]
     candidates = [url for url in unwrapped if not is_social_or_storefront(url)]
     ranked = sorted(candidates, key=_link_tier)
-
-    final: list[str] = []
-    seen: set[str] = set()
-    for url in ranked:
-        if url in seen:
-            continue
-        seen.add(url)
-        final.append(url)
-    return final[:MAX_RANKED_PROFILE_LINKS]
+    return unique_strings(ranked)[:MAX_RANKED_PROFILE_LINKS]
 
 
 def extract_recipe_like_anchors(html: str, base_url: str) -> list[str]:
@@ -169,14 +162,7 @@ def extract_recipe_like_anchors(html: str, base_url: str) -> list[str]:
         if _FOOD_SIGNAL_RE.search(haystack):
             hrefs.append(absolute)
 
-    seen: set[str] = set()
-    result: list[str] = []
-    for href in hrefs:
-        if href in seen:
-            continue
-        seen.add(href)
-        result.append(href)
-    return result
+    return unique_strings(hrefs)
 
 
 def _anchor_tokens(path: str, text: str) -> set[str]:
@@ -232,21 +218,11 @@ def build_search_urls(domain: str, dish_name: str) -> list[str]:
     ]
 
 
-@dataclass(frozen=True)
-class FetchedPage:
-    final_url: str
-    html: str
-
-
 FetchHtml = Callable[[str], Awaitable[FetchedPage]]
 
 
 async def _default_fetch_html(url: str) -> FetchedPage:
-    result = await safe_fetch(url, HTML_POLICY, deadline_seconds=15)
-    return FetchedPage(
-        final_url=result.final_url,
-        html=result.body.decode("utf-8", errors="replace"),
-    )
+    return await fetch_public_html(url, deadline_seconds=15)
 
 
 async def find_creator_site_recipe(
@@ -342,14 +318,7 @@ async def find_creator_site_recipe(
             parsed = parse_recipes_from_html(
                 page.html, source_url=candidate_url, final_url=page.final_url
             )
-            for recipe in parsed.recipes:
-                candidates.append(
-                    RecipeCandidate(
-                        canonical_url=page.final_url,
-                        title=recipe.name,
-                        result=parsed,
-                    )
-                )
+            candidates.extend(candidates_from_result(parsed))
 
             for anchor in rank_candidate_anchors(page.html, page.final_url, dish_name):
                 if is_social_or_storefront(anchor) or is_link_hub(anchor):
@@ -366,14 +335,11 @@ async def find_creator_site_recipe(
     if match is None:
         return None
 
-    matched_recipe = next(
-        recipe for recipe in match.result.recipes if recipe.name == match.title
-    )
     return ExtractionResult(
         source_url=match.result.source_url,
         final_url=match.canonical_url,
         title=match.result.title,
         image_url=match.result.image_url,
         recipe_node_count=1,
-        recipes=[matched_recipe],
+        recipes=[match.recipe],
     )

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Optional
+from typing import Awaitable, Callable, Optional
 
 import httpx
 from fastapi import HTTPException
@@ -17,27 +17,37 @@ from ...repositories.import_jobs import (
     release_provider_admission,
 )
 from ...repositories.recipe_imports import save_recipe_import
-from ...schemas.extract import ExtractResponse, NormalizedRecipe
+from ...schemas.extract import (
+    NOT_RECIPE_SKIPPED_MESSAGE,
+    SAVE_SUCCESS_MESSAGE,
+    ExtractResponse,
+    NormalizedRecipe,
+    ParseStatus,
+)
 from ...schemas.import_jobs import ImportJobErrorCode, ImportJobRecord, ImportJobState
 from ..blog.extractor import parse_recipes_from_html
 from ..gemini.recipe_parser import ParsedCaption, parse_caption_with_gemini
 from ..normalizer import normalize_recipe
-from ..public_web import HTML_POLICY, IMAGE_POLICY, PublicWebError, safe_fetch
-from ..recipe_match import RecipeCandidate, select_unique_match
-from ..social.caption_recipe import MAX_CAPTION_LINKS
-from ..social.recipe_links import extract_ranked_recipe_urls
+from ..public_web import FetchedPage, PublicWebError, fetch_public_html
+from ..recipe_match import RecipeCandidate, candidates_from_result, select_unique_match
+from ..social.recipe_links import ranked_caption_links
 from ..social.thumbnail_storage import (
     SocialThumbnailStorageError,
-    delete_social_thumbnail,
-    store_social_thumbnail,
+    delete_social_thumbnail_best_effort,
+    mirror_social_thumbnail,
 )
 from .apify import (
     PROFILE_MAX_CHARGE_USD,
     REEL_MAX_CHARGE_USD,
     ApifyClient,
 )
-from .creator_site_lookup import FetchedPage, find_creator_site_recipe
-from .models import ApifyProviderError, ApifyRunStatus, InstagramReelMetadata
+from .creator_site_lookup import find_creator_site_recipe
+from .models import (
+    IN_FLIGHT_RUN_STATUSES,
+    ApifyProviderError,
+    ApifyRunStatus,
+    InstagramReelMetadata,
+)
 from .urls import InstagramReelIdentity, InstagramUrlError, parse_instagram_reel_url
 from ..import_deadline import Deadline, DeadlineExceededError
 
@@ -52,7 +62,6 @@ ADMISSION_RECLAIM_GRACE_SECONDS = 60
 NOT_RECIPE_MESSAGE = (
     "Moonbites could not find one complete, confidently matching recipe."
 )
-SAVE_SUCCESS_MESSAGE = "Recipe saved to your collection."
 
 logger = logging.getLogger(__name__)
 
@@ -82,16 +91,17 @@ def _apify_client(settings: Settings, deps: OrchestrationDeps) -> ApifyClient:
     return ApifyClient(settings, transport=deps.apify_transport)
 
 
+def _fetch_budget(deadline: Deadline) -> float:
+    """Per-fetch deadline: what the job has left, clamped to 1-15 seconds."""
+    return max(1.0, min(15.0, deadline.budget_for_side_effect()))
+
+
 async def _fetch_html_page(url: str, deps: OrchestrationDeps, deadline: Deadline) -> FetchedPage:
-    kwargs: dict[str, Any] = {
-        "deadline_seconds": max(1.0, min(15.0, deadline.budget_for_side_effect())),
-        "transport": deps.safe_fetch_transport,
-    }
-    if deps.safe_fetch_resolver is not None:
-        kwargs["resolver"] = deps.safe_fetch_resolver
-    result = await safe_fetch(url, HTML_POLICY, **kwargs)
-    return FetchedPage(
-        final_url=result.final_url, html=result.body.decode("utf-8", errors="replace")
+    return await fetch_public_html(
+        url,
+        deadline_seconds=_fetch_budget(deadline),
+        transport=deps.safe_fetch_transport,
+        resolver=deps.safe_fetch_resolver,
     )
 
 
@@ -103,8 +113,8 @@ def _not_recipe_result(identity: InstagramReelIdentity) -> dict:
         image_url=None,
         recipes=[],
         database_saved=False,
-        database_message="Skipped — not a recipe.",
-        parse_status="not_recipe",
+        database_message=NOT_RECIPE_SKIPPED_MESSAGE,
+        parse_status=ParseStatus.NOT_RECIPE,
         parse_reason=NOT_RECIPE_MESSAGE,
         linked_recipe_url=None,
     ).model_dump(mode="json")
@@ -121,7 +131,7 @@ def _resolved_result(
         recipes=[recipe],
         database_saved=False,
         database_message="",
-        parse_status="recipe",
+        parse_status=ParseStatus.RECIPE,
         parse_reason=None,
         linked_recipe_url=linked_recipe_url,
     ).model_dump(mode="json")
@@ -184,21 +194,13 @@ async def _checkpoint(
 
 
 def _cleanup_orphaned_thumbnail(storage_path: Optional[str], settings: Settings) -> None:
-    """Best-effort delete of a thumbnail mirrored just before a save that failed.
-
-    A failed cleanup here must not change the job's own failure outcome, so
-    it only logs -- the periodic thumbnail audit remains the backstop for
-    whatever this misses.
-    """
-    if storage_path is None:
-        return
-    try:
-        delete_social_thumbnail(storage_path, settings=settings)
-    except SocialThumbnailStorageError:
-        logger.warning(
-            "Failed to clean up orphaned Instagram thumbnail %s after a failed save.",
-            storage_path,
-        )
+    """Delete a thumbnail mirrored just before a save that failed. Only logs
+    on failure so the job keeps its own failure outcome."""
+    delete_social_thumbnail_best_effort(
+        storage_path,
+        context="orphaned Instagram thumbnail after a failed save",
+        settings=settings,
+    )
 
 
 def _reserve_with_reclaim(
@@ -295,7 +297,7 @@ async def _handle_queued(
                 recipes=recipes,
                 database_saved=True,
                 database_message=SAVE_SUCCESS_MESSAGE,
-                parse_status="recipe",
+                parse_status=ParseStatus.RECIPE,
                 linked_recipe_url=existing.get("linked_recipe_url"),
             ).model_dump(mode="json"),
             release_lease=True,
@@ -385,7 +387,7 @@ async def _resolve_caption_links(
     deps: OrchestrationDeps,
 ) -> tuple[Optional[RecipeCandidate], bool]:
     """Returns (match, timed_out)."""
-    links = extract_ranked_recipe_urls(caption)[:MAX_CAPTION_LINKS]
+    links = ranked_caption_links(caption)
     if not links:
         return None, False
 
@@ -400,12 +402,7 @@ async def _resolve_caption_links(
         parsed = parse_recipes_from_html(
             page.html, source_url=link, final_url=page.final_url
         )
-        for recipe in parsed.recipes:
-            candidates.append(
-                RecipeCandidate(
-                    canonical_url=page.final_url, title=recipe.name, result=parsed
-                )
-            )
+        candidates.extend(candidates_from_result(parsed))
 
     match = select_unique_match(candidates, candidate_name)
     return match, False
@@ -423,12 +420,7 @@ async def _handle_waiting_reel(
     except ApifyProviderError as error:
         return await _fail(job, _map_apify_error(error))
 
-    if run.status in (
-        ApifyRunStatus.READY,
-        ApifyRunStatus.RUNNING,
-        ApifyRunStatus.TIMING_OUT,
-        ApifyRunStatus.ABORTING,
-    ):
+    if run.status in IN_FLIGHT_RUN_STATUSES:
         return await _checkpoint(
             job,
             state=ImportJobState.WAITING_REEL,
@@ -540,12 +532,11 @@ async def _handle_resolving_recipe(
         return await _fail(job, ImportJobErrorCode.RESOLUTION_TIMEOUT)
 
     if match is not None:
-        recipe = next(r for r in match.result.recipes if r.name == match.title)
         return await _checkpoint(
             job,
             state=ImportJobState.SAVING,
             normalized_result_json=_resolved_result(
-                identity, recipe, linked_recipe_url=match.canonical_url
+                identity, match.recipe, linked_recipe_url=match.canonical_url
             ),
             linked_recipe_url=match.canonical_url,
             release_lease=True,
@@ -616,12 +607,7 @@ async def _handle_waiting_profile(
     except ApifyProviderError as error:
         return await _fail(job, _map_apify_error(error))
 
-    if run.status in (
-        ApifyRunStatus.READY,
-        ApifyRunStatus.RUNNING,
-        ApifyRunStatus.TIMING_OUT,
-        ApifyRunStatus.ABORTING,
-    ):
+    if run.status in IN_FLIGHT_RUN_STATUSES:
         return await _checkpoint(
             job,
             state=ImportJobState.WAITING_PROFILE,
@@ -645,7 +631,7 @@ async def _handle_waiting_profile(
             run.default_dataset_id, reel.owner_username
         )
     except ApifyProviderError as error:
-        if error.code.value == ImportJobErrorCode.INSTAGRAM_UNAVAILABLE.value:
+        if _map_apify_error(error) is ImportJobErrorCode.INSTAGRAM_UNAVAILABLE:
             # Private/unavailable profile: an inconclusive resolution, not a
             # provider failure.
             return await _not_recipe(job, identity)
@@ -697,19 +683,18 @@ async def _handle_saving(
     managed_image_storage_path: Optional[str] = None
     managed_image_url: Optional[str] = None
     try:
-        kwargs: dict[str, Any] = {
-            "deadline_seconds": max(1.0, min(15.0, deadline.budget_for_side_effect())),
-            "transport": deps.safe_fetch_transport,
-        }
-        if deps.safe_fetch_resolver is not None:
-            kwargs["resolver"] = deps.safe_fetch_resolver
-        fetched = await safe_fetch(reel.thumbnail_url, IMAGE_POLICY, **kwargs)
-        mirrored = store_social_thumbnail(
-            "instagram", job.id, fetched.body, fetched.content_type, settings=settings
+        mirrored = await mirror_social_thumbnail(
+            "instagram",
+            job.id,
+            reel.thumbnail_url,
+            deadline_seconds=_fetch_budget(deadline),
+            settings=settings,
+            transport=deps.safe_fetch_transport,
+            resolver=deps.safe_fetch_resolver,
         )
         managed_image_storage_path = mirrored.storage_path
         managed_image_url = mirrored.image_url
-    except (PublicWebError, SocialThumbnailStorageError):
+    except SocialThumbnailStorageError:
         return await _fail(job, ImportJobErrorCode.SAVE_FAILED)
 
     recipe_payload = (job.normalized_result_json or {}).get("recipes") or []
@@ -741,7 +726,7 @@ async def _handle_saving(
         recipes=[recipe],
         database_saved=True,
         database_message=SAVE_SUCCESS_MESSAGE,
-        parse_status="recipe",
+        parse_status=ParseStatus.RECIPE,
         linked_recipe_url=job.linked_recipe_url,
     )
     updated = await _checkpoint(
