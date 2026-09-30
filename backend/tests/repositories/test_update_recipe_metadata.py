@@ -106,7 +106,7 @@ def test_identity_change_clears_managed_thumbnail_even_when_image_url_field_unch
         patch("app.repositories.recipe_imports._get_write_client", return_value=client),
         patch("app.repositories.recipe_imports.get_recipe_import", return_value=existing),
         patch(
-            "app.repositories.recipe_imports.delete_tiktok_thumbnail"
+            "app.repositories.recipe_imports.delete_social_thumbnail_best_effort"
         ) as delete_thumb,
     ):
         update_recipe_metadata(
@@ -121,7 +121,8 @@ def test_identity_change_clears_managed_thumbnail_even_when_image_url_field_unch
 
     assert table.update_calls[0]["image_storage_path"] is None
     assert table.update_calls[0]["linked_recipe_url"] is None
-    delete_thumb.assert_called_once_with("instagram/abc/digest.jpg")
+    delete_thumb.assert_called_once()
+    assert delete_thumb.call_args.args[0] == "instagram/abc/digest.jpg"
 
 
 def test_equivalent_url_form_preserves_managed_thumbnail_and_linked_recipe_url():
@@ -138,7 +139,7 @@ def test_equivalent_url_form_preserves_managed_thumbnail_and_linked_recipe_url()
         patch("app.repositories.recipe_imports._get_write_client", return_value=client),
         patch("app.repositories.recipe_imports.get_recipe_import", return_value=existing),
         patch(
-            "app.repositories.recipe_imports.delete_tiktok_thumbnail"
+            "app.repositories.recipe_imports.delete_social_thumbnail_best_effort"
         ) as delete_thumb,
     ):
         update_recipe_metadata(

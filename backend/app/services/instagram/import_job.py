@@ -22,14 +22,14 @@ from ...schemas.import_jobs import ImportJobErrorCode, ImportJobRecord, ImportJo
 from ..blog.extractor import parse_recipes_from_html
 from ..gemini.recipe_parser import ParsedCaption, parse_caption_with_gemini
 from ..normalizer import normalize_recipe
-from ..public_web import HTML_POLICY, IMAGE_POLICY, PublicWebError, safe_fetch
+from ..public_web import HTML_POLICY, PublicWebError, safe_fetch
 from ..recipe_match import RecipeCandidate, select_unique_match
 from ..social.caption_recipe import MAX_CAPTION_LINKS
 from ..social.recipe_links import extract_ranked_recipe_urls
 from ..social.thumbnail_storage import (
     SocialThumbnailStorageError,
-    delete_social_thumbnail,
-    store_social_thumbnail,
+    delete_social_thumbnail_best_effort,
+    mirror_social_thumbnail,
 )
 from .apify import (
     PROFILE_MAX_CHARGE_USD,
@@ -82,9 +82,14 @@ def _apify_client(settings: Settings, deps: OrchestrationDeps) -> ApifyClient:
     return ApifyClient(settings, transport=deps.apify_transport)
 
 
+def _fetch_budget(deadline: Deadline) -> float:
+    """Per-fetch deadline: what the job has left, clamped to 1-15 seconds."""
+    return max(1.0, min(15.0, deadline.budget_for_side_effect()))
+
+
 async def _fetch_html_page(url: str, deps: OrchestrationDeps, deadline: Deadline) -> FetchedPage:
     kwargs: dict[str, Any] = {
-        "deadline_seconds": max(1.0, min(15.0, deadline.budget_for_side_effect())),
+        "deadline_seconds": _fetch_budget(deadline),
         "transport": deps.safe_fetch_transport,
     }
     if deps.safe_fetch_resolver is not None:
@@ -184,21 +189,13 @@ async def _checkpoint(
 
 
 def _cleanup_orphaned_thumbnail(storage_path: Optional[str], settings: Settings) -> None:
-    """Best-effort delete of a thumbnail mirrored just before a save that failed.
-
-    A failed cleanup here must not change the job's own failure outcome, so
-    it only logs -- the periodic thumbnail audit remains the backstop for
-    whatever this misses.
-    """
-    if storage_path is None:
-        return
-    try:
-        delete_social_thumbnail(storage_path, settings=settings)
-    except SocialThumbnailStorageError:
-        logger.warning(
-            "Failed to clean up orphaned Instagram thumbnail %s after a failed save.",
-            storage_path,
-        )
+    """Delete a thumbnail mirrored just before a save that failed. Only logs
+    on failure so the job keeps its own failure outcome."""
+    delete_social_thumbnail_best_effort(
+        storage_path,
+        context="orphaned Instagram thumbnail after a failed save",
+        settings=settings,
+    )
 
 
 def _reserve_with_reclaim(
@@ -700,19 +697,18 @@ async def _handle_saving(
     managed_image_storage_path: Optional[str] = None
     managed_image_url: Optional[str] = None
     try:
-        kwargs: dict[str, Any] = {
-            "deadline_seconds": max(1.0, min(15.0, deadline.budget_for_side_effect())),
-            "transport": deps.safe_fetch_transport,
-        }
-        if deps.safe_fetch_resolver is not None:
-            kwargs["resolver"] = deps.safe_fetch_resolver
-        fetched = await safe_fetch(reel.thumbnail_url, IMAGE_POLICY, **kwargs)
-        mirrored = store_social_thumbnail(
-            "instagram", job.id, fetched.body, fetched.content_type, settings=settings
+        mirrored = await mirror_social_thumbnail(
+            "instagram",
+            job.id,
+            reel.thumbnail_url,
+            deadline_seconds=_fetch_budget(deadline),
+            settings=settings,
+            transport=deps.safe_fetch_transport,
+            resolver=deps.safe_fetch_resolver,
         )
         managed_image_storage_path = mirrored.storage_path
         managed_image_url = mirrored.image_url
-    except (PublicWebError, SocialThumbnailStorageError):
+    except SocialThumbnailStorageError:
         return await _fail(job, ImportJobErrorCode.SAVE_FAILED)
 
     recipe_payload = (job.normalized_result_json or {}).get("recipes") or []

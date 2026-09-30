@@ -1168,9 +1168,9 @@ def test_saving_success_checkpoints_succeeded_and_releases_admission():
     with (
         patch("app.services.instagram.import_job.checkpoint_job", side_effect=_checkpoint),
         patch("app.services.instagram.import_job.release_provider_admission") as release,
-        patch("app.services.instagram.import_job.safe_fetch", side_effect=_fetch_image),
+        patch("app.services.social.thumbnail_storage.safe_fetch", side_effect=_fetch_image),
         patch(
-            "app.services.instagram.import_job.store_social_thumbnail",
+            "app.services.social.thumbnail_storage.store_social_thumbnail",
             return_value=MirroredSocialThumbnail(
                 image_url="https://cdn.example/instagram/job-1/x.jpg",
                 storage_path="instagram/job-1/x.jpg",
@@ -1229,9 +1229,9 @@ def test_saving_failure_when_save_recipe_import_does_not_save():
     with (
         patch("app.services.instagram.import_job.checkpoint_job") as checkpoint,
         patch("app.services.instagram.import_job.release_provider_admission"),
-        patch("app.services.instagram.import_job.safe_fetch", side_effect=_fetch_image),
+        patch("app.services.social.thumbnail_storage.safe_fetch", side_effect=_fetch_image),
         patch(
-            "app.services.instagram.import_job.store_social_thumbnail",
+            "app.services.social.thumbnail_storage.store_social_thumbnail",
             return_value=MirroredSocialThumbnail(
                 image_url="https://cdn.example/instagram/job-1/x.jpg",
                 storage_path="instagram/job-1/x.jpg",
@@ -1239,7 +1239,7 @@ def test_saving_failure_when_save_recipe_import_does_not_save():
         ),
         patch("app.services.instagram.import_job.save_recipe_import", side_effect=_fake_save),
         patch(
-            "app.services.instagram.import_job.delete_social_thumbnail"
+            "app.services.social.thumbnail_storage.delete_social_thumbnail"
         ) as delete_thumbnail,
     ):
         checkpoint.return_value = job.model_copy(update={"state": ImportJobState.FAILED})
@@ -1287,16 +1287,16 @@ def test_saving_failure_cleans_up_thumbnail_when_recipe_payload_is_missing():
     with (
         patch("app.services.instagram.import_job.checkpoint_job") as checkpoint,
         patch("app.services.instagram.import_job.release_provider_admission"),
-        patch("app.services.instagram.import_job.safe_fetch", side_effect=_fetch_image),
+        patch("app.services.social.thumbnail_storage.safe_fetch", side_effect=_fetch_image),
         patch(
-            "app.services.instagram.import_job.store_social_thumbnail",
+            "app.services.social.thumbnail_storage.store_social_thumbnail",
             return_value=MirroredSocialThumbnail(
                 image_url="https://cdn.example/instagram/job-1/x.jpg",
                 storage_path="instagram/job-1/x.jpg",
             ),
         ),
         patch(
-            "app.services.instagram.import_job.delete_social_thumbnail"
+            "app.services.social.thumbnail_storage.delete_social_thumbnail"
         ) as delete_thumbnail,
     ):
         checkpoint.return_value = job.model_copy(update={"state": ImportJobState.FAILED})
@@ -1341,7 +1341,8 @@ def test_saving_failure_when_thumbnail_download_fails():
     with (
         patch("app.services.instagram.import_job.checkpoint_job") as checkpoint,
         patch("app.services.instagram.import_job.release_provider_admission"),
-        patch("app.services.instagram.import_job.safe_fetch", side_effect=_explode),
+        patch("app.services.social.thumbnail_storage.safe_fetch", side_effect=_explode),
+        patch("app.services.social.thumbnail_storage.store_social_thumbnail") as store,
     ):
         checkpoint.return_value = job.model_copy(update={"state": ImportJobState.FAILED})
         deps = OrchestrationDeps(apify_transport=httpx.MockTransport(script))
@@ -1349,3 +1350,4 @@ def test_saving_failure_when_thumbnail_download_fails():
 
     assert checkpoint.call_args.kwargs["error_code"] == "save_failed"
     assert result.state == ImportJobState.FAILED
+    store.assert_not_called()

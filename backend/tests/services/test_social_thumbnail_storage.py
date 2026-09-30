@@ -246,7 +246,11 @@ def _image_handler(body: bytes, content_type: str):
     return handler
 
 
-def test_mirror_social_thumbnail_stores_under_the_platform_path():
+PLATFORMS = pytest.mark.parametrize("platform", ["tiktok", "instagram"])
+
+
+@PLATFORMS
+def test_mirror_social_thumbnail_stores_under_the_platform_path(platform):
     bucket = _FakeBucket()
     client = _FakeClient(bucket)
 
@@ -256,26 +260,27 @@ def test_mirror_social_thumbnail_stores_under_the_platform_path():
     ):
         result = asyncio.run(
             mirror_social_thumbnail(
-                "instagram",
+                platform,
                 "recipe-1",
-                "https://cdn.instagram.example/thumb.webp",
+                "https://cdn.social.example/thumb.jpg",
                 deadline_seconds=5,
                 settings=_settings(),
                 transport=httpx.MockTransport(
-                    _image_handler(b"webp-bytes", "image/webp")
+                    _image_handler(b"jpeg-bytes", "image/jpeg")
                 ),
-                resolver=_resolver({"cdn.instagram.example": ["93.184.216.34"]}),
+                resolver=_resolver({"cdn.social.example": ["93.184.216.34"]}),
             )
         )
 
-    digest = hashlib.sha256(b"webp-bytes").hexdigest()
-    expected_path = f"instagram/recipe-1/{digest}.webp"
+    digest = hashlib.sha256(b"jpeg-bytes").hexdigest()
+    expected_path = f"{platform}/recipe-1/{digest}.jpg"
     assert result.storage_path == expected_path
     assert result.image_url == f"https://cdn.example/{expected_path}"
     assert bucket.uploaded[0][0] == expected_path
 
 
-def test_mirror_social_thumbnail_rejects_a_private_address_without_uploading():
+@PLATFORMS
+def test_mirror_social_thumbnail_rejects_a_private_address_without_uploading(platform):
     bucket = _FakeBucket()
     client = _FakeClient(bucket)
 
@@ -289,20 +294,23 @@ def test_mirror_social_thumbnail_rejects_a_private_address_without_uploading():
         with pytest.raises(SocialThumbnailStorageError):
             asyncio.run(
                 mirror_social_thumbnail(
-                    "instagram",
+                    platform,
                     "recipe-1",
-                    "https://cdn.instagram.example/thumb.jpg",
+                    "https://cdn.social.example/thumb.jpg",
                     deadline_seconds=5,
                     settings=_settings(),
                     transport=httpx.MockTransport(handler),
-                    resolver=_resolver({"cdn.instagram.example": ["10.0.0.5"]}),
+                    resolver=_resolver({"cdn.social.example": ["10.0.0.5"]}),
                 )
             )
 
     assert bucket.uploaded == []
 
 
-def test_mirror_social_thumbnail_rejects_unsupported_content_type_before_upload():
+@PLATFORMS
+def test_mirror_social_thumbnail_rejects_unsupported_content_type_before_upload(
+    platform,
+):
     bucket = _FakeBucket()
     client = _FakeClient(bucket)
 
@@ -313,19 +321,40 @@ def test_mirror_social_thumbnail_rejects_unsupported_content_type_before_upload(
         with pytest.raises(SocialThumbnailStorageError):
             asyncio.run(
                 mirror_social_thumbnail(
-                    "instagram",
+                    platform,
                     "recipe-1",
-                    "https://cdn.instagram.example/thumb.gif",
+                    "https://cdn.social.example/thumb.gif",
                     deadline_seconds=5,
                     settings=_settings(),
                     transport=httpx.MockTransport(
                         _image_handler(b"gif-bytes", "image/gif")
                     ),
-                    resolver=_resolver({"cdn.instagram.example": ["93.184.216.34"]}),
+                    resolver=_resolver({"cdn.social.example": ["93.184.216.34"]}),
                 )
             )
 
     assert bucket.uploaded == []
+
+
+def test_mirror_social_thumbnail_raises_the_shared_error_on_storage_failure():
+    with patch(
+        "app.services.social.thumbnail_storage.get_supabase_client",
+        return_value=None,
+    ):
+        with pytest.raises(SocialThumbnailStorageError):
+            asyncio.run(
+                mirror_social_thumbnail(
+                    "tiktok",
+                    "recipe-1",
+                    "https://cdn.social.example/thumb.jpg",
+                    deadline_seconds=5,
+                    settings=_settings(),
+                    transport=httpx.MockTransport(
+                        _image_handler(b"jpeg-bytes", "image/jpeg")
+                    ),
+                    resolver=_resolver({"cdn.social.example": ["93.184.216.34"]}),
+                )
+            )
 
 
 def test_delete_social_thumbnail_best_effort_logs_and_swallows_failures(caplog):
