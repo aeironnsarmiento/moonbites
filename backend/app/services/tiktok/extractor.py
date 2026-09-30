@@ -12,7 +12,7 @@ from fastapi import HTTPException
 from ...core.config import Settings, get_settings
 from ..blog.extractor import normalize_url
 from ..extraction_types import ExtractionResult
-from ..http_utils import build_request_headers, get_with_403_retry
+from ..http_utils import UpstreamErrorDetails, get_page, translate_httpx_errors
 from ..social.caption_recipe import CaptionPost, extract_recipe_from_caption
 
 
@@ -26,6 +26,13 @@ TIKTOK_HOSTS = {
 HYDRATION_SCRIPT_ID = "__UNIVERSAL_DATA_FOR_REHYDRATION__"
 TIKTOK_OEMBED_URL = "https://www.tiktok.com/oembed"
 NOT_FOUND_DETAIL = "TikTok post was not found"
+TIKTOK_OEMBED_ERRORS = UpstreamErrorDetails(
+    timeout="Request to TikTok timed out",
+    status="TikTok returned HTTP {status_code}",
+    unreachable="Unable to fetch the TikTok post",
+    not_found=NOT_FOUND_DETAIL,
+    not_found_statuses=frozenset({400, 404}),
+)
 
 
 @dataclass(frozen=True)
@@ -127,14 +134,7 @@ def parse_tiktok_page(html: str) -> Optional[TikTokPost]:
 
 async def _fetch_page_html(url: str, settings: Settings) -> Optional[str]:
     try:
-        async with httpx.AsyncClient(
-            headers=build_request_headers(settings),
-            follow_redirects=True,
-            timeout=settings.request_timeout_seconds,
-        ) as client:
-            response = await get_with_403_retry(client, url, settings)
-            response.raise_for_status()
-            return response.text
+        return (await get_page(url, settings)).text
     except httpx.HTTPError:
         # Soft failure (bot wall, timeout, upstream error): the oEmbed
         # fallback decides whether the post is reachable at all.
@@ -171,30 +171,12 @@ def _author_handle_from_oembed(payload: dict[str, Any]) -> Optional[str]:
 
 
 async def _fetch_oembed(url: str, settings: Settings) -> TikTokOEmbed:
-    try:
+    with translate_httpx_errors(TIKTOK_OEMBED_ERRORS):
         async with httpx.AsyncClient(
             timeout=settings.request_timeout_seconds
         ) as client:
             response = await client.get(TIKTOK_OEMBED_URL, params={"url": url})
             response.raise_for_status()
-    except httpx.TimeoutException as error:
-        raise HTTPException(
-            status_code=504,
-            detail="Request to TikTok timed out",
-        ) from error
-    except httpx.HTTPStatusError as error:
-        status_code = error.response.status_code
-        if status_code in (400, 404):
-            raise HTTPException(status_code=404, detail=NOT_FOUND_DETAIL) from error
-        raise HTTPException(
-            status_code=502,
-            detail=f"TikTok returned HTTP {status_code}",
-        ) from error
-    except httpx.HTTPError as error:
-        raise HTTPException(
-            status_code=502,
-            detail="Unable to fetch the TikTok post",
-        ) from error
 
     try:
         payload = response.json()

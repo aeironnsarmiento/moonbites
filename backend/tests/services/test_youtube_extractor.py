@@ -326,3 +326,46 @@ def test_extract_recipe_from_youtube_url_raises_404_for_missing_video():
             asyncio.run(extract_recipe_from_youtube_url("https://youtu.be/abc123XYZ09"))
 
     assert error.value.status_code == 404
+
+
+class _RaisingClientContext(_AsyncClientContext):
+    def __init__(self, error: Exception):
+        super().__init__(None)
+        self.error = error
+
+    async def get(self, url, params=None):
+        raise self.error
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code", "detail"),
+    [
+        (httpx.ReadTimeout("slow"), 504, "Request to YouTube API timed out"),
+        (httpx.ConnectError("refused"), 502, "Unable to fetch YouTube video metadata"),
+    ],
+)
+def test_extract_recipe_from_youtube_url_maps_transport_failures(
+    error, status_code, detail
+):
+    with (
+        patch("app.services.youtube.extractor.get_settings", return_value=_settings()),
+        patch(
+            "app.services.youtube.extractor.httpx.AsyncClient",
+            return_value=_RaisingClientContext(error),
+        ),
+    ):
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(extract_recipe_from_youtube_url("https://youtu.be/abc123XYZ09"))
+
+    assert raised.value.status_code == status_code
+    assert raised.value.detail == detail
+
+
+def test_extract_recipe_from_youtube_url_uses_the_stripped_input_url():
+    gemini = AsyncMock(return_value=_parsed_recipe())
+    response = _snippet_response("Ingredients\n8 oz noodles\n2 tbsp butter\nBoil and toss.")
+
+    result = _run("  https://youtu.be/abc123XYZ09  ", response, gemini=gemini)
+
+    assert result.source_url == "https://youtu.be/abc123XYZ09"
+    assert result.final_url == "https://youtu.be/abc123XYZ09"
