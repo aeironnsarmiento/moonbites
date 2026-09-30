@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 
 from app.services.instagram.creator_site_lookup import (
-    FetchedPage,
     build_search_urls,
     find_creator_site_recipe,
     is_link_hub,
@@ -12,7 +11,7 @@ from app.services.instagram.creator_site_lookup import (
     rank_profile_links,
     unwrap_instagram_redirect,
 )
-from app.services.public_web import PublicWebError
+from app.services.public_web import FetchedPage, PublicWebError
 
 
 # --- Pure function behavior -------------------------------------------------

@@ -15,11 +15,11 @@ from app.schemas.import_jobs import ImportJobErrorCode, ImportJobRecord, ImportJ
 from app.services.gemini.recipe_parser import ParsedCaption
 from app.services.import_deadline import Deadline
 from app.services.instagram.import_job import (
+    POLL_RETRY_SECONDS,
     OrchestrationDeps,
     advance_instagram_job,
 )
-from app.services.instagram.creator_site_lookup import FetchedPage
-from app.services.public_web import PublicWebError
+from app.services.public_web import FetchedPage, PublicWebError
 from fastapi import HTTPException
 
 
@@ -1351,3 +1351,129 @@ def test_saving_failure_when_thumbnail_download_fails():
     assert checkpoint.call_args.kwargs["error_code"] == "save_failed"
     assert result.state == ImportJobState.FAILED
     store.assert_not_called()
+
+
+# --- shared leaf helpers -------------------------------------------------------
+
+
+@pytest.mark.parametrize("status", ["READY", "RUNNING", "TIMING-OUT", "ABORTING"])
+def test_waiting_reel_requeues_for_every_in_flight_status(status):
+    job = _job(state=ImportJobState.WAITING_REEL, reel_run_id="runreel1")
+    script = _ApifyScript(
+        **{"/actor-runs/runreel1": lambda r: _run_response(status=status)}
+    )
+
+    with patch("app.services.instagram.import_job.checkpoint_job") as checkpoint:
+        checkpoint.return_value = job
+        deps = OrchestrationDeps(apify_transport=httpx.MockTransport(script))
+        _run_advance(job, deps=deps)
+
+    assert checkpoint.call_args.kwargs["state"] == "waiting_reel"
+    assert checkpoint.call_args.kwargs["next_advance_seconds"] == POLL_RETRY_SECONDS
+
+
+@pytest.mark.parametrize("status", ["READY", "RUNNING", "TIMING-OUT", "ABORTING"])
+def test_waiting_profile_requeues_for_every_in_flight_status(status):
+    job = _job(
+        state=ImportJobState.WAITING_PROFILE,
+        profile_run_id="runprofile1",
+        reel_dataset_id="dataset1",
+        candidate_name="Miso Salmon Rice",
+    )
+    script = _ApifyScript(
+        **{
+            "/actor-runs/runprofile1": lambda r: _run_response(
+                run_id="runprofile1", status=status, dataset_id=None
+            ),
+        }
+    )
+
+    with patch("app.services.instagram.import_job.checkpoint_job") as checkpoint:
+        checkpoint.return_value = job
+        deps = OrchestrationDeps(apify_transport=httpx.MockTransport(script))
+        _run_advance(job, deps=deps)
+
+    assert checkpoint.call_args.kwargs["state"] == "waiting_profile"
+    assert checkpoint.call_args.kwargs["next_advance_seconds"] == POLL_RETRY_SECONDS
+
+
+def test_waiting_profile_other_provider_error_fails_the_job():
+    job = _job(
+        state=ImportJobState.WAITING_PROFILE,
+        profile_run_id="runprofile1",
+        reel_dataset_id="dataset1",
+        candidate_name="Miso Salmon Rice",
+    )
+    script = _ApifyScript(
+        **{
+            "/actor-runs/runprofile1": lambda r: _run_response(
+                run_id="runprofile1", dataset_id="profiledataset1"
+            ),
+            "/datasets/dataset1/items": lambda r: _reel_dataset_response(),
+            "/datasets/profiledataset1/items": lambda r: httpx.Response(500),
+        }
+    )
+
+    with (
+        patch("app.services.instagram.import_job.checkpoint_job") as checkpoint,
+        patch("app.services.instagram.import_job.release_provider_admission"),
+    ):
+        checkpoint.return_value = job.model_copy(update={"state": ImportJobState.FAILED})
+        deps = OrchestrationDeps(apify_transport=httpx.MockTransport(script))
+        _run_advance(job, deps=deps)
+
+    assert checkpoint.call_args.kwargs["state"] == "failed"
+    assert checkpoint.call_args.kwargs["error_code"] == "provider_unavailable"
+
+
+def test_resolving_recipe_saves_the_matched_recipe_from_a_multi_recipe_page():
+    job = _job(
+        state=ImportJobState.RESOLVING_RECIPE,
+        reel_dataset_id="dataset1",
+        candidate_name="Raspberry Chia Pudding",
+    )
+    script = _ApifyScript(
+        **{
+            "/datasets/dataset1/items": lambda r: _reel_dataset_response(
+                caption="Full recipe here: https://tasty.co/recipe/raspberry-chia-pudding"
+            ),
+        }
+    )
+
+    async def _fetch_html_page_stub(url, _deps, _deadline):
+        return FetchedPage(
+            final_url="https://tasty.co/recipe/raspberry-chia-pudding/",
+            html=(
+                '<html><head><script type="application/ld+json">'
+                '[{"@context":"https://schema.org","@type":"Recipe",'
+                '"name":"Salmon Toast","recipeIngredient":["1 salmon"],'
+                '"recipeInstructions":["Toast it."]},'
+                '{"@context":"https://schema.org","@type":"Recipe",'
+                '"name":"Raspberry Chia Pudding","recipeIngredient":["1 cup chia"],'
+                '"recipeInstructions":["Mix well."]}]'
+                "</script></head><body></body></html>"
+            ),
+        )
+
+    checkpoints: list[dict] = []
+
+    def _checkpoint(*_args, **kwargs):
+        checkpoints.append(kwargs)
+        return job.model_copy(update={"state": ImportJobState(kwargs["state"])})
+
+    with (
+        patch("app.services.instagram.import_job.checkpoint_job", side_effect=_checkpoint),
+        patch(
+            "app.services.instagram.import_job._fetch_html_page",
+            side_effect=_fetch_html_page_stub,
+        ),
+    ):
+        deps = OrchestrationDeps(apify_transport=httpx.MockTransport(script))
+        _run_advance(job, deps=deps)
+
+    assert checkpoints[-1]["state"] == "saving"
+    assert checkpoints[-1]["linked_recipe_url"] == (
+        "https://tasty.co/recipe/raspberry-chia-pudding/"
+    )
+    saved = checkpoints[-1]["normalized_result_json"]["recipes"]
+    assert [recipe["name"] for recipe in saved] == ["Raspberry Chia Pudding"]

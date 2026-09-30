@@ -25,11 +25,15 @@ from ..blog.extractor import extract_blog_recipes_from_safe_url
 from ..extraction_types import ExtractionResult, ParseStatus
 from ..gemini.recipe_parser import ParsedCaption, parse_caption_with_gemini
 from ..normalizer import normalize_recipe
-from ..recipe_match import RecipeCandidate, select_unique_match
-from .recipe_links import extract_ranked_recipe_urls
+from ..recipe_match import RecipeCandidate, candidates_from_result, select_unique_match
+from .recipe_links import MAX_CAPTION_LINKS, ranked_caption_links
 
-
-MAX_CAPTION_LINKS = 3
+__all__ = [
+    "MAX_CAPTION_LINKS",
+    "CaptionPost",
+    "GeminiParse",
+    "extract_recipe_from_caption",
+]
 
 
 @dataclass(frozen=True)
@@ -49,7 +53,7 @@ GeminiParse = Callable[..., Awaitable[ParsedCaption]]
 async def _resolve_linked_recipe(
     post: CaptionPost, dish_name: str, *, mirror_provider_thumbnail: bool
 ) -> Optional[ExtractionResult]:
-    links = extract_ranked_recipe_urls(post.caption)[:MAX_CAPTION_LINKS]
+    links = ranked_caption_links(post.caption)
     if not links:
         return None
 
@@ -57,27 +61,16 @@ async def _resolve_linked_recipe(
     for link in links:
         try:
             page = await extract_blog_recipes_from_safe_url(link)
-        except HTTPException:
+        except Exception:  # an unreachable or unparseable link is just skipped
             continue
-        except Exception:  # pragma: no cover - defensive network fallback
-            continue
-
-        for recipe in page.recipes:
-            candidates.append(
-                RecipeCandidate(
-                    canonical_url=page.final_url,
-                    title=recipe.name,
-                    result=page,
-                    recipe=recipe,
-                )
-            )
+        candidates.extend(candidates_from_result(page))
 
     match = select_unique_match(candidates, dish_name)
     if match is None:
         return None
 
     page = match.result
-    recipe = next(item for item in page.recipes if item.name == match.title)
+    recipe = match.recipe
     # The post's own thumbnail is mirrored only when the matched page brought no
     # image of its own -- otherwise the page's image is already the better one.
     borrows_post_thumbnail = page.image_url is None and post.image_url is not None
@@ -153,7 +146,6 @@ async def extract_recipe_from_caption(
         image_url=post.image_url,
         recipe_node_count=0,
         recipes=[],
-        provider_thumbnail_url=None,
         parse_status=ParseStatus.NOT_RECIPE,
         parse_reason=parse_reason or not_recipe_reason,
     )

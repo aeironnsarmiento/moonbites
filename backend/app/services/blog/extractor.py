@@ -13,7 +13,7 @@ from ..extraction_types import ExtractionResult
 from ..http_utils import UpstreamErrorDetails, get_page, translate_httpx_errors
 from ..image_extraction import extract_image_url
 from ..normalizer import collect_recipe_nodes, normalize_recipe
-from ..public_web import HTML_POLICY, Resolver, safe_fetch, upgrade_to_https
+from ..public_web import Resolver, fetch_public_html, upgrade_to_https
 from ..recipe_identity import dedupe_by_content
 
 
@@ -449,16 +449,9 @@ async def extract_blog_recipes_from_safe_url(
     chose to trust.
     """
     target_url = upgrade_to_https(url) or url
-
-    kwargs: dict = {"deadline_seconds": 15.0}
-    if transport is not None:
-        kwargs["transport"] = transport
-    if resolver is not None:
-        kwargs["resolver"] = resolver
-
-    result = await safe_fetch(target_url, HTML_POLICY, **kwargs)
-    html = result.body.decode("utf-8", errors="replace")
-
+    page = await fetch_public_html(
+        target_url, deadline_seconds=15.0, transport=transport, resolver=resolver
+    )
     return parse_recipes_from_html(
-        html, source_url=target_url, final_url=result.final_url
+        page.html, source_url=target_url, final_url=page.final_url
     )
