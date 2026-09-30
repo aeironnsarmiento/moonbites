@@ -65,7 +65,10 @@ async def _resolve_linked_recipe(
         for recipe in page.recipes:
             candidates.append(
                 RecipeCandidate(
-                    canonical_url=page.final_url, title=recipe.name, result=page
+                    canonical_url=page.final_url,
+                    title=recipe.name,
+                    result=page,
+                    recipe=recipe,
                 )
             )
 

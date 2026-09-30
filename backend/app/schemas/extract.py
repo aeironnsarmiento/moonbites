@@ -153,6 +153,18 @@ class NormalizedRecipe(BaseModel):
         return value
 
 
+class ParseStatus(str, Enum):
+    RECIPE = "recipe"
+    NOT_RECIPE = "not_recipe"
+
+
+# User-facing outcomes shared by the direct extract route, the Instagram job
+# state machine, and the repository. One copy each so they cannot drift.
+SAVE_SUCCESS_MESSAGE = "Recipe saved to your collection."
+DUPLICATE_SAVE_MESSAGE = "Recipe import already exists, so the duplicate save was skipped."
+NOT_RECIPE_SKIPPED_MESSAGE = "Skipped — not a recipe."
+
+
 class ExtractResponse(BaseModel):
     source_url: str
     final_url: str
@@ -161,7 +173,7 @@ class ExtractResponse(BaseModel):
     recipes: list[NormalizedRecipe]
     database_saved: bool
     database_message: Optional[str] = None
-    parse_status: str = "recipe"
+    parse_status: ParseStatus = ParseStatus.RECIPE
     parse_reason: Optional[str] = None
     linked_recipe_url: Optional[str] = None
 

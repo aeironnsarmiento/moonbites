@@ -403,7 +403,10 @@ async def _resolve_caption_links(
         for recipe in parsed.recipes:
             candidates.append(
                 RecipeCandidate(
-                    canonical_url=page.final_url, title=recipe.name, result=parsed
+                    canonical_url=page.final_url,
+                    title=recipe.name,
+                    result=parsed,
+                    recipe=recipe,
                 )
             )
 

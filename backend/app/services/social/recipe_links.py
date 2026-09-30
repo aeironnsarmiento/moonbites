@@ -6,6 +6,9 @@ from urllib.parse import urlparse
 
 URL_PATTERN = re.compile(r"https?://[^\s<>\]\)\"']+")
 
+# How many caption links any platform follows looking for a Linked Recipe.
+MAX_CAPTION_LINKS = 3
+
 SKIP_HOST_PARTS = {
     "youtube.",
     "youtu.be",
@@ -50,3 +53,7 @@ def extract_ranked_recipe_urls(text: str) -> list[str]:
             scored_urls.append((score, line_number, url))
 
     return [url for _, _, url in sorted(scored_urls, key=lambda item: (-item[0], item[1]))]
+
+
+def ranked_caption_links(text: str, *, limit: int = MAX_CAPTION_LINKS) -> list[str]:
+    return extract_ranked_recipe_urls(text)[:limit]

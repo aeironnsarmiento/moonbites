@@ -1,13 +1,7 @@
 from dataclasses import dataclass
-from enum import Enum
 from typing import Optional
 
-from ..schemas.extract import NormalizedRecipe
-
-
-class ParseStatus(str, Enum):
-    RECIPE = "recipe"
-    NOT_RECIPE = "not_recipe"
+from ..schemas.extract import NormalizedRecipe, ParseStatus
 
 
 @dataclass
@@ -22,3 +16,6 @@ class ExtractionResult:
     parse_status: ParseStatus = ParseStatus.RECIPE
     parse_reason: Optional[str] = None
     linked_recipe_url: Optional[str] = None
+
+
+__all__ = ["ExtractionResult", "ParseStatus"]

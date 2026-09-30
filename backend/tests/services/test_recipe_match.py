@@ -6,6 +6,7 @@ from app.schemas.extract import NormalizedRecipe
 from app.services.extraction_types import ExtractionResult
 from app.services.recipe_match import (
     RecipeCandidate,
+    candidates_from_result,
     is_matching_title,
     normalize_dish_name,
     select_unique_match,
@@ -152,10 +153,15 @@ def _page(url: str, *names: str) -> ExtractionResult:
 
 
 def _candidates(*pairs: tuple[str, str]) -> list[RecipeCandidate]:
-    return [
-        RecipeCandidate(canonical_url=url, title=title, result=_page(url, title))
-        for url, title in pairs
-    ]
+    candidates = []
+    for url, title in pairs:
+        page = _page(url, title)
+        candidates.append(
+            RecipeCandidate(
+                canonical_url=url, title=title, result=page, recipe=page.recipes[0]
+            )
+        )
+    return candidates
 
 
 def test_select_unique_match_accepts_the_single_matching_candidate():
@@ -202,3 +208,19 @@ def test_select_unique_match_returns_none_when_nothing_matches():
     candidates = _candidates(("https://a.example/toast", "Salmon Toast"))
 
     assert select_unique_match(candidates, "Miso Salmon Rice") is None
+
+
+def test_candidates_from_result_yields_one_candidate_per_recipe():
+    page = _page("https://a.example/start", "Miso Salmon Rice", "Salmon Toast")
+    page.final_url = "https://a.example/final"
+
+    candidates = candidates_from_result(page)
+
+    assert [c.title for c in candidates] == ["Miso Salmon Rice", "Salmon Toast"]
+    assert [c.recipe for c in candidates] == page.recipes
+    assert all(c.canonical_url == "https://a.example/final" for c in candidates)
+    assert all(c.result is page for c in candidates)
+
+
+def test_candidates_from_result_is_empty_for_a_page_without_recipes():
+    assert candidates_from_result(_page("https://a.example/empty")) == []

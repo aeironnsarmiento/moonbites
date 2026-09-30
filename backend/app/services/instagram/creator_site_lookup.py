@@ -348,6 +348,7 @@ async def find_creator_site_recipe(
                         canonical_url=page.final_url,
                         title=recipe.name,
                         result=parsed,
+                        recipe=recipe,
                     )
                 )
 

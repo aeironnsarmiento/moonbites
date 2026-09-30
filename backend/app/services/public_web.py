@@ -87,6 +87,12 @@ class SafeFetchResult:
     body: bytes
 
 
+@dataclass(frozen=True)
+class FetchedPage:
+    final_url: str
+    html: str
+
+
 async def _default_resolve(host: str, port: int) -> list[str]:
     loop = asyncio.get_event_loop()
     try:
@@ -188,8 +194,9 @@ async def safe_fetch(
     *,
     deadline_seconds: float,
     transport: Optional[httpx.AsyncBaseTransport] = None,
-    resolver: Resolver = _default_resolve,
+    resolver: Optional[Resolver] = None,
 ) -> SafeFetchResult:
+    resolve = resolver or _default_resolve
     loop = asyncio.get_event_loop()
     deadline = loop.time() + deadline_seconds
     requested_url = url
@@ -207,7 +214,7 @@ async def safe_fetch(
             raise PublicWebError("The request deadline elapsed.")
 
         original_host, current_url = _validate_absolute_https_url(current_url)
-        address = await _resolve_validated_address(original_host, 443, resolver)
+        address = await _resolve_validated_address(original_host, 443, resolve)
         pinned_url = _pin_address(current_url, address)
 
         try:
@@ -274,3 +281,25 @@ async def safe_fetch(
             raise PublicWebError("The target site is unavailable.") from exc
 
     raise PublicWebError("Too many redirects.")
+
+
+async def fetch_public_html(
+    url: str,
+    *,
+    deadline_seconds: float,
+    transport: Optional[httpx.AsyncBaseTransport] = None,
+    resolver: Optional[Resolver] = None,
+) -> FetchedPage:
+    """safe_fetch an HTML page and decode it. One seam for every third-party
+    link the app follows (caption links, creator sites, link hubs)."""
+    result = await safe_fetch(
+        url,
+        HTML_POLICY,
+        deadline_seconds=deadline_seconds,
+        transport=transport,
+        resolver=resolver,
+    )
+    return FetchedPage(
+        final_url=result.final_url,
+        html=result.body.decode("utf-8", errors="replace"),
+    )

@@ -9,7 +9,7 @@ from backend.app.api.auth import AuthenticatedAdmin, require_admin_user
 from backend.app.core.rate_limit import limiter
 from backend.app.repositories.import_jobs import ImportJobStorageError, JobCreationOutcome
 from backend.app.repositories.recipe_imports import SaveRecipeImportResult
-from backend.app.schemas.extract import NormalizedRecipe
+from backend.app.schemas.extract import ExtractResponse, NormalizedRecipe
 from backend.app.schemas.import_jobs import ImportJobRecord, ImportJobState
 from backend.app.services.extraction_types import ExtractionResult, ParseStatus
 
@@ -476,3 +476,16 @@ def test_extract_success_passes_image_url_to_save_recipe_import():
     assert response.status_code == 200
     assert response.json()["image_url"] == "https://example.com/soup.jpg"
     assert save.call_args.kwargs["image_url"] == "https://example.com/soup.jpg"
+
+
+@pytest.mark.parametrize("status", ["recipe", "not_recipe"])
+def test_extract_response_serializes_parse_status_as_its_string_value(status):
+    response = ExtractResponse(
+        source_url="https://example.com",
+        final_url="https://example.com",
+        recipes=[],
+        database_saved=False,
+        parse_status=status,
+    )
+
+    assert response.model_dump(mode="json")["parse_status"] == status
