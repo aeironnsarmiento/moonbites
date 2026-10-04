@@ -18,6 +18,7 @@ from ..schemas.extract import (
     NormalizedRecipe,
     PaginatedRecipeImportsResponse,
     RecipeImportRecord,
+    RecipeRowEntry,
     RecipeSortOption,
     UpdateRecipeMetadataRequest,
     RecipeTextOverrides,
@@ -73,54 +74,117 @@ def _get_write_client(settings, access_token: Optional[str] = None):
     return get_supabase_client(settings)
 
 
-def _sanitize_override_rows(rows: object) -> dict[str, str]:
-    if not isinstance(rows, dict):
-        return {}
+RowLayout = list[dict[str, Optional[int | str]]]
 
-    sanitized_rows: dict[str, str] = {}
+
+def _legacy_rows_to_layout(rows: dict, original_rows: list[str]) -> RowLayout:
+    # Legacy overrides were {row_index: text}; indices past the parsed rows
+    # were additions.
+    edits: dict[int, str] = {}
     for row_index, value in rows.items():
         try:
-            normalized_index = str(int(str(row_index)))
+            edits[int(str(row_index))] = str(value)
         except (TypeError, ValueError):
             continue
 
-        if value is None:
+    layout: RowLayout = [
+        {"source": index, "text": edits.get(index)}
+        for index in range(len(original_rows))
+    ]
+    layout.extend(
+        {"source": None, "text": edits[index]}
+        for index in sorted(edits)
+        if index >= len(original_rows)
+    )
+    return layout
+
+
+def _normalize_row_layout(
+    rows: object, original_rows: list[str]
+) -> Optional[RowLayout]:
+    """Return a clean row layout, or None when it shows the rows as parsed."""
+    if isinstance(rows, dict):
+        rows = _legacy_rows_to_layout(rows, original_rows)
+    if not isinstance(rows, list):
+        return None
+
+    layout: RowLayout = []
+    seen_sources: set[int] = set()
+    for entry in rows:
+        if isinstance(entry, RecipeRowEntry):
+            entry = entry.model_dump()
+        if not isinstance(entry, dict):
             continue
 
-        sanitized_rows[normalized_index] = str(value)
+        text = entry.get("text")
+        text = None if text is None else str(text)
+        if text is not None and not text.strip():
+            continue
 
-    return sanitized_rows
+        source = entry.get("source")
+        if source is None:
+            if text is not None:
+                layout.append({"source": None, "text": text})
+            continue
+
+        try:
+            source = int(source)
+        except (TypeError, ValueError):
+            continue
+        if not 0 <= source < len(original_rows) or source in seen_sources:
+            continue
+
+        seen_sources.add(source)
+        if text == original_rows[source]:
+            text = None
+        layout.append({"source": source, "text": text})
+
+    is_identity = len(layout) == len(original_rows) and all(
+        entry["source"] == index and entry["text"] is None
+        for index, entry in enumerate(layout)
+    )
+    return None if is_identity else layout
+
+
+def _normalize_text_overrides(
+    sections: object, recipe: NormalizedRecipe
+) -> Optional[dict[str, Optional[RowLayout]]]:
+    if isinstance(sections, RecipeTextOverrides):
+        sections = sections.model_dump()
+    if not isinstance(sections, dict):
+        return None
+
+    ingredients = _normalize_row_layout(
+        sections.get("ingredients"), recipe.ingredients
+    )
+    instructions = _normalize_row_layout(
+        sections.get("instructions"), recipe.instructions
+    )
+    if ingredients is None and instructions is None:
+        return None
+
+    return {"ingredients": ingredients, "instructions": instructions}
 
 
 def _sanitize_recipe_overrides(
     overrides: object,
-) -> dict[str, dict[str, dict[str, str]]]:
+    recipes: list[NormalizedRecipe],
+) -> dict[str, dict[str, Optional[RowLayout]]]:
     if not isinstance(overrides, dict):
         return {}
 
-    sanitized_overrides: dict[str, dict[str, dict[str, str]]] = {}
+    sanitized_overrides: dict[str, dict[str, Optional[RowLayout]]] = {}
     for recipe_index, sections in overrides.items():
         try:
-            normalized_recipe_index = str(int(str(recipe_index)))
+            index = int(str(recipe_index))
         except (TypeError, ValueError):
             continue
+        if not 0 <= index < len(recipes):
+            continue
 
-        if isinstance(sections, RecipeTextOverrides):
-            sections = sections.model_dump()
-
-        if not isinstance(sections, dict):
-            sections = {}
-
-        validated_sections = RecipeTextOverrides.model_validate(
-            {
-                "ingredients": _sanitize_override_rows(sections.get("ingredients")),
-                "instructions": _sanitize_override_rows(sections.get("instructions")),
-            }
-        )
-        normalized_sections = validated_sections.model_dump()
-
-        if normalized_sections["ingredients"] or normalized_sections["instructions"]:
-            sanitized_overrides[normalized_recipe_index] = normalized_sections
+        normalized_sections = _normalize_text_overrides(sections, recipes[index])
+        if normalized_sections is not None:
+            sanitized_overrides[str(index)] = normalized_sections
 
     return sanitized_overrides
 
@@ -140,7 +204,8 @@ def _sanitize_record(record: dict) -> RecipeImportRecord:
         "servings": record.get("servings"),
         "recipes_json": [recipe.model_dump() for recipe in unique_recipes],
         "recipe_overrides_json": _sanitize_recipe_overrides(
-            record.get("recipe_overrides_json") or {}
+            record.get("recipe_overrides_json") or {},
+            unique_recipes,
         ),
     }
 
@@ -1053,43 +1118,73 @@ def update_recipe_metadata(
     return updated_record
 
 
-def _prune_override_rows(rows: dict[str, str], row_count: int) -> dict[str, str]:
-    pruned_rows: dict[str, str] = {}
-    for row_index, value in rows.items():
-        if int(row_index) < row_count:
-            pruned_rows[row_index] = value
-    return pruned_rows
+def _reconcile_row_layout(
+    layout: Optional[RowLayout],
+    new_rows: list[str],
+    *,
+    old_row_count: Optional[int] = None,
+) -> Optional[RowLayout]:
+    """Carry a row layout over to freshly parsed rows: rows that no longer
+    exist upstream drop out, added rows stay, and rows that are new upstream
+    are slotted in after the last parsed row the layout still shows."""
+    if layout is None:
+        return None
+
+    kept = [
+        entry
+        for entry in layout
+        if entry["source"] is None or entry["source"] < len(new_rows)
+    ]
+    if old_row_count is not None and len(new_rows) > old_row_count:
+        insert_at = max(
+            (
+                position + 1
+                for position, entry in enumerate(kept)
+                if entry["source"] is not None
+            ),
+            default=0,
+        )
+        kept[insert_at:insert_at] = [
+            {"source": index, "text": None}
+            for index in range(old_row_count, len(new_rows))
+        ]
+
+    return _normalize_row_layout(kept, new_rows)
 
 
-def _prune_recipe_overrides_for_recipes(
-    overrides: object,
-    recipes: list[NormalizedRecipe],
-) -> dict[str, dict[str, dict[str, str]]]:
-    sanitized_overrides = _sanitize_recipe_overrides(overrides)
-    pruned_overrides: dict[str, dict[str, dict[str, str]]] = {}
+def _reconcile_recipe_overrides(
+    overrides: dict[str, RecipeTextOverrides],
+    old_recipes: list[NormalizedRecipe],
+    new_recipes: list[NormalizedRecipe],
+) -> dict[str, dict[str, Optional[RowLayout]]]:
+    reconciled: dict[str, dict[str, Optional[RowLayout]]] = {}
 
-    for recipe_index, sections in sanitized_overrides.items():
+    for recipe_index, sections in overrides.items():
         index = int(recipe_index)
-        if index >= len(recipes):
+        if index >= len(new_recipes) or index >= len(old_recipes):
             continue
 
-        recipe = recipes[index]
-        ingredients = _prune_override_rows(
-            sections.get("ingredients", {}),
-            len(recipe.ingredients),
+        old_recipe = old_recipes[index]
+        new_recipe = new_recipes[index]
+        dumped = sections.model_dump()
+        ingredients = _reconcile_row_layout(
+            dumped["ingredients"],
+            new_recipe.ingredients,
+            old_row_count=len(old_recipe.ingredients),
         )
-        instructions = _prune_override_rows(
-            sections.get("instructions", {}),
-            len(recipe.instructions),
+        instructions = _reconcile_row_layout(
+            dumped["instructions"],
+            new_recipe.instructions,
+            old_row_count=len(old_recipe.instructions),
         )
 
-        if ingredients or instructions:
-            pruned_overrides[recipe_index] = {
+        if ingredients is not None or instructions is not None:
+            reconciled[recipe_index] = {
                 "ingredients": ingredients,
                 "instructions": instructions,
             }
 
-    return pruned_overrides
+    return reconciled
 
 
 def _build_refetched_recipe_update_payload(
@@ -1112,8 +1207,9 @@ def _build_refetched_recipe_update_payload(
     return {
         "page_title": title,
         "recipes_json": [recipe.model_dump() for recipe in unique_recipes],
-        "recipe_overrides_json": _prune_recipe_overrides_for_recipes(
+        "recipe_overrides_json": _reconcile_recipe_overrides(
             existing_record.recipe_overrides_json,
+            existing_record.recipes_json,
             unique_recipes,
         ),
         "image_url": image_url,
@@ -1186,26 +1282,19 @@ def update_recipe_overrides(
     if recipe_index >= len(existing_record.recipes_json):
         raise ValueError("recipe_index is out of range")
 
-    recipe_key = str(recipe_index)
-    sanitized_override_entry = RecipeTextOverrides.model_validate(
-        {
-            "ingredients": _sanitize_override_rows(overrides.ingredients),
-            "instructions": _sanitize_override_rows(overrides.instructions),
-        }
-    ).model_dump()
-
-    has_content = bool(
-        sanitized_override_entry["ingredients"]
-        or sanitized_override_entry["instructions"]
+    rpc_override = (
+        _normalize_text_overrides(
+            overrides, existing_record.recipes_json[recipe_index]
+        )
+        or {}
     )
-    rpc_override = sanitized_override_entry if has_content else {}
 
     return _rpc_or_resolve(
         client,
         "set_recipe_override",
         {
             "p_id": recipe_import_id,
-            "p_recipe_key": recipe_key,
+            "p_recipe_key": str(recipe_index),
             "p_override": rpc_override,
         },
         recipe_import_id,

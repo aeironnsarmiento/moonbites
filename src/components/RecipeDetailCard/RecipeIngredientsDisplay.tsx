@@ -1,45 +1,36 @@
 import { Checkbox, Stack, Text } from "@chakra-ui/react";
 
-import type { IngredientSection } from "../../types/recipe";
+import type { RecipeRow } from "../../utils/recipeOverrides";
 import { RecipeDiffText } from "./RecipeDiffText";
 
+export type VisibleIngredientSection = {
+  title: string | null;
+  rows: RecipeRow[];
+};
+
 type RecipeIngredientsDisplayProps = {
-  originalRows: string[];
-  scaledVisibleIngredients: string[];
-  visibleIngredientSections: IngredientSection[] | null;
-  originalIngredientSections: IngredientSection[] | null;
+  visibleRows: RecipeRow[];
+  visibleSections: VisibleIngredientSection[] | null;
   scaleFactor: number;
 };
 
-function renderIngredientText(
-  originalValue: string,
-  editedValue: string,
-  keyPrefix: string,
-  scaleFactor: number,
-) {
+function renderIngredientText(row: RecipeRow, scaleFactor: number) {
   if (Math.abs(scaleFactor - 1) > 0.001) {
-    return editedValue;
+    return row.text;
   }
 
   return (
     <RecipeDiffText
-      originalValue={originalValue}
-      editedValue={editedValue}
-      keyPrefix={keyPrefix}
+      originalValue={row.original}
+      editedValue={row.text}
+      keyPrefix={`ingredient-${row.key}`}
     />
   );
 }
 
-function IngredientCheckboxRow({
-  children,
-  rowKey,
-}: {
-  children: React.ReactNode;
-  rowKey: string;
-}) {
+function IngredientCheckboxRow({ children }: { children: React.ReactNode }) {
   return (
     <Checkbox
-      key={rowKey}
       size="lg"
       colorScheme="brand"
       alignItems="flex-start"
@@ -61,66 +52,44 @@ function IngredientCheckboxRow({
   );
 }
 
-export function RecipeIngredientsDisplay({
-  originalRows,
-  scaledVisibleIngredients,
-  visibleIngredientSections,
-  originalIngredientSections,
+function IngredientRows({
+  rows,
   scaleFactor,
-}: RecipeIngredientsDisplayProps) {
-  if (visibleIngredientSections) {
-    return (
-      <Stack spacing={4}>
-        {visibleIngredientSections.map((section, sectionIndex) => {
-          const sectionStart =
-            originalIngredientSections
-              ?.slice(0, sectionIndex)
-              .reduce((count, item) => count + item.items.length, 0) ?? 0;
-
-          return (
-            <Stack key={`${section.title ?? "ingredients"}-${sectionIndex}`} spacing={2}>
-              {section.title ? <Text fontWeight="700">{section.title}</Text> : null}
-              <Stack spacing={2} className="recipeDetailCard__list">
-                {section.items.map((ingredient, itemIndex) => {
-                  const rowIndex = sectionStart + itemIndex;
-
-                  return (
-                    <IngredientCheckboxRow
-                      key={`ingredient-${rowIndex}`}
-                      rowKey={`ingredient-${rowIndex}`}
-                    >
-                      {renderIngredientText(
-                        originalRows[rowIndex] ?? "",
-                        ingredient,
-                        `ingredient-${rowIndex}`,
-                        scaleFactor,
-                      )}
-                    </IngredientCheckboxRow>
-                  );
-                })}
-              </Stack>
-            </Stack>
-          );
-        })}
-      </Stack>
-    );
-  }
-
+}: {
+  rows: RecipeRow[];
+  scaleFactor: number;
+}) {
   return (
     <Stack spacing={2} className="recipeDetailCard__list">
-      {scaledVisibleIngredients.map((ingredient, rowIndex) => (
-        <IngredientCheckboxRow
-          key={`ingredient-${rowIndex}`}
-          rowKey={`ingredient-${rowIndex}`}
-        >
-          {renderIngredientText(
-            originalRows[rowIndex] ?? "",
-            ingredient,
-            `ingredient-${rowIndex}`,
-            scaleFactor,
-          )}
+      {rows.map((row) => (
+        <IngredientCheckboxRow key={`ingredient-${row.key}`}>
+          {renderIngredientText(row, scaleFactor)}
         </IngredientCheckboxRow>
       ))}
     </Stack>
   );
+}
+
+export function RecipeIngredientsDisplay({
+  visibleRows,
+  visibleSections,
+  scaleFactor,
+}: RecipeIngredientsDisplayProps) {
+  if (visibleSections) {
+    return (
+      <Stack spacing={4}>
+        {visibleSections.map((section, sectionIndex) => (
+          <Stack
+            key={`${section.title ?? "ingredients"}-${sectionIndex}`}
+            spacing={2}
+          >
+            {section.title ? <Text fontWeight="700">{section.title}</Text> : null}
+            <IngredientRows rows={section.rows} scaleFactor={scaleFactor} />
+          </Stack>
+        ))}
+      </Stack>
+    );
+  }
+
+  return <IngredientRows rows={visibleRows} scaleFactor={scaleFactor} />;
 }

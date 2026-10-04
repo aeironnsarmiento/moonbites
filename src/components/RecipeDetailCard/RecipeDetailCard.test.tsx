@@ -55,12 +55,14 @@ const recipe: NormalizedRecipe = {
 };
 
 const overrides: RecipeTextOverrides = {
-  ingredients: {
-    "0": "1 cup brown sugar",
-  },
-  instructions: {
-    "1": "Bake until center is set.",
-  },
+  ingredients: [
+    { source: 0, text: "1 cup brown sugar" },
+    { source: 1, text: null },
+  ],
+  instructions: [
+    { source: 0, text: null },
+    { source: 1, text: "Bake until center is set." },
+  ],
 };
 
 function renderCard(
@@ -201,14 +203,116 @@ describe("RecipeDetailCard", () => {
         fallbackVideoUrl: null,
       });
       expect(onSaveOverrides).toHaveBeenCalledWith(3, {
-        ingredients: {
-          "0": "2 cups brown sugar",
-        },
-        instructions: {
-          "1": "Bake until center is set and cool.",
-        },
+        ingredients: [
+          { source: 0, text: "2 cups brown sugar" },
+          { source: 1, text: null },
+        ],
+        instructions: [
+          { source: 0, text: null },
+          { source: 1, text: "Bake until center is set and cool." },
+        ],
       });
     });
+  });
+
+  it("adds new ingredient and instruction rows while editing", async () => {
+    const onSaveOverrides = vi.fn(() => Promise.resolve());
+    renderCard({ onSaveOverrides });
+
+    fireEvent.click(screen.getByRole("button", { name: /edit chocolate cake/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Add ingredient" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Ingredient 3" }), {
+      target: { value: "1 tsp vanilla" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add step" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Step 3" }), {
+      target: { value: "Cool before slicing." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save edits" }));
+
+    await waitFor(() => {
+      expect(onSaveOverrides).toHaveBeenCalledWith(3, {
+        ingredients: [
+          { source: 0, text: "1 cup brown sugar" },
+          { source: 1, text: null },
+          { source: null, text: "1 tsp vanilla" },
+        ],
+        instructions: [
+          { source: 0, text: null },
+          { source: 1, text: "Bake until center is set." },
+          { source: null, text: "Cool before slicing." },
+        ],
+      });
+    });
+  });
+
+  it("removes an added row before saving", () => {
+    renderCard();
+
+    fireEvent.click(screen.getByRole("button", { name: /edit chocolate cake/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Add step" }));
+    expect(screen.getByRole("textbox", { name: "Step 3" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove step 3" }));
+
+    expect(screen.queryByRole("textbox", { name: "Step 3" })).not.toBeInTheDocument();
+  });
+
+  it("deletes, reorders and restores original rows", async () => {
+    const onSaveOverrides = vi.fn(() => Promise.resolve());
+    renderCard({ onSaveOverrides, overrides: undefined });
+
+    fireEvent.click(screen.getByRole("button", { name: /edit chocolate cake/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove ingredient 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Move step 2 up" }));
+
+    expect(screen.getByRole("textbox", { name: "Ingredient 1" })).toHaveValue(
+      "2 cups flour",
+    );
+    expect(screen.getByRole("textbox", { name: "Step 1" })).toHaveValue(
+      "Bake until set.",
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Restore ingredient: 1 cup sugar" }),
+    );
+    expect(screen.getByRole("textbox", { name: "Ingredient 1" })).toHaveValue(
+      "1 cup sugar",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove ingredient 2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save edits" }));
+
+    await waitFor(() => {
+      expect(onSaveOverrides).toHaveBeenCalledWith(3, {
+        ingredients: [{ source: 0, text: null }],
+        instructions: [
+          { source: 1, text: null },
+          { source: 0, text: null },
+        ],
+      });
+    });
+  });
+
+  it("shows saved layouts in view mode", () => {
+    renderCard({
+      overrides: {
+        ingredients: [
+          { source: 1, text: null },
+          { source: null, text: "1 tsp vanilla" },
+        ],
+        instructions: [
+          { source: null, text: "Preheat oven." },
+          { source: 0, text: null },
+        ],
+      },
+    });
+
+    expect(screen.getByText("1 tsp vanilla")).toBeInTheDocument();
+    expect(screen.queryByText("1 cup sugar")).not.toBeInTheDocument();
+    expect(screen.getByText("Batter")).toBeInTheDocument();
+    expect(screen.getByText("Preheat oven.")).toBeInTheDocument();
+    expect(screen.queryByText("Bake until set.")).not.toBeInTheDocument();
   });
 
   it("cancels edit mode without saving", () => {

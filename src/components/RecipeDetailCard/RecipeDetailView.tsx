@@ -1,17 +1,14 @@
 import { Divider, Text } from "@chakra-ui/react";
 
-import type {
-  IngredientSection,
-  NormalizedRecipe,
-} from "../../types/recipe";
+import type { RecipeRow } from "../../utils/recipeOverrides";
+import type { VisibleIngredientSection } from "./RecipeIngredientsDisplay";
 import { RecipeTextSection } from "./RecipeTextSection";
 
 type RecipeDetailViewProps = {
-  recipe: NormalizedRecipe;
   showMetadataDivider: boolean;
-  scaledVisibleIngredients: string[];
-  visibleIngredientSections: IngredientSection[] | null;
-  visibleInstructions: string[];
+  scaledIngredientRows: RecipeRow[];
+  ingredientSections: VisibleIngredientSection[] | null;
+  instructionRows: RecipeRow[];
   scaleFactor: number;
   servingsControls: {
     currentServings: number;
@@ -25,11 +22,10 @@ type RecipeDetailViewProps = {
 };
 
 export function RecipeDetailView({
-  recipe,
   showMetadataDivider,
-  scaledVisibleIngredients,
-  visibleIngredientSections,
-  visibleInstructions,
+  scaledIngredientRows,
+  ingredientSections,
+  instructionRows,
   scaleFactor,
   servingsControls,
   error,
@@ -42,10 +38,8 @@ export function RecipeDetailView({
         section="ingredients"
         isEditing={false}
         editorRows={null}
-        originalRows={recipe.ingredients}
-        scaledVisibleIngredients={scaledVisibleIngredients}
-        visibleIngredientSections={visibleIngredientSections}
-        originalIngredientSections={recipe.ingredientSections}
+        visibleRows={scaledIngredientRows}
+        visibleSections={ingredientSections}
         scaleFactor={scaleFactor}
         servingsControls={servingsControls}
       />
@@ -54,8 +48,7 @@ export function RecipeDetailView({
         section="instructions"
         isEditing={false}
         editorRows={null}
-        originalRows={recipe.instructions}
-        visibleRows={visibleInstructions}
+        visibleRows={instructionRows}
       />
 
       {error ? <Text color="red.500">{error}</Text> : null}

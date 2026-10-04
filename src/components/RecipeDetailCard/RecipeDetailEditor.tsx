@@ -1,9 +1,8 @@
 import { Divider, Text } from "@chakra-ui/react";
 
-import type {
-  IngredientSection,
-  NormalizedRecipe,
-} from "../../types/recipe";
+import type { NormalizedRecipe } from "../../types/recipe";
+import type { RecipeRow } from "../../utils/recipeOverrides";
+import type { VisibleIngredientSection } from "./RecipeIngredientsDisplay";
 import { RecipeMetadataEditor } from "./RecipeMetadataEditor";
 import { RecipeTextEditorRows } from "./RecipeTextEditorRows";
 import { RecipeTextSection } from "./RecipeTextSection";
@@ -13,16 +12,16 @@ type RecipeDetailEditorProps = {
   recipe: NormalizedRecipe;
   showMetadataDivider: boolean;
   showMetadataEditor: boolean;
-  draftIngredients: string[];
-  draftInstructions: string[];
+  draftIngredients: RecipeRow[];
+  draftInstructions: RecipeRow[];
   draftTitle: string;
   draftYield: string;
   draftImageUrl: string;
   draftSourceUrl: string;
   draftFallbackVideoUrl: string;
   canEmbedSourceVideo: boolean;
-  scaledVisibleIngredients: string[];
-  visibleIngredientSections: IngredientSection[] | null;
+  scaledIngredientRows: RecipeRow[];
+  ingredientSections: VisibleIngredientSection[] | null;
   scaleFactor: number;
   servingsControls: {
     currentServings: number;
@@ -33,8 +32,8 @@ type RecipeDetailEditorProps = {
     onSaveDefault?: (servings: number) => Promise<void>;
   };
   saveError: string;
-  onChangeIngredients: (rows: string[]) => void;
-  onChangeInstructions: (rows: string[]) => void;
+  onChangeIngredients: (rows: RecipeRow[]) => void;
+  onChangeInstructions: (rows: RecipeRow[]) => void;
   onChangeTitle: (value: string) => void;
   onChangeYield: (value: string) => void;
   onChangeImageUrl: (value: string) => void;
@@ -55,8 +54,8 @@ export function RecipeDetailEditor({
   draftSourceUrl,
   draftFallbackVideoUrl,
   canEmbedSourceVideo,
-  scaledVisibleIngredients,
-  visibleIngredientSections,
+  scaledIngredientRows,
+  ingredientSections,
   scaleFactor,
   servingsControls,
   saveError,
@@ -100,10 +99,8 @@ export function RecipeDetailEditor({
             onChangeRows={onChangeIngredients}
           />
         }
-        originalRows={recipe.ingredients}
-        scaledVisibleIngredients={scaledVisibleIngredients}
-        visibleIngredientSections={visibleIngredientSections}
-        originalIngredientSections={recipe.ingredientSections}
+        visibleRows={scaledIngredientRows}
+        visibleSections={ingredientSections}
         scaleFactor={scaleFactor}
         servingsControls={servingsControls}
       />
@@ -119,7 +116,6 @@ export function RecipeDetailEditor({
             onChangeRows={onChangeInstructions}
           />
         }
-        originalRows={recipe.instructions}
         visibleRows={draftInstructions}
       />
 

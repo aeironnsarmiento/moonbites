@@ -4,7 +4,13 @@ import { useEffect, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { chakraTheme } from "../../styles/chakraTheme";
+import { resolveRows } from "../../utils/recipeOverrides";
 import { RecipeIngredientsDisplay } from "./RecipeIngredientsDisplay";
+
+const rows = resolveRows(["1 cup sugar", "2 cups flour"], [
+  { source: 0, text: "1 cup brown sugar" },
+  { source: 1, text: null },
+]);
 
 describe("RecipeIngredientsDisplay", () => {
   it("does not remount when a parent rerenders", () => {
@@ -17,20 +23,8 @@ describe("RecipeIngredientsDisplay", () => {
 
       return (
         <RecipeIngredientsDisplay
-          originalRows={["1 cup sugar", "2 cups flour"]}
-          scaledVisibleIngredients={["1 cup brown sugar", "2 cups flour"]}
-          visibleIngredientSections={[
-            {
-              title: "Batter",
-              items: ["1 cup brown sugar", "2 cups flour"],
-            },
-          ]}
-          originalIngredientSections={[
-            {
-              title: "Batter",
-              items: ["1 cup sugar", "2 cups flour"],
-            },
-          ]}
+          visibleRows={rows}
+          visibleSections={[{ title: "Batter", rows }]}
           scaleFactor={1}
         />
       );

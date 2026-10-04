@@ -5,14 +5,14 @@ import { useConfirmDialog } from "../../hooks/useConfirmDialog";
 import { useServingsScale } from "../../hooks/useServingsScale";
 import { useToggleFavorite } from "../../hooks/useToggleFavorite";
 import type {
-  IngredientSection,
   NormalizedRecipe,
   RecipeTextOverrides,
   UpdateRecipeMetadataPayload,
 } from "../../types/recipe";
 import {
-  applyRowOverrides,
   getRecipeTextOverrides,
+  resolveRows,
+  type RecipeRow,
 } from "../../utils/recipeOverrides";
 import { scaleIngredients } from "../../utils/scaleIngredients";
 import type { RecipeVideo } from "../../utils/videoEmbed";
@@ -22,6 +22,7 @@ import { RecipeDetailEditor } from "./RecipeDetailEditor";
 import { RecipeDetailHeader } from "./RecipeDetailHeader";
 import { RecipeDetailHero } from "./RecipeDetailHero";
 import { RecipeDetailView } from "./RecipeDetailView";
+import type { VisibleIngredientSection } from "./RecipeIngredientsDisplay";
 import { useRecipeEditDraft } from "./hooks/useRecipeEditDraft";
 import "./RecipeDetailCard.scss";
 
@@ -57,23 +58,31 @@ type RecipeDetailCardProps = {
 
 function buildVisibleIngredientSections(
   recipe: NormalizedRecipe,
-  visibleIngredients: string[],
-): IngredientSection[] | null {
+  rows: RecipeRow[],
+): VisibleIngredientSection[] | null {
   if (!recipe.ingredientSections || recipe.ingredientSections.length === 0) {
     return null;
   }
 
-  let offset = 0;
+  const sectionBySource = recipe.ingredientSections.flatMap(
+    (section, sectionIndex) => section.items.map(() => sectionIndex),
+  );
+  const sections = recipe.ingredientSections.map((section) => ({
+    title: section.title,
+    rows: [] as RecipeRow[],
+  }));
 
-  return recipe.ingredientSections.map((section) => {
-    const items = visibleIngredients.slice(offset, offset + section.items.length);
-    offset += section.items.length;
-
-    return {
-      title: section.title,
-      items,
-    };
+  // Parsed rows stay in their parsed section; added rows follow the row
+  // above them.
+  let sectionIndex = 0;
+  rows.forEach((row) => {
+    if (row.source !== null) {
+      sectionIndex = sectionBySource[row.source] ?? sectionIndex;
+    }
+    sections[sectionIndex].rows.push(row);
   });
+
+  return sections.filter((section) => section.rows.length > 0);
 }
 
 export function RecipeDetailCard({
@@ -105,19 +114,23 @@ export function RecipeDetailCard({
   const toggleFavorite = useToggleFavorite(recipeImportId);
   const servingsScale = useServingsScale(recipeImportId, servings);
   const savedOverrides = getRecipeTextOverrides(overrides);
-  const visibleIngredients = applyRowOverrides(
+  const visibleIngredients = resolveRows(
     recipe.ingredients,
     savedOverrides.ingredients,
   );
-  const scaledVisibleIngredients = scaleIngredients(
-    visibleIngredients,
+  const scaledIngredientTexts = scaleIngredients(
+    visibleIngredients.map((row) => row.text),
     servingsScale.scaleFactor,
   );
-  const visibleIngredientSections = buildVisibleIngredientSections(
+  const scaledIngredientRows = visibleIngredients.map((row, index) => ({
+    ...row,
+    text: scaledIngredientTexts[index],
+  }));
+  const ingredientSections = buildVisibleIngredientSections(
     recipe,
-    scaledVisibleIngredients,
+    scaledIngredientRows,
   );
-  const visibleInstructions = applyRowOverrides(
+  const visibleInstructions = resolveRows(
     recipe.instructions,
     savedOverrides.instructions,
   );
@@ -235,8 +248,8 @@ export function RecipeDetailCard({
               draftSourceUrl={editDraft.draftSourceUrl}
               draftFallbackVideoUrl={editDraft.draftFallbackVideoUrl}
               canEmbedSourceVideo={Boolean(video && !video.isFallback)}
-              scaledVisibleIngredients={scaledVisibleIngredients}
-              visibleIngredientSections={visibleIngredientSections}
+              scaledIngredientRows={scaledIngredientRows}
+              ingredientSections={ingredientSections}
               scaleFactor={servingsScale.scaleFactor}
               servingsControls={servingsControls}
               saveError={editDraft.saveError}
@@ -250,11 +263,10 @@ export function RecipeDetailCard({
             />
           ) : (
             <RecipeDetailView
-              recipe={recipe}
               showMetadataDivider={metadataItems.length > 0}
-              scaledVisibleIngredients={scaledVisibleIngredients}
-              visibleIngredientSections={visibleIngredientSections}
-              visibleInstructions={visibleInstructions}
+              scaledIngredientRows={scaledIngredientRows}
+              ingredientSections={ingredientSections}
+              instructionRows={visibleInstructions}
               scaleFactor={servingsScale.scaleFactor}
               servingsControls={servingsControls}
               error={deleteError}
