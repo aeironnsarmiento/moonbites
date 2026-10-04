@@ -8,5 +8,11 @@
       "entrypoint": "backend",
       "routePrefix": "/_/backend"
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/recipes/:recipeImportId((?!create$)[^/]+)",
+      "destination": "/_/backend/recipe-pages/:recipeImportId"
+    }
+  ]
 }
