@@ -12,6 +12,7 @@ load_dotenv(BACKEND_DIR / ".env")
 
 DEFAULT_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 DEFAULT_SUPABASE_TABLE = "recipe_imports"
+DEFAULT_PUBLIC_SITE_URL = "https://moonbites-blue.vercel.app"
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,7 @@ class Settings:
     instagram_reel_actor_timeout_seconds: float = 120.0
     instagram_profile_actor_timeout_seconds: float = 120.0
     instagram_request_deadline_seconds: float = 45.0
+    public_site_url: str = DEFAULT_PUBLIC_SITE_URL
 
 
 def normalize_cors_origins(value: str) -> tuple[str, ...]:
@@ -126,4 +128,7 @@ def get_settings() -> Settings:
         instagram_request_deadline_seconds=float(
             os.getenv("INSTAGRAM_REQUEST_DEADLINE_SECONDS") or "45"
         ),
+        public_site_url=(
+            os.getenv("PUBLIC_SITE_URL") or DEFAULT_PUBLIC_SITE_URL
+        ).rstrip("/"),
     )

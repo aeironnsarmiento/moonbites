@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /login
+Disallow: /auth/
+Disallow: /recipes/create
+Disallow: /_/backend/api/
+
+Sitemap: https://moonbites-blue.vercel.app/_/backend/sitemap.xml
