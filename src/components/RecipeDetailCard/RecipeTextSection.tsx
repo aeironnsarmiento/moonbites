@@ -8,9 +8,12 @@ import {
 import type { ReactNode } from "react";
 
 import { ServingsStepper } from "../../components/ServingsStepper/ServingsStepper";
-import type { IngredientSection } from "../../types/recipe";
+import type { RecipeRow } from "../../utils/recipeOverrides";
 import { RecipeDiffText } from "./RecipeDiffText";
-import { RecipeIngredientsDisplay } from "./RecipeIngredientsDisplay";
+import {
+  RecipeIngredientsDisplay,
+  type VisibleIngredientSection,
+} from "./RecipeIngredientsDisplay";
 
 type ServingsControls = {
   currentServings: number;
@@ -25,10 +28,8 @@ type IngredientsSectionProps = {
   section: "ingredients";
   isEditing: boolean;
   editorRows: ReactNode;
-  originalRows: string[];
-  scaledVisibleIngredients: string[];
-  visibleIngredientSections: IngredientSection[] | null;
-  originalIngredientSections: IngredientSection[] | null;
+  visibleRows: RecipeRow[];
+  visibleSections: VisibleIngredientSection[] | null;
   scaleFactor: number;
   servingsControls: ServingsControls;
 };
@@ -37,8 +38,7 @@ type InstructionsSectionProps = {
   section: "instructions";
   isEditing: boolean;
   editorRows: ReactNode;
-  originalRows: string[];
-  visibleRows: string[];
+  visibleRows: RecipeRow[];
 };
 
 type RecipeTextSectionProps = IngredientsSectionProps | InstructionsSectionProps;
@@ -59,7 +59,7 @@ export function RecipeTextSection(props: RecipeTextSectionProps) {
           <Heading size="sm">Ingredients</Heading>
           {props.isEditing ? (
             <Text fontSize="sm" color="gray.500">
-              Changed rows are tinted while you edit.
+              Changed and new rows are tinted while you edit.
             </Text>
           ) : null}
         </HStack>
@@ -67,10 +67,8 @@ export function RecipeTextSection(props: RecipeTextSectionProps) {
           props.editorRows
         ) : (
           <RecipeIngredientsDisplay
-            originalRows={props.originalRows}
-            scaledVisibleIngredients={props.scaledVisibleIngredients}
-            visibleIngredientSections={props.visibleIngredientSections}
-            originalIngredientSections={props.originalIngredientSections}
+            visibleRows={props.visibleRows}
+            visibleSections={props.visibleSections}
             scaleFactor={props.scaleFactor}
           />
         )}
@@ -88,7 +86,7 @@ export function RecipeTextSection(props: RecipeTextSectionProps) {
           {props.visibleRows.map((instruction, rowIndex) => (
             <HStack
               as="li"
-              key={`instruction-${rowIndex}`}
+              key={`instruction-${instruction.key}`}
               align="flex-start"
               spacing={4}
             >
@@ -108,9 +106,9 @@ export function RecipeTextSection(props: RecipeTextSectionProps) {
               </Flex>
               <Text pt="2px">
                 <RecipeDiffText
-                  originalValue={props.originalRows[rowIndex] ?? ""}
-                  editedValue={instruction}
-                  keyPrefix={`instruction-${rowIndex}`}
+                  originalValue={instruction.original}
+                  editedValue={instruction.text}
+                  keyPrefix={`instruction-${instruction.key}`}
                 />
               </Text>
             </HStack>

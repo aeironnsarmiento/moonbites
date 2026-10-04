@@ -136,8 +136,11 @@ def test_update_recipe_overrides_sends_single_recipe_override_to_rpc():
             "recipe-1",
             0,
             RecipeTextOverrides(
-                ingredients={"0": "edited flour"},
-                instructions={"0": "Bake gently."},
+                ingredients=[
+                    {"source": 0, "text": "edited flour"},
+                    {"source": None, "text": "1 tsp miso"},
+                ],
+                instructions=[],
             ),
             access_token="admin-token",
         )
@@ -149,11 +152,38 @@ def test_update_recipe_overrides_sends_single_recipe_override_to_rpc():
             "p_id": "recipe-1",
             "p_recipe_key": "0",
             "p_override": {
-                "ingredients": {"0": "edited flour"},
-                "instructions": {"0": "Bake gently."},
+                "ingredients": [
+                    {"source": 0, "text": "edited flour"},
+                    {"source": None, "text": "1 tsp miso"},
+                ],
+                "instructions": [],
             },
         },
     )
+
+
+def test_update_recipe_overrides_clears_identity_layouts():
+    rpc_client = _RpcClient([_record_dict(is_favorite=False)])
+    with (
+        patch("app.repositories.recipe_imports.get_settings") as get_settings,
+        patch("app.repositories.recipe_imports._get_write_client") as get_write_client,
+        patch("app.repositories.recipe_imports.get_recipe_import") as get_recipe_import,
+    ):
+        get_settings.return_value.supabase_table_name = "recipe_imports"
+        get_write_client.return_value = rpc_client
+        get_recipe_import.return_value = _record(is_favorite=False)
+
+        update_recipe_overrides(
+            "recipe-1",
+            0,
+            RecipeTextOverrides(
+                ingredients=[{"source": 0, "text": "1 cup flour"}],
+                instructions=None,
+            ),
+            access_token="admin-token",
+        )
+
+    assert rpc_client.last_call[1]["p_override"] == {}
 
 
 def test_toggle_favorite_returns_none_when_record_missing():

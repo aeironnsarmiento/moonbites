@@ -45,9 +45,20 @@ class UpdateTimesCookedRequest(BaseModel):
     delta: int = Field(...)
 
 
+class RecipeRowEntry(BaseModel):
+    """One displayed row: `source` is the parsed row index (None for an added
+    row) and `text` replaces that row's text (None keeps the parsed text)."""
+
+    source: Optional[int] = Field(default=None, ge=0)
+    text: Optional[str] = None
+
+
 class RecipeTextOverrides(BaseModel):
-    ingredients: dict[str, str] = Field(default_factory=dict)
-    instructions: dict[str, str] = Field(default_factory=dict)
+    """Full row layouts per section, in display order. Parsed rows missing from
+    a layout are deleted. None means the section is shown as parsed."""
+
+    ingredients: Optional[list[RecipeRowEntry]] = None
+    instructions: Optional[list[RecipeRowEntry]] = None
 
 
 class UpdateRecipeOverridesRequest(BaseModel):

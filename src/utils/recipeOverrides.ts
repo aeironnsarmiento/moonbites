@@ -1,48 +1,88 @@
-import type { RecipeRowOverrides, RecipeTextOverrides } from "../types/recipe";
+import type { RecipeRowLayout, RecipeTextOverrides } from "../types/recipe";
 
 export type DiffSegment = {
   text: string;
   changed: boolean;
 };
 
+// A row as shown or edited, with the parsed text it came from ("" when added).
+export type RecipeRow = {
+  key: string;
+  source: number | null;
+  text: string;
+  original: string;
+};
+
+let addedRowCounter = 0;
+
 export function getRecipeTextOverrides(
   overrides?: Partial<RecipeTextOverrides> | null,
 ): RecipeTextOverrides {
   return {
-    ingredients: { ...(overrides?.ingredients ?? {}) },
-    instructions: { ...(overrides?.instructions ?? {}) },
+    ingredients: overrides?.ingredients ?? null,
+    instructions: overrides?.instructions ?? null,
   };
 }
 
-export function applyRowOverrides(
+export function createAddedRow(text = ""): RecipeRow {
+  addedRowCounter += 1;
+  return { key: `new-${addedRowCounter}`, source: null, text, original: "" };
+}
+
+export function resolveRows(
   rows: string[],
-  overrides: RecipeRowOverrides = {},
-): string[] {
-  return rows.map((row, index) => overrides[String(index)] ?? row);
-}
+  layout: RecipeRowLayout = null,
+): RecipeRow[] {
+  if (!layout) {
+    return rows.map((text, index) => ({
+      key: `s${index}`,
+      source: index,
+      text,
+      original: text,
+    }));
+  }
 
-export function buildRowOverrides(
-  originalRows: string[],
-  editedRows: string[],
-): RecipeRowOverrides {
-  const nextOverrides: RecipeRowOverrides = {};
-
-  originalRows.forEach((originalRow, index) => {
-    const editedRow = editedRows[index] ?? "";
-    if (editedRow !== originalRow) {
-      nextOverrides[String(index)] = editedRow;
-    }
+  return layout.map((entry, position) => {
+    const original = entry.source === null ? "" : (rows[entry.source] ?? "");
+    return {
+      key: entry.source === null ? `a${position}` : `s${entry.source}`,
+      source: entry.source,
+      text: entry.text ?? original,
+      original,
+    };
   });
-
-  return nextOverrides;
 }
 
-export function areRowsEqual(left: string[], right: string[]): boolean {
+export function buildRowLayout(
+  originalRows: string[],
+  editedRows: RecipeRow[],
+): RecipeRowLayout {
+  const layout = editedRows
+    .filter((row) => row.text.trim())
+    .map((row) => ({
+      source: row.source,
+      text:
+        row.source !== null && row.text === originalRows[row.source]
+          ? null
+          : row.text,
+    }));
+
+  const isIdentity =
+    layout.length === originalRows.length &&
+    layout.every((entry, index) => entry.source === index && entry.text === null);
+
+  return isIdentity ? null : layout;
+}
+
+export function areRowsEqual(left: RecipeRow[], right: RecipeRow[]): boolean {
   if (left.length !== right.length) {
     return false;
   }
 
-  return left.every((value, index) => value === right[index]);
+  return left.every(
+    (row, index) =>
+      row.source === right[index].source && row.text === right[index].text,
+  );
 }
 
 function mergeSegments(segments: DiffSegment[]): DiffSegment[] {

@@ -171,8 +171,14 @@ def test_refetch_updates_url_recipe_and_preserves_user_fields():
     record = _record(
         overrides={
             "0": {
-                "ingredients": {"1": "edited rice"},
-                "instructions": {"1": "edited cook"},
+                "ingredients": [
+                    {"source": 0, "text": None},
+                    {"source": 1, "text": "edited rice"},
+                ],
+                "instructions": [
+                    {"source": 0, "text": None},
+                    {"source": 1, "text": "edited cook"},
+                ],
             }
         }
     )

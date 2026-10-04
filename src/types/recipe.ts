@@ -14,11 +14,20 @@ export type NormalizedRecipe = {
   instructions: string[];
 };
 
-export type RecipeRowOverrides = Record<string, string>;
+// One displayed row: `source` is the parsed row index (null for an added
+// row) and `text` replaces that row's text (null keeps the parsed text).
+export type RecipeRowEntry = {
+  source: number | null;
+  text: string | null;
+};
+
+// Full row layout in display order; parsed rows missing from it are deleted.
+// null means the section is shown as parsed.
+export type RecipeRowLayout = RecipeRowEntry[] | null;
 
 export type RecipeTextOverrides = {
-  ingredients: RecipeRowOverrides;
-  instructions: RecipeRowOverrides;
+  ingredients: RecipeRowLayout;
+  instructions: RecipeRowLayout;
 };
 
 export type RecipeOverridesMap = Record<string, RecipeTextOverrides>;

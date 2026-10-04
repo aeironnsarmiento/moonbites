@@ -6,6 +6,7 @@ import type {
   RecipeTextOverrides,
   UpdateRecipeMetadataPayload,
 } from "../../../types/recipe";
+import { resolveRows } from "../../../utils/recipeOverrides";
 import { useRecipeEditDraft } from "./useRecipeEditDraft";
 
 const recipe: NormalizedRecipe = {
@@ -18,6 +19,24 @@ const recipe: NormalizedRecipe = {
   ingredientSections: null,
   instructions: ["Mix ingredients.", "Bake until set."],
 };
+
+function visibleIngredients() {
+  return resolveRows(recipe.ingredients, [
+    { source: 0, text: "1 cup brown sugar" },
+    { source: 1, text: null },
+  ]);
+}
+
+function visibleInstructions() {
+  return resolveRows(recipe.instructions, [
+    { source: 0, text: null },
+    { source: 1, text: "Bake until center is set." },
+  ]);
+}
+
+function withText(rows: ReturnType<typeof resolveRows>, index: number, text: string) {
+  return rows.map((row, rowIndex) => (rowIndex === index ? { ...row, text } : row));
+}
 
 function renderDraft(
   overrides: Partial<Parameters<typeof useRecipeEditDraft>[0]> = {},
@@ -32,8 +51,8 @@ function renderDraft(
       imageUrl: "https://example.com/cake.jpg",
       sourceUrl: "https://example.com/cake",
       fallbackVideoUrl: null,
-      visibleIngredients: ["1 cup brown sugar", "2 cups flour"],
-      visibleInstructions: ["Mix ingredients.", "Bake until center is set."],
+      visibleIngredients: visibleIngredients(),
+      visibleInstructions: visibleInstructions(),
       canEditMetadata: true,
       onSaveMetadata: onSaveMetadata as unknown as (
         metadata: UpdateRecipeMetadataPayload,
@@ -58,11 +77,11 @@ describe("useRecipeEditDraft", () => {
     const { result } = renderDraft();
 
     expect(result.current.isEditing).toBe(false);
-    expect(result.current.draftIngredients).toEqual([
+    expect(result.current.draftIngredients.map((row) => row.text)).toEqual([
       "1 cup brown sugar",
       "2 cups flour",
     ]);
-    expect(result.current.draftInstructions).toEqual([
+    expect(result.current.draftInstructions.map((row) => row.text)).toEqual([
       "Mix ingredients.",
       "Bake until center is set.",
     ]);
@@ -108,7 +127,9 @@ describe("useRecipeEditDraft", () => {
 
     act(() => {
       result.current.setDraftTitle("Saved Chocolate Cake");
-      result.current.setDraftIngredients(["2 cups brown sugar", "2 cups flour"]);
+      result.current.setDraftIngredients(
+        withText(visibleIngredients(), 0, "2 cups brown sugar"),
+      );
     });
 
     expect(result.current.hasMetadataChanges).toBe(false);
@@ -134,11 +155,12 @@ describe("useRecipeEditDraft", () => {
       result.current.setDraftYield("10 servings");
       result.current.setDraftImageUrl("https://example.com/new-cake.jpg");
       result.current.setDraftSourceUrl("https://example.com/new-cake");
-      result.current.setDraftIngredients(["2 cups brown sugar", "2 cups flour"]);
-      result.current.setDraftInstructions([
-        "Mix ingredients.",
-        "Bake until center is set and cool.",
-      ]);
+      result.current.setDraftIngredients(
+        withText(visibleIngredients(), 0, "2 cups brown sugar"),
+      );
+      result.current.setDraftInstructions(
+        withText(visibleInstructions(), 1, "Bake until center is set and cool."),
+      );
     });
 
     await act(async () => {
@@ -154,12 +176,14 @@ describe("useRecipeEditDraft", () => {
       fallbackVideoUrl: null,
     });
     expect(onSaveOverrides).toHaveBeenCalledWith(3, {
-      ingredients: {
-        "0": "2 cups brown sugar",
-      },
-      instructions: {
-        "1": "Bake until center is set and cool.",
-      },
+      ingredients: [
+        { source: 0, text: "2 cups brown sugar" },
+        { source: 1, text: null },
+      ],
+      instructions: [
+        { source: 0, text: null },
+        { source: 1, text: "Bake until center is set and cool." },
+      ],
     });
     expect(result.current.isEditing).toBe(false);
   });
@@ -177,12 +201,14 @@ describe("useRecipeEditDraft", () => {
 
     expect(onSaveMetadata).not.toHaveBeenCalled();
     expect(onSaveOverrides).toHaveBeenCalledWith(3, {
-      ingredients: {
-        "0": "1 cup brown sugar",
-      },
-      instructions: {
-        "1": "Bake until center is set.",
-      },
+      ingredients: [
+        { source: 0, text: "1 cup brown sugar" },
+        { source: 1, text: null },
+      ],
+      instructions: [
+        { source: 0, text: null },
+        { source: 1, text: "Bake until center is set." },
+      ],
     });
   });
 

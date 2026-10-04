@@ -23,12 +23,18 @@ def _record() -> RecipeImportRecord:
         ],
         recipe_overrides_json={
             "0": {
-                "ingredients": {"1": "edited ingredient", "3": "stale ingredient"},
-                "instructions": {"0": "edited step", "2": "stale step"},
+                "ingredients": [
+                    {"source": 1, "text": "edited ingredient"},
+                    {"source": 0, "text": None},
+                ],
+                "instructions": [
+                    {"source": 0, "text": "edited step"},
+                    {"source": 1, "text": "stale step"},
+                ],
             },
             "2": {
-                "ingredients": {"0": "stale recipe"},
-                "instructions": {},
+                "ingredients": [{"source": 0, "text": "stale recipe"}],
+                "instructions": None,
             },
         },
         image_url="https://old.test/image.jpg",
@@ -59,7 +65,10 @@ def test_build_refetched_recipe_update_payload_replaces_raw_fields_and_prunes_ov
     assert payload["servings"] == 4
     assert payload["recipe_overrides_json"] == {
         "0": {
-            "ingredients": {"1": "edited ingredient"},
-            "instructions": {"0": "edited step"},
+            "ingredients": [
+                {"source": 1, "text": "edited ingredient"},
+                {"source": 0, "text": None},
+            ],
+            "instructions": [{"source": 0, "text": "edited step"}],
         }
     }

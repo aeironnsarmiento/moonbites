@@ -7,7 +7,8 @@ import type {
 } from "../../../types/recipe";
 import {
   areRowsEqual,
-  buildRowOverrides,
+  buildRowLayout,
+  type RecipeRow,
 } from "../../../utils/recipeOverrides";
 
 type UseRecipeEditDraftOptions = {
@@ -17,8 +18,8 @@ type UseRecipeEditDraftOptions = {
   imageUrl: string | null;
   sourceUrl: string;
   fallbackVideoUrl: string | null;
-  visibleIngredients: string[];
-  visibleInstructions: string[];
+  visibleIngredients: RecipeRow[];
+  visibleInstructions: RecipeRow[];
   canEditMetadata: boolean;
   onSaveMetadata?: (metadata: UpdateRecipeMetadataPayload) => Promise<void>;
   onSaveOverrides?: (
@@ -42,9 +43,9 @@ export function useRecipeEditDraft({
 }: UseRecipeEditDraftOptions) {
   const [isEditing, setIsEditing] = useState(false);
   const [draftIngredients, setDraftIngredients] =
-    useState<string[]>(visibleIngredients);
+    useState<RecipeRow[]>(visibleIngredients);
   const [draftInstructions, setDraftInstructions] =
-    useState<string[]>(visibleInstructions);
+    useState<RecipeRow[]>(visibleInstructions);
   const [draftTitle, setDraftTitle] = useState(recordTitle ?? recipe.name);
   const [draftYield, setDraftYield] = useState(recipe.recipeYield ?? "");
   const [draftImageUrl, setDraftImageUrl] = useState(imageUrl ?? "");
@@ -108,8 +109,8 @@ export function useRecipeEditDraft({
 
       if (onSaveOverrides) {
         await onSaveOverrides(recipeIndex, {
-          ingredients: buildRowOverrides(recipe.ingredients, draftIngredients),
-          instructions: buildRowOverrides(recipe.instructions, draftInstructions),
+          ingredients: buildRowLayout(recipe.ingredients, draftIngredients),
+          instructions: buildRowLayout(recipe.instructions, draftInstructions),
         });
       }
 
