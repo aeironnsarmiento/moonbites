@@ -741,6 +741,51 @@ def iter_recipe_import_records_for_refresh(
             return
 
 
+SITEMAP_BATCH_SIZE = 1000
+
+
+@dataclass(frozen=True)
+class SitemapEntry:
+    id: str
+    created_at: str
+
+
+def list_recipe_sitemap_entries(
+    *,
+    batch_size: int = SITEMAP_BATCH_SIZE,
+) -> list[SitemapEntry]:
+    settings = get_settings()
+    client = _get_read_client(settings)
+    if client is None:
+        raise RuntimeError(
+            "Supabase is not configured yet. Add backend env vars to enable reading saved recipes."
+        )
+
+    entries: list[SitemapEntry] = []
+    offset = 0
+    while True:
+        try:
+            response = (
+                client.table(settings.supabase_table_name)
+                .select("id, created_at")
+                .order("created_at", desc=True)
+                .range(offset, offset + batch_size - 1)
+                .execute()
+            )
+        except Exception as error:
+            raise RuntimeError(f"Supabase read failed: {error}") from error
+
+        rows = response.data or []
+        entries.extend(
+            SitemapEntry(id=str(row["id"]), created_at=str(row["created_at"]))
+            for row in rows
+            if row.get("id")
+        )
+        if len(rows) < batch_size:
+            return entries
+        offset += batch_size
+
+
 def get_recipe_import(recipe_import_id: str) -> Optional[RecipeImportRecord]:
     settings = get_settings()
     client = _get_read_client(settings)
