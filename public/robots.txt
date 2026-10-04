@@ -4,5 +4,6 @@ Disallow: /login
 Disallow: /auth/
 Disallow: /recipes/create
 Disallow: /_/backend/api/
+Disallow: /_/backend/recipe-pages/
 
 Sitemap: https://moonbites-blue.vercel.app/_/backend/sitemap.xml
