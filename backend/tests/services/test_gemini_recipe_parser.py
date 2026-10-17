@@ -9,11 +9,24 @@ import pytest
 from fastapi import HTTPException
 
 from app.core.config import Settings
+from app.services.blog.extractor import parse_recipes_from_html
 from app.services.gemini.recipe_parser import (
     BUSY_DETAIL,
     NOT_CONFIGURED_DETAIL,
     parse_caption_with_gemini,
+    parse_page_text_with_gemini,
     reset_gemini_rate_limiter,
+)
+from backend.tests.fixtures.gathering_page import (
+    GATHERING_DISH,
+    GATHERING_SECTION_TITLES,
+    GATHERING_URL,
+    gathering_html,
+    gathering_payload_normalized_units,
+    gathering_payload_paraphrased,
+    gathering_payload_verbatim,
+    gemini_body,
+    not_recipe_payload,
 )
 
 
@@ -575,3 +588,160 @@ def test_rate_limiter_blocks_fourth_call_within_a_minute():
     assert error.value.status_code == 429
     assert error.value.detail == BUSY_DETAIL
     assert client.calls == 3
+
+
+# --- Page-text parsing (blog Gemini fallback) --------------------------------
+
+
+def _gathering_page_text():
+    page = parse_recipes_from_html(
+        gathering_html(), source_url=GATHERING_URL, final_url=GATHERING_URL
+    )
+    assert page.page_text is not None
+    return page.page_text
+
+
+def _parse_page(page_text: str | None = None, title: str = GATHERING_DISH):
+    return asyncio.run(
+        parse_page_text_with_gemini(
+            title=title,
+            page_text=_gathering_page_text().text if page_text is None else page_text,
+            source_url=GATHERING_URL,
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        gathering_payload_verbatim(),
+        gathering_payload_paraphrased(),
+        gathering_payload_normalized_units(),
+    ],
+    ids=["verbatim", "paraphrased", "normalized-units"],
+)
+def test_gathering_page_output_passes_the_fabrication_check(payload):
+    client = _AsyncClientContext(_Response(gemini_body(payload)))
+
+    settings_patch, client_patch = _patched(client)
+    with settings_patch, client_patch:
+        parsed = _parse_page()
+
+    assert parsed.parse_status == "recipe", parsed.parse_reason
+    assert parsed.is_complete is True
+    assert parsed.raw_recipe["name"] == GATHERING_DISH
+    assert [
+        section["name"] for section in parsed.raw_recipe["ingredientSections"]
+    ] == GATHERING_SECTION_TITLES
+    assert len(parsed.raw_recipe["recipeInstructions"]) == 8
+
+
+def test_page_prompt_carries_the_page_title_and_text_not_the_caption_prompt():
+    client = _AsyncClientContext(_Response(gemini_body(gathering_payload_verbatim())))
+
+    settings_patch, client_patch = _patched(client)
+    with settings_patch, client_patch:
+        _parse_page()
+
+    prompt = client.body["contents"][0]["parts"][0]["text"]
+    assert "text of a recipe web page" in prompt
+    assert "social video post" not in prompt
+    assert f"Page title: {GATHERING_DISH}" in prompt
+    assert "Mushrooms & Sun Dried Tomato Sauce" in prompt
+
+
+def test_invented_page_recipe_is_rejected_as_fabricated():
+    client = _AsyncClientContext(
+        _Response(
+            gemini_body(
+                {
+                    "is_recipe": True,
+                    "name": "Lemon Meringue Pie",
+                    "ingredients": [
+                        "1 prebaked pastry crust",
+                        "4 large lemons zested",
+                        "6 egg whites whipped",
+                    ],
+                    "instructions": [
+                        "Whisk lemon curd until glossy.",
+                        "Pipe meringue peaks and torch them.",
+                    ],
+                    "ingredient_sections": None,
+                    "recipe_yield": None,
+                    "recipe_cuisine": None,
+                    "reason": None,
+                }
+            )
+        )
+    )
+
+    settings_patch, client_patch = _patched(client)
+    with settings_patch, client_patch:
+        parsed = _parse_page()
+
+    assert parsed.is_complete is False
+    assert parsed.parse_reason == "The parsed recipe did not match the page text."
+
+
+def test_page_without_instructions_never_uses_the_url_as_an_instruction():
+    payload = gathering_payload_verbatim()
+    payload["instructions"] = []
+    client = _AsyncClientContext(_Response(gemini_body(payload)))
+
+    settings_patch, client_patch = _patched(client)
+    with settings_patch, client_patch:
+        parsed = _parse_page()
+
+    assert parsed.is_complete is False
+    assert parsed.instructions == []
+    assert parsed.parse_reason == "The page does not include explicit instructions."
+
+
+def test_not_recipe_page_returns_geminis_reason():
+    client = _AsyncClientContext(
+        _Response(gemini_body(not_recipe_payload("This is a blog homepage.")))
+    )
+
+    settings_patch, client_patch = _patched(client)
+    with settings_patch, client_patch:
+        parsed = _parse_page(page_text="Welcome to the blog.\nLatest posts", title="Home")
+
+    assert parsed.parse_status == "not_recipe"
+    assert parsed.parse_reason == "This is a blog homepage."
+
+
+def test_page_parse_without_a_key_raises_503():
+    client = _AsyncClientContext(_Response(gemini_body(gathering_payload_verbatim())))
+
+    settings_patch, client_patch = _patched(client, _settings(api_key=None))
+    with settings_patch, client_patch, pytest.raises(HTTPException) as error:
+        _parse_page()
+
+    assert error.value.status_code == 503
+    assert error.value.detail == NOT_CONFIGURED_DETAIL
+    assert client.calls == 0
+
+
+def test_page_parse_shares_the_caption_rate_limit():
+    client = _AsyncClientContext(_Response(gemini_body(gathering_payload_verbatim())))
+
+    settings_patch, client_patch = _patched(client, _settings(rate_limit_per_minute=1))
+    with settings_patch, client_patch:
+        _parse()
+        with pytest.raises(HTTPException) as error:
+            _parse_page()
+
+    assert error.value.status_code == 429
+    assert error.value.detail == BUSY_DETAIL
+    assert client.calls == 1
+
+
+def test_empty_page_text_is_not_recipe_without_spending_the_limit():
+    client = _AsyncClientContext(_Response(gemini_body(gathering_payload_verbatim())))
+
+    settings_patch, client_patch = _patched(client)
+    with settings_patch, client_patch:
+        parsed = _parse_page(page_text="   ")
+
+    assert parsed.is_complete is False
+    assert client.calls == 0
