@@ -421,15 +421,19 @@ def parse_recipes_from_html(
         image_url=image_url,
         recipe_node_count=len(recipe_nodes),
         recipes=recipes,
-        page_text=None if recipes else _page_text(html, blocks, len(recipe_nodes)),
+        page_text=(
+            None
+            if recipes
+            else _page_text(html, blocks, len(recipe_nodes), final_url=final_url)
+        ),
     )
 
 
 def _page_text(
-    html: str, blocks: list[JsonLdBlock], recipe_node_count: int
+    html: str, blocks: list[JsonLdBlock], recipe_node_count: int, *, final_url: str
 ) -> Optional[PageText]:
     soup = BeautifulSoup(html, "html.parser")
-    title = extract_page_title(soup, blocks)
+    title = extract_page_title(soup, blocks, host=urlparse(final_url).hostname)
     text = extract_main_text(soup)
     # With nothing to read, the fallback could only fail; the page keeps
     # today's outcome instead.

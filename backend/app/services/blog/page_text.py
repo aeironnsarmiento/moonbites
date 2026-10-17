@@ -44,6 +44,9 @@ _COMMENT_THREAD_MARKERS = frozenset(
     }
 )
 _WHITESPACE_RE = re.compile(r"\s+")
+# "Dish Name | Site Name": a trailing segment after a spaced separator.
+_TRAILING_SEGMENT_RE = re.compile(r"^(?P<head>.*\S)\s+[|\-\u2013\u2014:\u00b7\u2022]\s+(?P<tail>\S.*)$")
+_NON_ALNUM_RE = re.compile(r"[\W_]+", re.UNICODE)
 
 
 def _node_types(node: dict) -> set[str]:
@@ -75,27 +78,57 @@ def _article_headline(blocks: list[JsonLdBlock]) -> Optional[str]:
     return None
 
 
+def _squash(value: str) -> str:
+    return _NON_ALNUM_RE.sub("", value.casefold())
+
+
+def _meta_content(soup: BeautifulSoup, prop: str) -> Optional[str]:
+    tag = soup.find("meta", attrs={"property": prop})
+    return clean_text(tag.get("content")) if isinstance(tag, Tag) else None
+
+
+def _strip_site_suffix(title: str, brands: set[str]) -> str:
+    """Drop trailing " | Site Name" segments that name the site, not the dish."""
+    while (match := _TRAILING_SEGMENT_RE.match(title)) and _squash(
+        match.group("tail")
+    ) in brands:
+        title = match.group("head")
+    return title
+
+
+def _site_brands(soup: BeautifulSoup, host: Optional[str]) -> set[str]:
+    brands = set()
+    site_name = _meta_content(soup, "og:site_name")
+    if site_name:
+        brands.add(_squash(site_name))
+    if host:
+        label = host.casefold().removeprefix("www.").split(".")[0]
+        if label:
+            brands.add(label)
+    brands.discard("")
+    return brands
+
+
 def extract_page_title(
-    soup: BeautifulSoup, blocks: list[JsonLdBlock]
+    soup: BeautifulSoup, blocks: list[JsonLdBlock], *, host: Optional[str] = None
 ) -> Optional[str]:
     """The page's own name for itself: article headline, then og:title, then <title>.
 
     The headline comes first because sites often fill og:title and <title> with
-    their own brand rather than the dish.
+    their own brand rather than the dish. Those two also usually carry a
+    trailing site name ("Dish | Site"), which is removed so the title can match
+    the dish a post names.
     """
     headline = _article_headline(blocks)
     if headline:
         return headline
 
-    og_title = soup.find("meta", attrs={"property": "og:title"})
-    if isinstance(og_title, Tag):
-        content = clean_text(og_title.get("content"))
-        if content:
-            return content
-
-    if soup.title and soup.title.string:
-        return clean_text(soup.title.string)
-    return None
+    title = _meta_content(soup, "og:title")
+    if not title and soup.title and soup.title.string:
+        title = clean_text(soup.title.string)
+    if not title:
+        return None
+    return _strip_site_suffix(title, _site_brands(soup, host))
 
 
 def _is_comment_thread(node: Tag) -> bool:

@@ -22,9 +22,9 @@ def _gathering_html() -> str:
     return (FIXTURES / "thegatheringpage_creamy_tuscan_chicken_skillet.html").read_text()
 
 
-def _title(html: str) -> str | None:
+def _title(html: str, host: str | None = None) -> str | None:
     _, blocks = extract_json_ld_blocks(html)
-    return extract_page_title(BeautifulSoup(html, "html.parser"), blocks)
+    return extract_page_title(BeautifulSoup(html, "html.parser"), blocks, host=host)
 
 
 def _text(html: str) -> str:
@@ -188,3 +188,29 @@ def test_page_with_no_readable_text_carries_no_page_text():
 
     assert result.recipes == []
     assert result.page_text is None
+
+
+def test_title_drops_a_trailing_site_name_from_og_title():
+    html = (
+        "<html><head>"
+        '<meta property="og:site_name" content="All About Well">'
+        '<meta property="og:title" content="Lemon Bars | All About Well">'
+        "</head><body></body></html>"
+    )
+
+    assert _title(html) == "Lemon Bars"
+
+
+def test_title_drops_a_trailing_segment_that_names_the_host():
+    html = (
+        "<html><head><title>Creamy Tuscan Chicken Skillet \u2014 The Gathering Page"
+        "</title></head><body></body></html>"
+    )
+
+    assert _title(html, host="www.thegatheringpage.com") == "Creamy Tuscan Chicken Skillet"
+
+
+def test_title_keeps_a_dash_that_is_part_of_the_dish():
+    html = "<html><head><title>Chicken - Pesto Pasta</title></head><body></body></html>"
+
+    assert _title(html, host="cooks.test") == "Chicken - Pesto Pasta"
