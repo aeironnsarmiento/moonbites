@@ -367,7 +367,7 @@ def _build_parsed_caption(
 
 
 async def _request_recipe_payload(
-    prompt: str, *, subject: str
+    prompt: str, *, subject: str, timeout_seconds: Optional[float] = None
 ) -> GeminiRecipePayload:
     settings = get_settings()
     if not settings.gemini_api_key:
@@ -389,7 +389,11 @@ async def _request_recipe_payload(
         request_url,
         request_body,
         api_key=settings.gemini_api_key,
-        timeout_seconds=settings.gemini_timeout_seconds,
+        timeout_seconds=(
+            settings.gemini_timeout_seconds
+            if timeout_seconds is None
+            else min(settings.gemini_timeout_seconds, timeout_seconds)
+        ),
     )
 
     try:
@@ -445,11 +449,14 @@ async def parse_page_text_with_gemini(
     title: str,
     page_text: str,
     source_url: str,
+    timeout_seconds: Optional[float] = None,
 ) -> ParsedCaption:
     """Parse a blog page's main text, for pages with no saveable JSON-LD recipe.
 
     Platform-agnostic: the page title stands in for a missing name, and a page
     must state its own instructions -- its URL never counts as one.
+    ``timeout_seconds`` lowers the per-attempt timeout for callers that run
+    against their own deadline.
     """
     if not page_text.strip():
         return _not_recipe("The page has no readable text.")
@@ -457,6 +464,7 @@ async def parse_page_text_with_gemini(
     recipe_payload = await _request_recipe_payload(
         PAGE_PROMPT_TEMPLATE.format(title=title or "(none)", page_text=page_text),
         subject="page",
+        timeout_seconds=timeout_seconds,
     )
 
     return _build_parsed_caption(

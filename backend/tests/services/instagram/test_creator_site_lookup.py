@@ -331,3 +331,122 @@ def test_find_creator_site_recipe_returns_none_when_profile_links_are_only_socia
 
     assert result is None
     assert calls == []
+
+
+# --- Blog Gemini fallback on the matched page --------------------------------
+
+
+def _page_without_json_ld(title: str) -> str:
+    return (
+        "<html><head>"
+        '<meta property="og:site_name" content="Tasty">'
+        f'<meta property="og:title" content="{title} | Tasty">'
+        f"</head><body><main><h1>{title}</h1><p>Mix and bake.</p></main></body></html>"
+    )
+
+
+def _complete_page_parse(name: str):
+    from unittest.mock import AsyncMock
+
+    from app.services.gemini.recipe_parser import ParsedCaption
+
+    return AsyncMock(
+        return_value=ParsedCaption(
+            raw_recipe={
+                "@type": "Recipe",
+                "name": name,
+                "recipeIngredient": ["1 cup flour", "2 eggs"],
+                "recipeInstructions": ["Mix.", "Bake."],
+            },
+            ingredients=["1 cup flour", "2 eggs"],
+            instructions=["Mix.", "Bake."],
+            is_complete=True,
+            parse_status="recipe",
+            parse_reason=None,
+            candidate_name=name,
+        )
+    )
+
+
+def test_ae6_two_dish_titled_pages_without_json_ld_are_no_match_and_skip_gemini():
+    """Covers AE6 (R4, R5): five candidates fetched, two title-only matches."""
+    dish = "Creamy Tuscan Chicken Skillet"
+    search = "https://tasty.co/?s=Creamy%20Tuscan%20Chicken%20Skillet"
+    calls: list[str] = []
+    pages = {
+        search: (
+            "<html><head><title>Search results | Tasty</title></head><body><main>"
+            '<a href="https://tasty.co/creamy-tuscan-chicken-skillet">Creamy Tuscan Chicken Skillet</a>'
+            '<a href="https://tasty.co/web-stories/creamy-tuscan-chicken-skillet">Creamy Tuscan Chicken Skillet</a>'
+            '<a href="https://tasty.co/creamy-tomato-soup">Creamy Tomato Soup</a>'
+            "</main></body></html>"
+        ),
+        "https://tasty.co/search?q=Creamy%20Tuscan%20Chicken%20Skillet": (
+            "<html><head><title>Search | Tasty</title></head><body><main>"
+            "<p>No results.</p></main></body></html>"
+        ),
+        "https://tasty.co/": (
+            "<html><head><title>Tasty</title></head><body><main><p>Welcome.</p></main></body></html>"
+        ),
+        "https://tasty.co/creamy-tuscan-chicken-skillet": _page_without_json_ld(dish),
+        "https://tasty.co/web-stories/creamy-tuscan-chicken-skillet": _page_without_json_ld(dish),
+        "https://tasty.co/creamy-tomato-soup": _recipe_page("Creamy Tomato Soup"),
+    }
+    page_parse = _complete_page_parse(dish)
+
+    result = asyncio.run(
+        find_creator_site_recipe(
+            ["https://tasty.co/"], dish, fetch_html=_fetcher(pages, calls), page_parse=page_parse
+        )
+    )
+
+    assert len(calls) == 5
+    assert "https://tasty.co/creamy-tuscan-chicken-skillet" in calls
+    assert "https://tasty.co/web-stories/creamy-tuscan-chicken-skillet" in calls
+    assert result is None
+    page_parse.assert_not_called()
+
+
+def _single_title_only_site(dish: str) -> dict[str, str]:
+    return {
+        f"https://tasty.co/?s={dish.replace(' ', '%20')}": (
+            '<html><body><a href="https://tasty.co/lemon-bars">Lemon Bars</a></body></html>'
+        ),
+        "https://tasty.co/lemon-bars": _page_without_json_ld(dish),
+    }
+
+
+def test_single_matched_page_without_json_ld_is_read_by_the_fallback_once():
+    page_parse = _complete_page_parse("Lemon Bars")
+
+    result = asyncio.run(
+        find_creator_site_recipe(
+            ["https://tasty.co/"],
+            "Lemon Bars",
+            fetch_html=_fetcher(_single_title_only_site("Lemon Bars"), []),
+            page_parse=page_parse,
+        )
+    )
+
+    page_parse.assert_awaited_once()
+    assert page_parse.await_args.kwargs["title"] == "Lemon Bars"
+    assert result is not None
+    assert result.final_url == "https://tasty.co/lemon-bars"
+    assert [recipe.name for recipe in result.recipes] == ["Lemon Bars"]
+
+
+def test_spent_fallback_leaves_a_title_only_match_unresolved():
+    page_parse = _complete_page_parse("Lemon Bars")
+
+    result = asyncio.run(
+        find_creator_site_recipe(
+            ["https://tasty.co/"],
+            "Lemon Bars",
+            fetch_html=_fetcher(_single_title_only_site("Lemon Bars"), []),
+            allow_page_fallback=False,
+            page_parse=page_parse,
+        )
+    )
+
+    assert result is None
+    page_parse.assert_not_called()

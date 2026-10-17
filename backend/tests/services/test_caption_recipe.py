@@ -242,3 +242,143 @@ def test_a_link_raising_a_non_http_error_is_skipped():
     result = _run(_post(caption), gemini=gemini, blog=blog)
 
     assert result.recipes[0].name == "Miso Salmon Rice"
+
+
+# --- Blog Gemini fallback on the matched Linked Recipe page ------------------
+
+
+def _pages_by_url(pages: dict[str, ExtractionResult]):
+    async def fetch(url: str) -> ExtractionResult:
+        return pages[url]
+
+    return AsyncMock(side_effect=fetch)
+
+
+def _gathering_linked_pages():
+    from app.services.blog.extractor import parse_recipes_from_html
+    from backend.tests.fixtures.gathering_page import GATHERING_URL, gathering_html
+
+    return {
+        "https://bakes.example/lemon-bars": _page(
+            "https://bakes.example/lemon-bars", "Lemon Bars"
+        ),
+        GATHERING_URL: parse_recipes_from_html(
+            gathering_html(), source_url=GATHERING_URL, final_url=GATHERING_URL
+        ),
+        "https://shop.example/skillet": parse_recipes_from_html(
+            "<html><head><title>Cast Iron Skillet | Shop</title></head>"
+            "<body><main><p>Buy a skillet.</p></main></body></html>",
+            source_url="https://shop.example/skillet",
+            final_url="https://shop.example/skillet",
+        ),
+    }
+
+
+def test_ae5_tiktok_caption_linked_page_without_json_ld_becomes_the_linked_recipe():
+    """Covers AE5 (R4, R5): three caption links, Gemini runs once, on the match."""
+    from app.core.config import Settings
+    from backend.tests.fixtures.gathering_page import (
+        GATHERING_DISH,
+        GATHERING_SECTION_TITLES,
+        GATHERING_URL,
+        gathering_payload_verbatim,
+        gemini_body,
+    )
+
+    class _GeminiResponse:
+        def json(self):
+            return gemini_body(gathering_payload_verbatim())
+
+    settings = Settings(
+        request_timeout_seconds=15.0,
+        supabase_url=None,
+        supabase_publishable_key=None,
+        supabase_service_role_key=None,
+        supabase_table_name="recipe_imports",
+        admin_emails=(),
+        cors_origins=(),
+        user_agent="test-agent",
+        accept_header="text/html",
+        accept_language_header="en-US",
+        youtube_api_key=None,
+        gemini_api_key="gemini-key",
+        gemini_rate_limit_per_minute=10,
+    )
+    gemini_http = AsyncMock(return_value=_GeminiResponse())
+    blog = _pages_by_url(_gathering_linked_pages())
+    caption = (
+        "Lemon bars: https://bakes.example/lemon-bars\n"
+        f"Full recipe here: {GATHERING_URL}\n"
+        "My skillet: https://shop.example/skillet"
+    )
+
+    with (
+        patch("app.services.gemini.recipe_parser.get_settings", return_value=settings),
+        patch("app.services.gemini.recipe_parser._post_generate_content", new=gemini_http),
+    ):
+        result = _run(
+            _post(caption),
+            gemini=AsyncMock(return_value=_incomplete(GATHERING_DISH)),
+            blog=blog,
+        )
+
+    assert blog.await_count == 3
+    gemini_http.assert_awaited_once()
+    prompt = gemini_http.await_args.args[1]["contents"][0]["parts"][0]["text"]
+    assert f"Page title: {GATHERING_DISH}" in prompt
+    assert result.parse_status == ParseStatus.RECIPE
+    assert result.final_url == GATHERING_URL
+    (recipe,) = result.recipes
+    assert recipe.name == GATHERING_DISH
+    assert [section.title for section in recipe.ingredientSections] == GATHERING_SECTION_TITLES
+    assert len(recipe.instructions) == 8
+
+
+@pytest.mark.parametrize(
+    "page_parse",
+    [
+        AsyncMock(
+            return_value=ParsedCaption(
+                raw_recipe={},
+                ingredients=[],
+                instructions=[],
+                is_complete=False,
+                parse_status="not_recipe",
+                parse_reason="Not a recipe.",
+            )
+        ),
+        AsyncMock(side_effect=HTTPException(status_code=503, detail="not configured")),
+    ],
+    ids=["not-recipe", "gemini-unavailable"],
+)
+def test_failed_fallback_on_the_matched_page_ends_as_todays_not_recipe(page_parse):
+    """R11: never a new error; the post ends exactly as with no Linked Recipe."""
+    from backend.tests.fixtures.gathering_page import GATHERING_DISH, GATHERING_URL
+
+    page_parse.reset_mock()
+    with patch("app.services.blog.page_fallback.parse_page_text_with_gemini", new=page_parse):
+        result = _run(
+            _post(f"Full recipe here: {GATHERING_URL}"),
+            gemini=AsyncMock(return_value=_incomplete(GATHERING_DISH)),
+            blog=_pages_by_url(_gathering_linked_pages()),
+        )
+
+    page_parse.assert_awaited_once()
+    assert result.parse_status == ParseStatus.NOT_RECIPE
+    assert result.parse_reason == "The recipe lives on a linked page."
+    assert result.recipes == []
+
+
+def test_unmatched_pages_without_json_ld_never_reach_gemini():
+    from backend.tests.fixtures.gathering_page import GATHERING_URL
+
+    page_parse = AsyncMock()
+    with patch("app.services.blog.page_fallback.parse_page_text_with_gemini", new=page_parse):
+        result = _run(
+            _post(f"Full recipe here: {GATHERING_URL}"),
+            gemini=AsyncMock(return_value=_incomplete("Garlic Noodles")),
+            blog=_pages_by_url(_gathering_linked_pages()),
+        )
+
+    page_parse.assert_not_called()
+    assert result.parse_status == ParseStatus.NOT_RECIPE

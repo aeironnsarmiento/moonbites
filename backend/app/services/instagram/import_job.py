@@ -26,7 +26,12 @@ from ...schemas.extract import (
 )
 from ...schemas.import_jobs import ImportJobErrorCode, ImportJobRecord, ImportJobState
 from ..blog.extractor import parse_recipes_from_html
-from ..gemini.recipe_parser import ParsedCaption, parse_caption_with_gemini
+from ..blog.page_fallback import PageParse, recover_recipe_from_page
+from ..gemini.recipe_parser import (
+    ParsedCaption,
+    parse_caption_with_gemini,
+    parse_page_text_with_gemini,
+)
 from ..normalizer import normalize_recipe
 from ..public_web import FetchedPage, PublicWebError, fetch_public_html
 from ..recipe_match import RecipeCandidate, candidates_from_result, select_unique_match
@@ -76,6 +81,7 @@ class OrchestrationDeps:
     safe_fetch_transport: Optional[httpx.AsyncBaseTransport] = None
     safe_fetch_resolver: Optional[Callable[[str, int], Awaitable[list[str]]]] = None
     gemini_parse: Callable[..., Awaitable[ParsedCaption]] = parse_caption_with_gemini
+    gemini_page_parse: Callable[..., Awaitable[ParsedCaption]] = parse_page_text_with_gemini
 
 
 def _identity(job: ImportJobRecord) -> InstagramReelIdentity:
@@ -103,6 +109,39 @@ async def _fetch_html_page(url: str, deps: OrchestrationDeps, deadline: Deadline
         transport=deps.safe_fetch_transport,
         resolver=deps.safe_fetch_resolver,
     )
+
+
+# The Gemini client retries a failed attempt once, so each attempt gets at most
+# half of what the job has left.
+_GEMINI_ATTEMPTS = 2
+
+
+def _page_parse_within(deadline: Deadline, deps: OrchestrationDeps) -> PageParse:
+    """The page fallback's parser, bounded by the job's own deadline.
+
+    Without budget left it is reported as unavailable rather than started, so
+    the job ends as it would have without a fallback.
+    """
+
+    async def parse(**kwargs) -> ParsedCaption:
+        if not deadline.has_budget_for_side_effect():
+            raise HTTPException(status_code=504, detail="No time left for the recipe parser")
+        return await deps.gemini_page_parse(
+            **kwargs,
+            timeout_seconds=deadline.budget_for_side_effect() / _GEMINI_ATTEMPTS,
+        )
+
+    return parse
+
+
+def _page_fallback_spent(job: ImportJobRecord) -> bool:
+    """Whether this import already spent its one page-fallback call.
+
+    The caption-link stage records the page it matched as ``linked_recipe_url``
+    when that page's fallback yields no recipe; nothing else sets the column
+    before SAVING.
+    """
+    return job.linked_recipe_url is not None
 
 
 def _not_recipe_result(identity: InstagramReelIdentity) -> dict:
@@ -531,12 +570,29 @@ async def _handle_resolving_recipe(
     if timed_out:
         return await _fail(job, ImportJobErrorCode.RESOLUTION_TIMEOUT)
 
-    if match is not None:
+    recipe = match.recipe if match is not None else None
+    if match is not None and recipe is None and not _page_fallback_spent(job):
+        fallback = await recover_recipe_from_page(
+            match.result, parse=_page_parse_within(deadline, deps)
+        )
+        recipe = fallback.recipe
+        if recipe is None:
+            # The import's one fallback call is spent. Record it and resume
+            # with a fresh deadline down today's path to Creator-site Lookup,
+            # which will not call the fallback again.
+            return await _checkpoint(
+                job,
+                state=ImportJobState.RESOLVING_RECIPE,
+                linked_recipe_url=match.canonical_url,
+                release_lease=True,
+            )
+
+    if match is not None and recipe is not None:
         return await _checkpoint(
             job,
             state=ImportJobState.SAVING,
             normalized_result_json=_resolved_result(
-                identity, match.recipe, linked_recipe_url=match.canonical_url
+                identity, recipe, linked_recipe_url=match.canonical_url
             ),
             linked_recipe_url=match.canonical_url,
             release_lease=True,
@@ -646,7 +702,11 @@ async def _handle_waiting_profile(
         return await _fetch_html_page(url, deps, deadline)
 
     result = await find_creator_site_recipe(
-        profile.external_urls, dish_name, fetch_html=_fetch_html
+        profile.external_urls,
+        dish_name,
+        fetch_html=_fetch_html,
+        allow_page_fallback=not _page_fallback_spent(job),
+        page_parse=_page_parse_within(deadline, deps),
     )
 
     if result is None or not result.recipes:

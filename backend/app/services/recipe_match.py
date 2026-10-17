@@ -7,6 +7,11 @@ plausible candidates are no match at all.
 Both the caption-link path (``social/caption_recipe.py``) and **Creator-site
 Lookup** (``instagram/creator_site_lookup.py``) match through this module, so
 the rule has one implementation and one test corpus.
+
+A page with no saveable JSON-LD recipe still competes, under its page title,
+as a *title-only* candidate. Title-only candidates are a second tier: they are
+weighed only when no JSON-LD recipe matches, so a page that matches today keeps
+matching even beside a dish-titled page that has no recipe data.
 """
 
 from __future__ import annotations
@@ -171,11 +176,27 @@ class RecipeCandidate:
     canonical_url: str
     title: str
     result: ExtractionResult
-    recipe: NormalizedRecipe
+    # None for a title-only candidate: the page's recipe must still be read
+    # by the Gemini fallback once the page wins the match.
+    recipe: Optional[NormalizedRecipe]
+
+    @property
+    def is_title_only(self) -> bool:
+        return self.recipe is None
 
 
 def candidates_from_result(page: ExtractionResult) -> list[RecipeCandidate]:
-    """One candidate per recipe a fetched page yielded."""
+    """One candidate per recipe a fetched page yielded, or one title-only
+    candidate for a page whose JSON-LD yielded none."""
+    if not page.recipes:
+        title = page.page_text.title if page.page_text is not None else None
+        if not title:
+            return []
+        return [
+            RecipeCandidate(
+                canonical_url=page.final_url, title=title, result=page, recipe=None
+            )
+        ]
     return [
         RecipeCandidate(
             canonical_url=page.final_url,
@@ -190,6 +211,18 @@ def candidates_from_result(page: ExtractionResult) -> list[RecipeCandidate]:
 def select_unique_match(
     candidates: list[RecipeCandidate], dish_name: str
 ) -> Optional[RecipeCandidate]:
+    recipe_candidates = [c for c in candidates if not c.is_title_only]
+    recipe_matches = _matches(recipe_candidates, dish_name)
+    if recipe_matches:
+        return recipe_matches[0] if len(recipe_matches) == 1 else None
+
+    title_matches = _matches([c for c in candidates if c.is_title_only], dish_name)
+    return title_matches[0] if len(title_matches) == 1 else None
+
+
+def _matches(
+    candidates: list[RecipeCandidate], dish_name: str
+) -> list[RecipeCandidate]:
     deduped: dict[tuple[str, str], RecipeCandidate] = {}
     for candidate in candidates:
         host = hostname(candidate.canonical_url)
@@ -199,7 +232,7 @@ def select_unique_match(
         )
         deduped.setdefault(key, candidate)
 
-    matches = [
+    return [
         candidate
         for candidate in deduped.values()
         if is_matching_title(
@@ -208,6 +241,3 @@ def select_unique_match(
             site_domain=hostname(candidate.canonical_url),
         )
     ]
-    if len(matches) != 1:
-        return None
-    return matches[0]

@@ -224,3 +224,109 @@ def test_candidates_from_result_yields_one_candidate_per_recipe():
 
 def test_candidates_from_result_is_empty_for_a_page_without_recipes():
     assert candidates_from_result(_page("https://a.example/empty")) == []
+
+
+# --- Title-only candidates (blog Gemini fallback, R5) -------------------------
+
+
+def _tier_title_only_page(url: str, title: str | None) -> ExtractionResult:
+    from app.services.extraction_types import FallbackTrigger, PageText
+
+    return ExtractionResult(
+        source_url=url,
+        final_url=url,
+        title=None,
+        image_url=None,
+        recipe_node_count=0,
+        recipes=[],
+        page_text=PageText(title=title, text="Some page text.", trigger=FallbackTrigger.MISSING_JSON_LD),
+    )
+
+
+def _tier_recipe_page(url: str, name: str) -> ExtractionResult:
+    return ExtractionResult(
+        source_url=url,
+        final_url=url,
+        title=name,
+        image_url=None,
+        recipe_node_count=1,
+        recipes=[NormalizedRecipe(name=name, ingredients=["1 cup flour"], instructions=["Mix."])],
+    )
+
+
+def _tier_candidates(*pages: ExtractionResult) -> list[RecipeCandidate]:
+    return [candidate for page in pages for candidate in candidates_from_result(page)]
+
+
+def test_page_without_recipes_yields_one_title_only_candidate():
+    (candidate,) = candidates_from_result(
+        _tier_title_only_page("https://a.test/skillet", "Creamy Tuscan Chicken Skillet")
+    )
+
+    assert candidate.is_title_only
+    assert candidate.recipe is None
+    assert candidate.title == "Creamy Tuscan Chicken Skillet"
+
+
+def test_page_without_recipes_or_title_yields_no_candidate():
+    assert candidates_from_result(_tier_title_only_page("https://a.test/x", None)) == []
+
+
+def test_page_with_recipes_never_also_yields_a_title_only_candidate():
+    candidates = candidates_from_result(_tier_recipe_page("https://a.test/bars", "Lemon Bars"))
+
+    assert [candidate.is_title_only for candidate in candidates] == [False]
+
+
+def test_single_dish_titled_page_without_recipes_is_selected():
+    match = select_unique_match(
+        _tier_candidates(
+            _tier_title_only_page("https://a.test/skillet", "Creamy Tuscan Chicken Skillet"),
+            _tier_title_only_page("https://a.test/about", "About Us"),
+            _tier_recipe_page("https://b.test/bars", "Lemon Bars"),
+        ),
+        "Creamy Tuscan Chicken Skillet",
+    )
+
+    assert match is not None
+    assert match.is_title_only
+    assert match.canonical_url == "https://a.test/skillet"
+
+
+def test_two_dish_titled_pages_without_recipes_are_no_match():
+    match = select_unique_match(
+        _tier_candidates(
+            _tier_title_only_page("https://a.test/skillet", "Creamy Tuscan Chicken Skillet"),
+            _tier_title_only_page("https://a.test/web-story", "Creamy Tuscan Chicken Skillet"),
+        ),
+        "Creamy Tuscan Chicken Skillet",
+    )
+
+    assert match is None
+
+
+def test_json_ld_match_wins_over_a_dish_titled_page_without_recipes():
+    match = select_unique_match(
+        _tier_candidates(
+            _tier_title_only_page("https://a.test/web-story", "Lemon Bars"),
+            _tier_recipe_page("https://a.test/lemon-bars", "Lemon Bars"),
+        ),
+        "Lemon Bars",
+    )
+
+    assert match is not None
+    assert not match.is_title_only
+    assert match.canonical_url == "https://a.test/lemon-bars"
+
+
+def test_title_only_tier_never_rescues_two_json_ld_matches():
+    match = select_unique_match(
+        _tier_candidates(
+            _tier_recipe_page("https://a.test/lemon-bars", "Lemon Bars"),
+            _tier_recipe_page("https://b.test/lemon-bars", "Lemon Bars"),
+            _tier_title_only_page("https://c.test/lemon-bars", "Lemon Bars"),
+        ),
+        "Lemon Bars",
+    )
+
+    assert match is None

@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, quote, urljoin, urlsplit, urlunsplit
 from bs4 import BeautifulSoup
 
 from ..blog.extractor import parse_recipes_from_html
+from ..blog.page_fallback import PageParse, recover_recipe_from_page
 from ...utils.text import unique_strings
 from ..extraction_types import ExtractionResult
 from ..public_web import FetchedPage, PublicWebError, fetch_public_html
@@ -230,7 +231,15 @@ async def find_creator_site_recipe(
     dish_name: str,
     *,
     fetch_html: FetchHtml = _default_fetch_html,
+    allow_page_fallback: bool = True,
+    page_parse: Optional[PageParse] = None,
 ) -> Optional[ExtractionResult]:
+    """Find the one recipe on the creator's site that names the Reel's dish.
+
+    When the matched page has no saveable JSON-LD recipe, the Gemini fallback
+    reads it -- once, and only if ``allow_page_fallback`` (an import that has
+    already spent its fallback call passes False).
+    """
     if not isinstance(dish_name, str) or not dish_name.strip():
         return None
 
@@ -335,11 +344,20 @@ async def find_creator_site_recipe(
     if match is None:
         return None
 
+    recipe = match.recipe
+    if recipe is None:
+        if not allow_page_fallback:
+            return None
+        fallback = await recover_recipe_from_page(match.result, parse=page_parse)
+        if fallback.recipe is None:
+            return None
+        recipe = fallback.recipe
+
     return ExtractionResult(
         source_url=match.result.source_url,
         final_url=match.canonical_url,
         title=match.result.title,
         image_url=match.result.image_url,
         recipe_node_count=1,
-        recipes=[match.recipe],
+        recipes=[recipe],
     )

@@ -1477,3 +1477,193 @@ def test_resolving_recipe_saves_the_matched_recipe_from_a_multi_recipe_page():
     )
     saved = checkpoints[-1]["normalized_result_json"]["recipes"]
     assert [recipe["name"] for recipe in saved] == ["Raspberry Chia Pudding"]
+
+
+# --- blog Gemini fallback on a matched Linked Recipe page ------------------------
+
+
+def _gathering_job(**overrides) -> ImportJobRecord:
+    from backend.tests.fixtures.gathering_page import GATHERING_DISH
+
+    fields = dict(
+        state=ImportJobState.RESOLVING_RECIPE,
+        reel_dataset_id="dataset1",
+        candidate_name=GATHERING_DISH,
+    )
+    fields.update(overrides)
+    return _job(**fields)
+
+
+def _gathering_caption_script():
+    from backend.tests.fixtures.gathering_page import GATHERING_URL
+
+    return _ApifyScript(
+        **{
+            "/datasets/dataset1/items": lambda r: _reel_dataset_response(
+                caption=f"Full recipe here: {GATHERING_URL}"
+            ),
+            f"/actors/{PROFILE_ACTOR_ID}/runs": lambda r: _run_response(
+                run_id="runprofile1", status="RUNNING", dataset_id=None
+            ),
+        }
+    )
+
+
+async def _gathering_page_stub(url, _deps, _deadline):
+    from backend.tests.fixtures.gathering_page import gathering_html
+
+    return FetchedPage(final_url=url, html=gathering_html())
+
+
+def _run_gathering_resolution(job, page_parse, *, deadline=None):
+    from unittest.mock import AsyncMock
+
+    checkpoints: list[dict] = []
+
+    def _checkpoint(*_args, **kwargs):
+        checkpoints.append(kwargs)
+        return job.model_copy(update={"state": ImportJobState(kwargs["state"])})
+
+    with (
+        patch("app.services.instagram.import_job.checkpoint_job", side_effect=_checkpoint),
+        patch(
+            "app.services.instagram.import_job.reserve_provider_admission",
+            return_value=True,
+        ),
+        patch(
+            "app.services.instagram.import_job._fetch_html_page",
+            side_effect=_gathering_page_stub,
+        ),
+    ):
+        deps = OrchestrationDeps(
+            apify_transport=httpx.MockTransport(_gathering_caption_script()),
+            gemini_parse=AsyncMock(side_effect=AssertionError("caption parse not expected")),
+            gemini_page_parse=page_parse,
+        )
+        result = _run_advance(job, deps=deps, deadline=deadline)
+    return result, checkpoints
+
+
+def test_caption_link_to_a_page_without_json_ld_saves_the_fallback_recipe():
+    from unittest.mock import AsyncMock
+
+    from backend.tests.fixtures.gathering_page import GATHERING_DISH, GATHERING_URL
+
+    page_parse = AsyncMock(return_value=_complete_parsed(GATHERING_DISH))
+
+    result, checkpoints = _run_gathering_resolution(_gathering_job(), page_parse)
+
+    page_parse.assert_awaited_once()
+    kwargs = page_parse.await_args.kwargs
+    assert kwargs["title"] == GATHERING_DISH
+    assert "Chickem" in kwargs["page_text"]
+    assert 0 < kwargs["timeout_seconds"] <= 45.0 / 2
+    assert checkpoints[-1]["state"] == "saving"
+    assert checkpoints[-1]["linked_recipe_url"] == GATHERING_URL
+    assert checkpoints[-1]["normalized_result_json"]["recipes"][0]["name"] == GATHERING_DISH
+    assert result.state == ImportJobState.SAVING
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        {"return_value": _parsed(parse_reason="Not a recipe.")},
+        {"side_effect": HTTPException(status_code=429, detail="busy")},
+    ],
+    ids=["not-recipe", "gemini-unavailable"],
+)
+def test_failed_caption_link_fallback_marks_it_spent_and_resumes_toward_creator_site_lookup(
+    outcome,
+):
+    from unittest.mock import AsyncMock
+
+    from backend.tests.fixtures.gathering_page import GATHERING_URL
+
+    page_parse = AsyncMock(**outcome)
+
+    result, checkpoints = _run_gathering_resolution(_gathering_job(), page_parse)
+
+    page_parse.assert_awaited_once()
+    assert [c["state"] for c in checkpoints] == ["resolving_recipe"]
+    assert checkpoints[0]["linked_recipe_url"] == GATHERING_URL
+    assert checkpoints[0]["release_lease"] is True
+    assert result.state == ImportJobState.RESOLVING_RECIPE
+
+
+def test_resumed_caption_link_stage_never_calls_the_fallback_twice():
+    from unittest.mock import AsyncMock
+
+    from backend.tests.fixtures.gathering_page import GATHERING_URL
+
+    page_parse = AsyncMock()
+    spent_job = _gathering_job(linked_recipe_url=GATHERING_URL)
+
+    result, checkpoints = _run_gathering_resolution(spent_job, page_parse)
+
+    page_parse.assert_not_called()
+    assert [c["state"] for c in checkpoints] == ["starting_profile", "waiting_profile"]
+    assert result.state == ImportJobState.WAITING_PROFILE
+
+
+def test_caption_link_fallback_without_time_left_is_not_started():
+    from unittest.mock import AsyncMock
+
+    class _RunsOutBeforeGemini(Deadline):
+        """Budget for the handler and the one link fetch, none afterwards."""
+
+        def has_budget_for_side_effect(self, min_seconds: float = 1.0) -> bool:
+            object.__setattr__(self, "checks", getattr(self, "checks", 0) + 1)
+            return self.checks <= 2
+
+    page_parse = AsyncMock()
+    deadline = _RunsOutBeforeGemini.start(45.0)
+
+    result, checkpoints = _run_gathering_resolution(
+        _gathering_job(), page_parse, deadline=deadline
+    )
+
+    page_parse.assert_not_called()
+    assert [c["state"] for c in checkpoints] == ["resolving_recipe"]
+    assert result.state == ImportJobState.RESOLVING_RECIPE
+
+
+@pytest.mark.parametrize(
+    ("linked_recipe_url", "allowed"),
+    [(None, True), ("https://thegatheringpage.com/recipes/x", False)],
+    ids=["fallback-unspent", "fallback-spent"],
+)
+def test_creator_site_lookup_gets_the_fallback_only_when_unspent(linked_recipe_url, allowed):
+    job = _job(
+        state=ImportJobState.WAITING_PROFILE,
+        profile_run_id="runprofile1",
+        reel_dataset_id="dataset1",
+        candidate_name="Miso Salmon Rice",
+        linked_recipe_url=linked_recipe_url,
+    )
+    script = _ApifyScript(
+        **{
+            "/actor-runs/runprofile1": lambda r: _run_response(
+                run_id="runprofile1", dataset_id="profiledataset1"
+            ),
+            "/datasets/dataset1/items": lambda r: _reel_dataset_response(),
+            "/datasets/profiledataset1/items": lambda r: _profile_dataset_response(
+                external_urls=["https://tasty.co/"]
+            ),
+        }
+    )
+
+    with (
+        patch("app.services.instagram.import_job.checkpoint_job") as checkpoint,
+        patch("app.services.instagram.import_job.release_provider_admission"),
+        patch(
+            "app.services.instagram.import_job.find_creator_site_recipe",
+            return_value=None,
+        ) as find,
+    ):
+        checkpoint.return_value = job.model_copy(update={"state": ImportJobState.NOT_RECIPE})
+        deps = OrchestrationDeps(apify_transport=httpx.MockTransport(script))
+        result = _run_advance(job, deps=deps)
+
+    assert find.call_args.kwargs["allow_page_fallback"] is allowed
+    assert callable(find.call_args.kwargs["page_parse"])
+    assert result.state == ImportJobState.NOT_RECIPE
