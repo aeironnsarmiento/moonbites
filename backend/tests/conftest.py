@@ -7,5 +7,7 @@ os.environ.setdefault("SUPABASE_PUBLISHABLE_KEY", "")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "")
 os.environ.setdefault("ADMIN_EMAILS", "")
 os.environ.setdefault("YOUTUBE_API_KEY", "")
-os.environ.setdefault("GEMINI_API_KEY", "")
+# Forced, not defaulted: tests must never reach the real Gemini API, even from
+# a shell that exports a key.
+os.environ["GEMINI_API_KEY"] = ""
 os.environ.setdefault("INSTAGRAM_APIFY_TOKEN", "")

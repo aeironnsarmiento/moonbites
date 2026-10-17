@@ -51,3 +51,12 @@ def test_main_entrypoint_does_not_mask_dependency_import_errors(tmp_path: Path):
     assert result.returncode != 0
     assert "missing_dependency" in result.stderr
     assert "should-not-mask-error" not in result.stdout
+
+
+def test_app_info_logs_reach_the_blog_fallback_logger():
+    import logging
+
+    import backend.main  # noqa: F401  (configures logging on import)
+
+    fallback_logger = logging.getLogger("backend.app.services.blog.page_fallback")
+    assert fallback_logger.getEffectiveLevel() == logging.INFO

@@ -179,3 +179,12 @@ def test_incomplete_json_ld_recipe_hands_off_with_the_incomplete_trigger():
     assert result.page_text is not None
     assert result.page_text.trigger is FallbackTrigger.INCOMPLETE_JSON_LD
     assert result.page_text.title == "Lemon Bars"
+
+
+def test_page_with_no_readable_text_carries_no_page_text():
+    html = "<html><head><title>Lemon Bars</title></head><body><script>x()</script></body></html>"
+
+    result = parse_recipes_from_html(html, source_url="https://x.test", final_url="https://x.test")
+
+    assert result.recipes == []
+    assert result.page_text is None
