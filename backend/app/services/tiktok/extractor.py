@@ -13,6 +13,7 @@ from ...core.config import Settings, get_settings
 from ..blog.extractor import normalize_url
 from ..extraction_types import ExtractionResult
 from ..http_utils import UpstreamErrorDetails, get_page, translate_httpx_errors
+from ..import_deadline import SYNC_IMPORT_DEADLINE_SECONDS, Deadline
 from ..social.caption_recipe import CaptionPost, extract_recipe_from_caption
 
 
@@ -253,6 +254,7 @@ def _caption_title(caption: str, author_handle: Optional[str]) -> str:
 
 
 async def extract_recipe_from_tiktok_url(url: str) -> ExtractionResult:
+    deadline = Deadline.start(SYNC_IMPORT_DEADLINE_SECONDS)
     metadata = await fetch_tiktok_source_metadata(url)
     return await extract_recipe_from_caption(
         CaptionPost(
@@ -264,4 +266,5 @@ async def extract_recipe_from_tiktok_url(url: str) -> ExtractionResult:
         ),
         not_recipe_reason="No recipe was found in the TikTok caption.",
         mirror_provider_thumbnail=True,
+        deadline=deadline,
     )

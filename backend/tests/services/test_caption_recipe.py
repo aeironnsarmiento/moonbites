@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from app.schemas.extract import NormalizedRecipe
 from app.services.extraction_types import ExtractionResult, ParseStatus
 from app.services.gemini.recipe_parser import ParsedCaption
+from app.services.import_deadline import Deadline
 from app.services.social.caption_recipe import (
     MAX_CAPTION_LINKS,
     CaptionPost,
@@ -382,3 +383,65 @@ def test_unmatched_pages_without_json_ld_never_reach_gemini():
 
     page_parse.assert_not_called()
     assert result.parse_status == ParseStatus.NOT_RECIPE
+
+
+def _run_linked_fallback(page_parse, *, deadline, blog=None):
+    from backend.tests.fixtures.gathering_page import GATHERING_DISH, GATHERING_URL
+
+    with (
+        patch("app.services.blog.page_fallback.parse_page_text_with_gemini", new=page_parse),
+        patch(
+            "app.services.social.caption_recipe.parse_caption_with_gemini",
+            new=AsyncMock(return_value=_incomplete(GATHERING_DISH)),
+        ),
+        patch(
+            "app.services.social.caption_recipe.extract_blog_recipes_from_safe_url",
+            new=blog or _pages_by_url(_gathering_linked_pages()),
+        ),
+    ):
+        return asyncio.run(
+            extract_recipe_from_caption(
+                _post(f"Full recipe here: {GATHERING_URL}"),
+                not_recipe_reason="No recipe here.",
+                deadline=deadline,
+            )
+        )
+
+
+def test_linked_recipe_fallback_is_capped_by_the_request_deadline():
+    page_parse = AsyncMock(return_value=_complete())
+
+    result = _run_linked_fallback(page_parse, deadline=Deadline.start(25.0))
+
+    assert result.parse_status == ParseStatus.RECIPE
+    # 25s left, 5s held back for persistence, split over two attempts.
+    assert 9.0 < page_parse.await_args.kwargs["timeout_seconds"] <= 10.0
+
+
+def test_slow_link_fetches_leave_no_budget_so_the_post_ends_as_todays_not_recipe():
+    """R11: link fetches that spend the budget skip Gemini; no new error."""
+    pages = _gathering_linked_pages()
+
+    async def slow_fetch(url: str) -> ExtractionResult:
+        await asyncio.sleep(0.2)
+        return pages[url]
+
+    page_parse = AsyncMock(return_value=_complete())
+    # 1.1s of budget past the 5s persistence reserve, then a 0.2s fetch.
+    result = _run_linked_fallback(
+        page_parse, deadline=Deadline.start(6.1), blog=AsyncMock(side_effect=slow_fetch)
+    )
+
+    page_parse.assert_not_called()
+    assert result.parse_status == ParseStatus.NOT_RECIPE
+    assert result.parse_reason == "The recipe lives on a linked page."
+    assert result.recipes == []
+
+
+def test_without_a_deadline_the_request_budget_starts_in_the_pipeline():
+    page_parse = AsyncMock(return_value=_complete())
+
+    _run_linked_fallback(page_parse, deadline=None)
+
+    # The default 45s budget: 5s held back, split over two attempts.
+    assert 19.0 < page_parse.await_args.kwargs["timeout_seconds"] <= 20.0

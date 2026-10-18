@@ -437,3 +437,38 @@ def test_oembed_server_error_maps_to_502_with_status():
 
     assert error.value.status_code == 502
     assert error.value.detail == "TikTok returned HTTP 503"
+
+
+def _gathering_blog_page() -> ExtractionResult:
+    from app.services.blog.extractor import parse_recipes_from_html
+    from backend.tests.fixtures.gathering_page import GATHERING_URL, gathering_html
+
+    return parse_recipes_from_html(
+        gathering_html(), source_url=GATHERING_URL, final_url=GATHERING_URL
+    )
+
+
+def test_linked_recipe_fallback_runs_under_the_tiktok_request_deadline():
+    """The deadline starts before the tiktok fetch and reaches the fallback:
+    with none of it left, Gemini is skipped and the post ends as today."""
+    from backend.tests.fixtures.gathering_page import GATHERING_DISH, GATHERING_URL
+
+    page_parse = AsyncMock()
+    with (
+        patch("app.services.tiktok.extractor.SYNC_IMPORT_DEADLINE_SECONDS", 0.0),
+        patch("app.services.blog.page_fallback.parse_page_text_with_gemini", new=page_parse),
+    ):
+        result = _run(
+            "https://www.tiktok.com/@emma.recify/video/7448335796416843051",
+            _ClientContext(
+                [_PageResponse(_hydration_html(_item(caption=f"Full recipe: {GATHERING_URL}")))]
+            ),
+            gemini=AsyncMock(
+                return_value=_not_recipe(candidate_name=GATHERING_DISH)
+            ),
+            blog=AsyncMock(return_value=_gathering_blog_page()),
+        )
+
+    page_parse.assert_not_called()
+    assert result.parse_status == ParseStatus.NOT_RECIPE
+    assert result.recipes == []
