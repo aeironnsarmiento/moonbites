@@ -369,3 +369,36 @@ def test_extract_recipe_from_youtube_url_uses_the_stripped_input_url():
 
     assert result.source_url == "https://youtu.be/abc123XYZ09"
     assert result.final_url == "https://youtu.be/abc123XYZ09"
+
+
+def _gathering_blog_page() -> ExtractionResult:
+    from app.services.blog.extractor import parse_recipes_from_html
+    from backend.tests.fixtures.gathering_page import GATHERING_URL, gathering_html
+
+    return parse_recipes_from_html(
+        gathering_html(), source_url=GATHERING_URL, final_url=GATHERING_URL
+    )
+
+
+def test_linked_recipe_fallback_runs_under_the_youtube_request_deadline():
+    """The deadline starts before the youtube fetch and reaches the fallback:
+    with none of it left, Gemini is skipped and the post ends as today."""
+    from backend.tests.fixtures.gathering_page import GATHERING_DISH, GATHERING_URL
+
+    page_parse = AsyncMock()
+    with (
+        patch("app.services.youtube.extractor.SYNC_IMPORT_DEADLINE_SECONDS", 0.0),
+        patch("app.services.blog.page_fallback.parse_page_text_with_gemini", new=page_parse),
+    ):
+        result = _run(
+            "https://youtu.be/abc123XYZ09",
+            _snippet_response(f"Full recipe: {GATHERING_URL}"),
+            gemini=AsyncMock(
+                return_value=_not_recipe("Recipe lives on a linked page.", candidate_name=GATHERING_DISH)
+            ),
+            blog=AsyncMock(return_value=_gathering_blog_page()),
+        )
+
+    page_parse.assert_not_called()
+    assert result.parse_status == ParseStatus.NOT_RECIPE
+    assert result.recipes == []

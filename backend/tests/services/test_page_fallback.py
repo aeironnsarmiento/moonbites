@@ -15,6 +15,7 @@ from app.services.blog.page_fallback import (
     recover_recipe_from_page,
 )
 from app.services.extraction_types import ExtractionResult
+from app.services.import_deadline import Deadline
 from app.services.gemini.recipe_parser import ParsedCaption
 from backend.tests.fixtures.gathering_page import (
     GATHERING_DISH,
@@ -210,3 +211,28 @@ def test_apply_never_calls_gemini_for_a_page_with_recipes():
 
     assert result is page
     parse.assert_not_called()
+
+
+def test_deadline_caps_each_gemini_attempt_at_half_the_budget_left():
+    # 25s left, 5s held back for persistence: 20s to share across two attempts.
+    deadline = Deadline.start(25.0)
+    parse = AsyncMock(return_value=_complete())
+
+    result = asyncio.run(recover_recipe_from_page(_gathering_page(), parse=parse, deadline=deadline))
+
+    assert result.outcome is FallbackOutcome.RECIPE
+    timeout = parse.await_args.kwargs["timeout_seconds"]
+    assert 9.0 < timeout <= 10.0
+
+
+def test_exhausted_deadline_skips_gemini_and_counts_as_unavailable(caplog):
+    parse = AsyncMock(return_value=_complete())
+    page = _gathering_page()
+
+    with caplog.at_level(logging.INFO, logger=FALLBACK_LOGGER):
+        result = asyncio.run(apply_page_fallback(page, parse=parse, deadline=Deadline.start(0.0)))
+
+    parse.assert_not_called()
+    assert result is page
+    (record,) = _records(caplog)
+    assert record.fallback_outcome == FallbackOutcome.GEMINI_UNAVAILABLE.value

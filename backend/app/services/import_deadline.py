@@ -4,6 +4,14 @@ import time
 from dataclasses import dataclass
 
 
+# The budget for one synchronous import request (a pasted blog URL, a TikTok or
+# YouTube post): the same 45 seconds an Instagram start/advance request runs
+# under, which stays below the deployed function ceiling. Work that would start
+# after it -- the blog Gemini fallback today -- is skipped instead, so a slow
+# upstream ends in the request's normal outcome rather than a platform timeout.
+SYNC_IMPORT_DEADLINE_SECONDS = 45.0
+
+
 class DeadlineExceededError(RuntimeError):
     pass
 

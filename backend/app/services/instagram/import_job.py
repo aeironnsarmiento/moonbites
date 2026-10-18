@@ -26,7 +26,7 @@ from ...schemas.extract import (
 )
 from ...schemas.import_jobs import ImportJobErrorCode, ImportJobRecord, ImportJobState
 from ..blog.extractor import parse_recipes_from_html
-from ..blog.page_fallback import PageParse, recover_recipe_from_page
+from ..blog.page_fallback import PageParse, parse_within, recover_recipe_from_page
 from ..gemini.recipe_parser import (
     ParsedCaption,
     parse_caption_with_gemini,
@@ -111,27 +111,9 @@ async def _fetch_html_page(url: str, deps: OrchestrationDeps, deadline: Deadline
     )
 
 
-# The Gemini client retries a failed attempt once, so each attempt gets at most
-# half of what the job has left.
-_GEMINI_ATTEMPTS = 2
-
-
 def _page_parse_within(deadline: Deadline, deps: OrchestrationDeps) -> PageParse:
-    """The page fallback's parser, bounded by the job's own deadline.
-
-    Without budget left it is reported as unavailable rather than started, so
-    the job ends as it would have without a fallback.
-    """
-
-    async def parse(**kwargs) -> ParsedCaption:
-        if not deadline.has_budget_for_side_effect():
-            raise HTTPException(status_code=504, detail="No time left for the recipe parser")
-        return await deps.gemini_page_parse(
-            **kwargs,
-            timeout_seconds=deadline.budget_for_side_effect() / _GEMINI_ATTEMPTS,
-        )
-
-    return parse
+    """The page fallback's parser, bounded by the job's own deadline."""
+    return parse_within(deadline, deps.gemini_page_parse)
 
 
 def _page_fallback_spent(job: ImportJobRecord) -> bool:

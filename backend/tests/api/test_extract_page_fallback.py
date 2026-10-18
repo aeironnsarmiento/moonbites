@@ -7,6 +7,7 @@ route's save decision -- runs for real.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from unittest.mock import AsyncMock, patch
@@ -281,5 +282,49 @@ def test_page_with_no_readable_text_skips_the_fallback_and_keeps_todays_message(
     assert response.json()["database_message"].startswith(
         "Nothing was saved because recipe objects were found on that page"
     )
+    gemini.assert_not_called()
+    save.assert_not_called()
+
+
+def test_pasted_url_caps_each_gemini_attempt_by_the_request_deadline():
+    """A pasted URL runs under one 45s request budget, so neither Gemini attempt
+    can take the configured 30s: together they fit in what is left."""
+    response, gemini, save = _paste(GATHERING_URL, gathering_html())
+
+    assert response.json()["database_saved"] is True
+    timeout = gemini.await_args.kwargs["timeout_seconds"]
+    # 45s request budget, 5s held back for the save, split over two attempts.
+    assert 19.0 < timeout <= 20.0
+
+
+def test_slow_page_fetch_leaves_no_budget_so_gemini_is_skipped_as_today():
+    """R11: a fetch that spends the request's budget ends in today's outcome."""
+
+    async def slow_fetch(url, settings):
+        await asyncio.sleep(0.2)
+        return _Page(gathering_html(), GATHERING_URL)
+
+    gemini = AsyncMock(return_value=_GeminiResponse(gathering_payload_verbatim()))
+    save = AsyncMock()
+    with (
+        # 1.1s of budget past the 5s persistence reserve, then a 0.2s fetch.
+        patch("backend.app.services.blog.extractor.SYNC_IMPORT_DEADLINE_SECONDS", 6.1),
+        patch("backend.app.services.blog.extractor.get_page", new=slow_fetch),
+        patch(
+            "backend.app.services.gemini.recipe_parser.get_settings",
+            return_value=_settings(),
+        ),
+        patch(
+            "backend.app.services.gemini.recipe_parser._post_generate_content",
+            new=gemini,
+        ),
+        patch("backend.app.api.routes.extract.save_recipe_import", new=save),
+    ):
+        response = client.post("/api/extract", json={"url": GATHERING_URL})
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["database_saved"] is False
+    assert body["database_message"] == NO_RECIPE_OBJECTS_MESSAGE
     gemini.assert_not_called()
     save.assert_not_called()

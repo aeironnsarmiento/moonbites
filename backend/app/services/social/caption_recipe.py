@@ -25,6 +25,7 @@ from ..blog.extractor import extract_blog_recipes_from_safe_url
 from ..blog.page_fallback import recover_recipe_from_page
 from ..extraction_types import ExtractionResult, ParseStatus
 from ..gemini.recipe_parser import ParsedCaption, parse_caption_with_gemini
+from ..import_deadline import SYNC_IMPORT_DEADLINE_SECONDS, Deadline
 from ..normalizer import normalize_recipe
 from ..recipe_match import RecipeCandidate, candidates_from_result, select_unique_match
 from .recipe_links import MAX_CAPTION_LINKS, ranked_caption_links
@@ -52,7 +53,11 @@ GeminiParse = Callable[..., Awaitable[ParsedCaption]]
 
 
 async def _resolve_linked_recipe(
-    post: CaptionPost, dish_name: str, *, mirror_provider_thumbnail: bool
+    post: CaptionPost,
+    dish_name: str,
+    *,
+    mirror_provider_thumbnail: bool,
+    deadline: Deadline,
 ) -> Optional[ExtractionResult]:
     links = ranked_caption_links(post.caption)
     if not links:
@@ -75,7 +80,7 @@ async def _resolve_linked_recipe(
     if recipe is None:
         # The single matched page has no saveable JSON-LD recipe: spend the
         # import's one fallback call on it, and on nothing else.
-        fallback = await recover_recipe_from_page(page)
+        fallback = await recover_recipe_from_page(page, deadline=deadline)
         if fallback.recipe is None:
             return None
         recipe = fallback.recipe
@@ -103,7 +108,11 @@ async def extract_recipe_from_caption(
     not_recipe_reason: str,
     mirror_provider_thumbnail: bool = False,
     gemini_parse: Optional[GeminiParse] = None,
+    deadline: Optional[Deadline] = None,
 ) -> ExtractionResult:
+    # The request's deadline, when the platform extractor started one before
+    # its own fetch; otherwise the request's budget starts here.
+    deadline = deadline or Deadline.start(SYNC_IMPORT_DEADLINE_SECONDS)
     # Resolved at call time, not bound as a default, so the module-level name
     # stays the single seam both injection and patching go through.
     parse = gemini_parse or parse_caption_with_gemini
@@ -138,7 +147,10 @@ async def extract_recipe_from_caption(
     dish_name = (parsed.candidate_name or "").strip() if parsed is not None else ""
     if dish_name:
         linked = await _resolve_linked_recipe(
-            post, dish_name, mirror_provider_thumbnail=mirror_provider_thumbnail
+            post,
+            dish_name,
+            mirror_provider_thumbnail=mirror_provider_thumbnail,
+            deadline=deadline,
         )
         if linked is not None:
             return linked

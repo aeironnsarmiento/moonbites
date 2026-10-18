@@ -12,6 +12,7 @@ from ...utils.text import clean_text, unique_strings
 from ..extraction_types import ExtractionResult, FallbackTrigger, PageText
 from ..http_utils import UpstreamErrorDetails, get_page, translate_httpx_errors
 from ..image_extraction import extract_image_url
+from ..import_deadline import SYNC_IMPORT_DEADLINE_SECONDS, Deadline
 from ..normalizer import collect_recipe_nodes, normalize_recipe
 from ..public_web import Resolver, fetch_public_html, upgrade_to_https
 from ..recipe_identity import dedupe_by_content
@@ -451,6 +452,8 @@ def _page_text(
 
 
 async def extract_recipes_from_url(url: str) -> ExtractionResult:
+    # Started before the page fetch, so the fallback gets only what is left.
+    deadline = Deadline.start(SYNC_IMPORT_DEADLINE_SECONDS)
     settings = get_settings()
     target_url = normalize_url(url)
 
@@ -460,7 +463,7 @@ async def extract_recipes_from_url(url: str) -> ExtractionResult:
     page = parse_recipes_from_html(
         response.text, source_url=target_url, final_url=str(response.url)
     )
-    return await apply_page_fallback(page)
+    return await apply_page_fallback(page, deadline=deadline)
 
 
 async def extract_blog_recipes_from_safe_url(

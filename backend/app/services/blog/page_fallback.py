@@ -6,7 +6,10 @@ rate-limited or failing, the caller gets ``GEMINI_UNAVAILABLE`` and ends exactly
 as it would have without a fallback -- this module never raises.
 
 Callers decide *whether* to spend the fallback: a pasted URL always does, while
-a **Linked Recipe** flow spends it only on the single page it matched.
+a **Linked Recipe** flow spends it only on the single page it matched. Callers
+on a request path also pass their ``Deadline``: the Gemini call then gets only
+what the request has left, and is skipped -- reported as unavailable -- once
+nothing is left.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ from fastapi import HTTPException
 from ...schemas.extract import NormalizedRecipe, ParseStatus
 from ..extraction_types import ExtractionResult
 from ..gemini.recipe_parser import ParsedCaption, parse_page_text_with_gemini
+from ..import_deadline import Deadline
 from ..normalizer import normalize_recipe
 from ..recipe_match import hostname
 
@@ -31,6 +35,10 @@ logger = logging.getLogger(__name__)
 NOT_RECIPE_REASON = "The page does not contain a recipe."
 
 PageParse = Callable[..., Awaitable[ParsedCaption]]
+
+# The Gemini client retries a failed attempt once, so each attempt gets at most
+# half of what the request has left.
+GEMINI_ATTEMPTS = 2
 
 
 class FallbackOutcome(str, Enum):
@@ -45,6 +53,26 @@ class PageFallbackResult:
     outcome: FallbackOutcome
     recipe: Optional[NormalizedRecipe] = None
     reason: Optional[str] = None
+
+
+def parse_within(deadline: Deadline, parse: Optional[PageParse] = None) -> PageParse:
+    """The page parser, bounded by the caller's deadline.
+
+    Without budget left it is reported as unavailable rather than started, so
+    the caller ends as it would have without a fallback.
+    """
+
+    async def bounded(**kwargs) -> ParsedCaption:
+        if not deadline.has_budget_for_side_effect():
+            raise HTTPException(status_code=504, detail="No time left for the recipe parser")
+        # Resolved at call time so patching the module-level name reaches it.
+        inner = parse or parse_page_text_with_gemini
+        return await inner(
+            **kwargs,
+            timeout_seconds=deadline.budget_for_side_effect() / GEMINI_ATTEMPTS,
+        )
+
+    return bounded
 
 
 async def _parse(page: ExtractionResult, parse: PageParse) -> PageFallbackResult:
@@ -74,12 +102,17 @@ async def _parse(page: ExtractionResult, parse: PageParse) -> PageFallbackResult
 
 
 async def recover_recipe_from_page(
-    page: ExtractionResult, *, parse: Optional[PageParse] = None
+    page: ExtractionResult,
+    *,
+    parse: Optional[PageParse] = None,
+    deadline: Optional[Deadline] = None,
 ) -> PageFallbackResult:
     """Run the fallback once on a page that carries ``page_text``, and log it."""
     if page.page_text is None:
         raise ValueError("Only a page without a saveable JSON-LD recipe can fall back")
 
+    if deadline is not None:
+        parse = parse_within(deadline, parse)
     # Resolved at call time so patching the module-level name reaches it.
     result = await _parse(page, parse or parse_page_text_with_gemini)
 
@@ -100,7 +133,10 @@ async def recover_recipe_from_page(
 
 
 async def apply_page_fallback(
-    page: ExtractionResult, *, parse: Optional[PageParse] = None
+    page: ExtractionResult,
+    *,
+    parse: Optional[PageParse] = None,
+    deadline: Optional[Deadline] = None,
 ) -> ExtractionResult:
     """The pasted-URL use of the fallback: fold its outcome into the page result.
 
@@ -110,7 +146,7 @@ async def apply_page_fallback(
     if page.recipes or page.page_text is None:
         return page
 
-    result = await recover_recipe_from_page(page, parse=parse)
+    result = await recover_recipe_from_page(page, parse=parse, deadline=deadline)
 
     if result.outcome is FallbackOutcome.RECIPE and result.recipe is not None:
         return dataclasses.replace(page, recipes=[result.recipe])
