@@ -22,6 +22,7 @@ from typing import Awaitable, Callable, Optional
 from fastapi import HTTPException
 
 from ..blog.extractor import extract_blog_recipes_from_safe_url
+from ..blog.page_fallback import recover_recipe_from_page
 from ..extraction_types import ExtractionResult, ParseStatus
 from ..gemini.recipe_parser import ParsedCaption, parse_caption_with_gemini
 from ..normalizer import normalize_recipe
@@ -71,6 +72,13 @@ async def _resolve_linked_recipe(
 
     page = match.result
     recipe = match.recipe
+    if recipe is None:
+        # The single matched page has no saveable JSON-LD recipe: spend the
+        # import's one fallback call on it, and on nothing else.
+        fallback = await recover_recipe_from_page(page)
+        if fallback.recipe is None:
+            return None
+        recipe = fallback.recipe
     # The post's own thumbnail is mirrored only when the matched page brought no
     # image of its own -- otherwise the page's image is already the better one.
     borrows_post_thumbnail = page.image_url is None and post.image_url is not None

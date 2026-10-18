@@ -1,5 +1,5 @@
 import re
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 from ..schemas.extract import IngredientSection, NormalizedRecipe
 from ..utils.text import clean_text, unique_strings
@@ -31,28 +31,22 @@ def has_recipe_type(value: Any) -> bool:
     return False
 
 
+def iter_json_ld_nodes(payload: Any) -> Iterator[dict]:
+    """Every JSON-LD object in a payload, descending into lists and ``@graph``."""
+    if isinstance(payload, dict):
+        yield payload
+        graph = payload.get("@graph")
+        if isinstance(graph, (list, dict)):
+            yield from iter_json_ld_nodes(graph)
+    elif isinstance(payload, list):
+        for item in payload:
+            yield from iter_json_ld_nodes(item)
+
+
 def collect_recipe_nodes(payload: Any) -> list[Any]:
-    recipes: list[Any] = []
-
-    def visit(node: Any) -> None:
-        if isinstance(node, dict):
-            node_type = node.get("@type")
-
-            if has_recipe_type(node_type):
-                recipes.append(node)
-
-            graph = node.get("@graph")
-            if isinstance(graph, list):
-                for item in graph:
-                    visit(item)
-            elif isinstance(graph, dict):
-                visit(graph)
-        elif isinstance(node, list):
-            for item in node:
-                visit(item)
-
-    visit(payload)
-    return recipes
+    return [
+        node for node in iter_json_ld_nodes(payload) if has_recipe_type(node.get("@type"))
+    ]
 
 
 def normalize_recipe_yield(value: Any) -> Optional[str]:

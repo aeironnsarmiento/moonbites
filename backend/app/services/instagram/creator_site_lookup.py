@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, quote, urljoin, urlsplit, urlunsplit
 from bs4 import BeautifulSoup
 
 from ..blog.extractor import parse_recipes_from_html
+from ..blog.page_fallback import PageParse, recover_recipe_from_page
 from ...utils.text import unique_strings
 from ..extraction_types import ExtractionResult
 from ..public_web import FetchedPage, PublicWebError, fetch_public_html
@@ -230,7 +231,15 @@ async def find_creator_site_recipe(
     dish_name: str,
     *,
     fetch_html: FetchHtml = _default_fetch_html,
+    allow_page_fallback: bool = True,
+    page_parse: Optional[PageParse] = None,
 ) -> Optional[ExtractionResult]:
+    """Find the one recipe on the creator's site that names the Reel's dish.
+
+    When the matched page has no saveable JSON-LD recipe, the Gemini fallback
+    reads it -- once, and only if ``allow_page_fallback`` (an import that has
+    already spent its fallback call passes False).
+    """
     if not isinstance(dish_name, str) or not dish_name.strip():
         return None
 
@@ -286,7 +295,8 @@ async def find_creator_site_recipe(
         # Search-result pages are purpose-built to surface the dish; landing
         # pages are generic and can burn the page budget on irrelevant
         # anchors before a search page is ever reached. Try search first.
-        queue = build_search_urls(domain, dish_name)
+        search_urls = build_search_urls(domain, dish_name)
+        queue = list(search_urls)
         for url in entry_urls[domain]:
             if url not in queue:
                 queue.append(url)
@@ -318,7 +328,12 @@ async def find_creator_site_recipe(
             parsed = parse_recipes_from_html(
                 page.html, source_url=candidate_url, final_url=page.final_url
             )
-            candidates.extend(candidates_from_result(parsed))
+            found = candidates_from_result(parsed)
+            if candidate_url in search_urls:
+                # A results page echoes the query in its title; it lists the
+                # dish rather than being it, so only real recipes count here.
+                found = [c for c in found if not c.is_title_only]
+            candidates.extend(found)
 
             for anchor in rank_candidate_anchors(page.html, page.final_url, dish_name):
                 if is_social_or_storefront(anchor) or is_link_hub(anchor):
@@ -335,11 +350,20 @@ async def find_creator_site_recipe(
     if match is None:
         return None
 
+    recipe = match.recipe
+    if recipe is None:
+        if not allow_page_fallback:
+            return None
+        fallback = await recover_recipe_from_page(match.result, parse=page_parse)
+        if fallback.recipe is None:
+            return None
+        recipe = fallback.recipe
+
     return ExtractionResult(
         source_url=match.result.source_url,
         final_url=match.canonical_url,
         title=match.result.title,
         image_url=match.result.image_url,
         recipe_node_count=1,
-        recipes=[match.recipe],
+        recipes=[recipe],
     )

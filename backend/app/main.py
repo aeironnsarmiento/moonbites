@@ -7,6 +7,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from .api.routes import router as extract_router
 from .core.config import get_settings
+from .core.logging_config import configure_logging
 from .core.rate_limit import limiter
 
 
@@ -14,6 +15,7 @@ MAX_REQUEST_BYTES = 64 * 1024
 
 
 def create_app() -> FastAPI:
+    configure_logging()
     settings = get_settings()
     app = FastAPI(title="LD Parser API")
 

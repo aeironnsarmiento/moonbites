@@ -9,12 +9,14 @@ from fastapi import HTTPException
 from ...core.config import Settings, get_settings
 from ...schemas.extract import IngredientSection, JsonLdBlock, NormalizedRecipe
 from ...utils.text import clean_text, unique_strings
-from ..extraction_types import ExtractionResult
+from ..extraction_types import ExtractionResult, FallbackTrigger, PageText
 from ..http_utils import UpstreamErrorDetails, get_page, translate_httpx_errors
 from ..image_extraction import extract_image_url
 from ..normalizer import collect_recipe_nodes, normalize_recipe
 from ..public_web import Resolver, fetch_public_html, upgrade_to_https
 from ..recipe_identity import dedupe_by_content
+from .page_fallback import apply_page_fallback
+from .page_text import extract_main_text, extract_page_title
 
 
 TARGET_SITE_ERRORS = UpstreamErrorDetails(
@@ -419,6 +421,32 @@ def parse_recipes_from_html(
         image_url=image_url,
         recipe_node_count=len(recipe_nodes),
         recipes=recipes,
+        page_text=(
+            None
+            if recipes
+            else _page_text(html, blocks, len(recipe_nodes), final_url=final_url)
+        ),
+    )
+
+
+def _page_text(
+    html: str, blocks: list[JsonLdBlock], recipe_node_count: int, *, final_url: str
+) -> Optional[PageText]:
+    soup = BeautifulSoup(html, "html.parser")
+    title = extract_page_title(soup, blocks, host=urlparse(final_url).hostname)
+    text = extract_main_text(soup)
+    # With nothing to read, the fallback could only fail; the page keeps
+    # today's outcome instead.
+    if not text:
+        return None
+    return PageText(
+        title=title,
+        text=text,
+        trigger=(
+            FallbackTrigger.INCOMPLETE_JSON_LD
+            if recipe_node_count
+            else FallbackTrigger.MISSING_JSON_LD
+        ),
     )
 
 
@@ -429,9 +457,10 @@ async def extract_recipes_from_url(url: str) -> ExtractionResult:
     with translate_httpx_errors(TARGET_SITE_ERRORS):
         response = await get_page(target_url, settings)
 
-    return parse_recipes_from_html(
+    page = parse_recipes_from_html(
         response.text, source_url=target_url, final_url=str(response.url)
     )
+    return await apply_page_fallback(page)
 
 
 async def extract_blog_recipes_from_safe_url(
