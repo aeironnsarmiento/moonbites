@@ -57,10 +57,8 @@ async def _parse(page: ExtractionResult, parse: PageParse) -> PageFallbackResult
             page_text=page_text.text,
             source_url=page.final_url,
         )
-    except HTTPException as error:
-        return PageFallbackResult(
-            FallbackOutcome.GEMINI_UNAVAILABLE, reason=str(error.detail)
-        )
+    except HTTPException:
+        return PageFallbackResult(FallbackOutcome.GEMINI_UNAVAILABLE)
     except Exception:  # an unexpected parser failure must not become a new error
         logger.exception("Blog Gemini fallback failed unexpectedly for %s", page.final_url)
         return PageFallbackResult(FallbackOutcome.GEMINI_UNAVAILABLE)

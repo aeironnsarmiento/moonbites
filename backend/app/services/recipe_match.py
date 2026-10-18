@@ -110,7 +110,7 @@ def normalize_dish_name(name: str) -> str:
     return " ".join(tokens)
 
 
-def _site_brand_label(domain: Optional[str]) -> Optional[str]:
+def site_brand_label(domain: Optional[str]) -> Optional[str]:
     if not domain:
         return None
     host = domain.casefold()
@@ -126,7 +126,7 @@ def strip_site_brand(normalized_title: str, domain: Optional[str]) -> str:
     does. Only the fetched host's own label is removed, so a dish word can
     never be stripped by accident.
     """
-    label = _site_brand_label(domain)
+    label = site_brand_label(domain)
     if not label:
         return normalized_title
 

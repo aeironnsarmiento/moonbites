@@ -214,3 +214,13 @@ def test_title_keeps_a_dash_that_is_part_of_the_dish():
     html = "<html><head><title>Chicken - Pesto Pasta</title></head><body></body></html>"
 
     assert _title(html, host="cooks.test") == "Chicken - Pesto Pasta"
+
+
+def test_main_text_survives_a_page_wrapped_in_a_form():
+    html = (
+        '<html><body><form id="aspnetForm">'
+        "<h1>Lemon Bars</h1><p>2 cups flour</p><p>Bake the bars.</p>"
+        "</form></body></html>"
+    )
+
+    assert _text(html).splitlines() == ["Lemon Bars", "2 cups flour", "Bake the bars."]

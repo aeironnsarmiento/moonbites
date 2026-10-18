@@ -8,12 +8,14 @@ is what Gemini reads when the page falls back to parsing.
 from __future__ import annotations
 
 import re
-from typing import Any, Iterable, Optional
+from typing import Optional
 
 from bs4 import BeautifulSoup, Tag
 
 from ...schemas.extract import JsonLdBlock
 from ...utils.text import clean_text
+from ..normalizer import iter_json_ld_nodes
+from ..recipe_match import site_brand_label
 
 
 MAX_PAGE_TEXT_CHARS = 30_000
@@ -29,7 +31,6 @@ _NOISE_TAGS = (
     "iframe",
     "nav",
     "aside",
-    "form",
     "footer",
 )
 _COMMENT_THREAD_MARKERS = frozenset(
@@ -55,22 +56,11 @@ def _node_types(node: dict) -> set[str]:
     return {item.casefold() for item in values if isinstance(item, str)}
 
 
-def _iter_nodes(payload: Any) -> Iterable[dict]:
-    if isinstance(payload, list):
-        for item in payload:
-            yield from _iter_nodes(item)
-    elif isinstance(payload, dict):
-        yield payload
-        graph = payload.get("@graph")
-        if graph is not None:
-            yield from _iter_nodes(graph)
-
-
 def _article_headline(blocks: list[JsonLdBlock]) -> Optional[str]:
     for block in blocks:
         if block.parsed is None:
             continue
-        for node in _iter_nodes(block.parsed):
+        for node in iter_json_ld_nodes(block.parsed):
             if _node_types(node) & ARTICLE_TYPES:
                 headline = clean_text(node.get("headline"))
                 if headline:
@@ -101,10 +91,9 @@ def _site_brands(soup: BeautifulSoup, host: Optional[str]) -> set[str]:
     site_name = _meta_content(soup, "og:site_name")
     if site_name:
         brands.add(_squash(site_name))
-    if host:
-        label = host.casefold().removeprefix("www.").split(".")[0]
-        if label:
-            brands.add(label)
+    label = site_brand_label(host)
+    if label:
+        brands.add(label)
     brands.discard("")
     return brands
 

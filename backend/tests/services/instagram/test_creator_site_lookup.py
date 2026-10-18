@@ -450,3 +450,22 @@ def test_spent_fallback_leaves_a_title_only_match_unresolved():
 
     assert result is None
     page_parse.assert_not_called()
+
+
+def test_search_results_page_titled_after_the_dish_is_not_a_candidate():
+    page_parse = _complete_page_parse("Lemon Bars")
+    pages = {
+        "https://tasty.co/?s=Lemon%20Bars": _page_without_json_ld("Lemon Bars"),
+    }
+
+    result = asyncio.run(
+        find_creator_site_recipe(
+            ["https://tasty.co/"],
+            "Lemon Bars",
+            fetch_html=_fetcher(pages, []),
+            page_parse=page_parse,
+        )
+    )
+
+    assert result is None
+    page_parse.assert_not_called()
