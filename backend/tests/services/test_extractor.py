@@ -410,6 +410,19 @@ def test_extract_recipes_from_url_retries_a_403_and_parses_the_page():
     assert result.title == "Bread"
 
 
+def test_extract_recipes_from_url_reports_a_403_after_the_retry_as_blocked():
+    with (
+        patch("app.services.blog.extractor.get_settings", return_value=_settings()),
+        _patched_http_client(lambda _request: httpx.Response(403)),
+    ):
+        with pytest.raises(HTTPException) as error:
+            asyncio.run(extract_recipes_from_url("https://example.com/guarded"))
+
+    assert error.value.status_code == 502
+    assert error.value.detail["code"] == "target_site_blocked"
+    assert "Paste the recipe text" in error.value.detail["message"]
+
+
 def test_extract_recipes_from_url_maps_upstream_404_to_502():
     with (
         patch("app.services.blog.extractor.get_settings", return_value=_settings()),

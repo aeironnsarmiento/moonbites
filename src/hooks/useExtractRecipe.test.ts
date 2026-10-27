@@ -7,6 +7,7 @@ import {
   advanceImportJob,
   submitRecipeImport,
 } from "../controllers/extractController";
+import { ApiError } from "../services/apiClient";
 import { useExtractRecipe } from "./useExtractRecipe";
 
 vi.mock("../controllers/extractController", async () => {
@@ -261,6 +262,65 @@ describe("useExtractRecipe", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("remembers a blocked URL and keeps it through a failed pasted-text retry", async () => {
+    const queryClient = createQueryClient();
+    const url = "https://guarded.example.com/dip";
+    mockedSubmit.mockRejectedValueOnce(
+      new ApiError("This site blocks automated imports.", 502, "target_site_blocked"),
+    );
+
+    const { result } = renderHook(() => useExtractRecipe(), {
+      wrapper: wrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.submitRecipe(url);
+    });
+    expect(result.current.blockedUrl).toBe(url);
+    expect(result.current.error).toBe("This site blocks automated imports.");
+
+    mockedSubmit.mockRejectedValueOnce(new ApiError("Parser unavailable.", 503, null));
+    await act(async () => {
+      await result.current.submitRecipe(url, "Ingredients\n1 cup spinach");
+    });
+    expect(mockedSubmit).toHaveBeenLastCalledWith(url, "Ingredients\n1 cup spinach");
+    expect(result.current.blockedUrl).toBe(url);
+
+    mockedSubmit.mockResolvedValueOnce({
+      source_url: url,
+      final_url: url,
+      title: "Dip",
+      recipes: [{ name: "Dip", ingredients: ["spinach"], instructions: ["mix"] } as never],
+      database_saved: true,
+      database_message: "Recipe saved to your collection.",
+    });
+    await act(async () => {
+      await result.current.submitRecipe(url, "Ingredients\n1 cup spinach");
+    });
+    expect(result.current.blockedUrl).toBeNull();
+  });
+
+  it("clears the blocked URL when a fresh URL import starts", async () => {
+    const queryClient = createQueryClient();
+    mockedSubmit.mockRejectedValueOnce(
+      new ApiError("blocked", 502, "target_site_blocked"),
+    );
+    mockedSubmit.mockRejectedValueOnce(new Error("Target site returned HTTP 404"));
+
+    const { result } = renderHook(() => useExtractRecipe(), {
+      wrapper: wrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.submitRecipe("https://guarded.example.com/dip");
+    });
+    await act(async () => {
+      await result.current.submitRecipe("https://example.com/missing");
+    });
+
+    expect(result.current.blockedUrl).toBeNull();
   });
 
   it("pauses on a network failure during polling and resumes on demand", async () => {

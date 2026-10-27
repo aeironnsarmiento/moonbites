@@ -8,6 +8,7 @@ import {
   advanceImportJob,
   buildExtractStatus,
   interactionStateForErrorCode,
+  isTargetSiteBlockedError,
   retryAfterMsFloor,
   submitRecipeImport,
 } from "../controllers/extractController";
@@ -29,6 +30,8 @@ export function useExtractRecipe(options: { onSaved?: () => void } = {}) {
   const [status, setStatus] = useState("");
   const [phase, setPhase] = useState<ExtractPhase>("idle");
   const [isResuming, setIsResuming] = useState(false);
+  // The URL whose site refused our fetch; the page offers a paste-text import for it.
+  const [blockedUrl, setBlockedUrl] = useState<string | null>(null);
 
   const jobIdRef = useRef<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -156,16 +159,20 @@ export function useExtractRecipe(options: { onSaved?: () => void } = {}) {
   }, [phase, runAdvance]);
 
   const submitRecipe = useCallback(
-    async (url: string) => {
+    async (url: string, pageText?: string) => {
       setIsLoading(true);
       setError("");
       setStatus("");
       setPhase("idle");
       clearTimer();
       jobIdRef.current = null;
+      // A pasted-text retry keeps the paste form open in case it fails too.
+      if (pageText === undefined) {
+        setBlockedUrl(null);
+      }
 
       try {
-        const response = await submitRecipeImport(url);
+        const response = await submitRecipeImport(url, pageText);
 
         if (isImportJobResponse(response)) {
           if (response.kind === "pending") {
@@ -193,12 +200,16 @@ export function useExtractRecipe(options: { onSaved?: () => void } = {}) {
 
         if (response.database_saved && response.recipes.length > 0) {
           await invalidateRecipeQueries(queryClient);
+          setBlockedUrl(null);
           onSaved?.();
         }
         setStatus(buildExtractStatus(response));
         setPhase("done");
         return response;
       } catch (submitError) {
+        if (isTargetSiteBlockedError(submitError)) {
+          setBlockedUrl(url);
+        }
         const message =
           submitError instanceof Error
             ? submitError.message
@@ -230,6 +241,7 @@ export function useExtractRecipe(options: { onSaved?: () => void } = {}) {
     isInterrupted: phase === "interrupted",
     isResuming,
     resume,
+    blockedUrl,
     submitRecipe,
   };
 }

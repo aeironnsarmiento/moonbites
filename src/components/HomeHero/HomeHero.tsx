@@ -21,6 +21,8 @@ type HomeHeroProps = {
   isInterrupted?: boolean;
   isResuming?: boolean;
   onResume?: () => void;
+  /** The site refused our fetch, so the manual path offers pasting its text. */
+  isSiteBlocked?: boolean;
 };
 
 export function HomeHero({
@@ -38,6 +40,7 @@ export function HomeHero({
   isInterrupted = false,
   isResuming = false,
   onResume,
+  isSiteBlocked = false,
 }: HomeHeroProps) {
   const [focused, setFocused] = useState(false);
 
@@ -99,12 +102,18 @@ export function HomeHero({
           </div>
           <RouterLink
             to="/recipes/create"
-            state={url.trim() ? { importUrl: url.trim() } : undefined}
+            state={
+              url.trim()
+                ? { importUrl: url.trim(), siteBlocked: isSiteBlocked }
+                : undefined
+            }
             className="homeHero__altLink"
           >
-            {submitError
-              ? "Create this recipe manually instead →"
-              : "Or enter the details yourself →"}
+            {isSiteBlocked
+              ? "Paste the recipe text instead →"
+              : submitError
+                ? "Create this recipe manually instead →"
+                : "Or enter the details yourself →"}
           </RouterLink>
           {(submitError || submitStatus) && (
             <div className="homeHero__status">

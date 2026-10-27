@@ -10,6 +10,8 @@ class FallbackTrigger(str, Enum):
 
     MISSING_JSON_LD = "missing_json_ld"
     INCOMPLETE_JSON_LD = "incomplete_json_ld"
+    # The admin pasted the page's text because the site blocked our fetch.
+    PASTED_TEXT = "pasted_text"
 
 
 @dataclass(frozen=True)

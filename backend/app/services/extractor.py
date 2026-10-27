@@ -1,5 +1,6 @@
 from fastapi import HTTPException
 
+from .blog.extractor import extract_recipes_from_pasted_text
 from .blog.extractor import extract_recipes_from_url as extract_blog_recipes_from_url
 from .extraction_types import ExtractionResult
 from .instagram.urls import is_instagram_url
@@ -34,6 +35,7 @@ async def extract_recipes_from_url(url: str) -> ExtractionResult:
 __all__ = [
     "ExtractionResult",
     "extract_blog_recipes_from_url",
+    "extract_recipes_from_pasted_text",
     "extract_recipe_from_tiktok_url",
     "extract_recipe_from_youtube_url",
     "extract_recipes_from_url",

@@ -1,3 +1,4 @@
+import dataclasses
 import json
 from typing import Optional
 from urllib.parse import urlparse
@@ -7,7 +8,12 @@ from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
 from ...core.config import Settings, get_settings
-from ...schemas.extract import IngredientSection, JsonLdBlock, NormalizedRecipe
+from ...schemas.extract import (
+    IngredientSection,
+    JsonLdBlock,
+    NormalizedRecipe,
+    ParseStatus,
+)
 from ...utils.text import clean_text, unique_strings
 from ..extraction_types import ExtractionResult, FallbackTrigger, PageText
 from ..http_utils import UpstreamErrorDetails, get_page, translate_httpx_errors
@@ -17,13 +23,26 @@ from ..normalizer import collect_recipe_nodes, normalize_recipe
 from ..public_web import Resolver, fetch_public_html, upgrade_to_https
 from ..recipe_identity import dedupe_by_content
 from .page_fallback import apply_page_fallback
-from .page_text import extract_main_text, extract_page_title
+from .page_text import MAX_PAGE_TEXT_CHARS, extract_main_text, extract_page_title
 
 
 TARGET_SITE_ERRORS = UpstreamErrorDetails(
     timeout="Request to target URL timed out",
     status="Target site returned HTTP {status_code}",
     unreachable="Unable to fetch the target URL",
+)
+
+# Sites behind bot protection (Cloudflare and the like) answer the deployed
+# backend with 403 even after the browser-header retry. The code lets the
+# client offer to read the admin's pasted page text instead.
+TARGET_SITE_BLOCKED_CODE = "target_site_blocked"
+TARGET_SITE_BLOCKED_MESSAGE = (
+    "This site blocks automated imports (HTTP 403). "
+    "Paste the recipe text from the page to import it instead."
+)
+PASTED_TEXT_PARSER_UNAVAILABLE_MESSAGE = (
+    "The recipe parser is unavailable right now, so the pasted text could not "
+    "be read. Try again later, or enter the recipe yourself."
 )
 
 INGREDIENT_HEADING_KEYWORDS = {"ingredient", "ingredients"}
@@ -458,12 +477,60 @@ async def extract_recipes_from_url(url: str) -> ExtractionResult:
     target_url = normalize_url(url)
 
     with translate_httpx_errors(TARGET_SITE_ERRORS):
-        response = await get_page(target_url, settings)
+        try:
+            response = await get_page(target_url, settings)
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code == 403:
+                raise HTTPException(
+                    status_code=502,
+                    detail={
+                        "code": TARGET_SITE_BLOCKED_CODE,
+                        "message": TARGET_SITE_BLOCKED_MESSAGE,
+                    },
+                ) from error
+            raise
 
     page = parse_recipes_from_html(
         response.text, source_url=target_url, final_url=str(response.url)
     )
     return await apply_page_fallback(page, deadline=deadline)
+
+
+async def extract_recipes_from_pasted_text(
+    url: str, page_text: str
+) -> ExtractionResult:
+    """Read a recipe from page text the admin pasted, for a site that blocks
+    our fetch. The URL is recorded as the source but never fetched, and the
+    text goes through the same Gemini fallback and fabrication check as a
+    fetched page with no JSON-LD."""
+    deadline = Deadline.start(SYNC_IMPORT_DEADLINE_SECONDS)
+    target_url = normalize_url(url)
+    text = page_text.strip()[:MAX_PAGE_TEXT_CHARS]
+    if not text:
+        raise HTTPException(status_code=400, detail="Paste the recipe text to import.")
+
+    page = await apply_page_fallback(
+        ExtractionResult(
+            source_url=target_url,
+            final_url=target_url,
+            title=None,
+            image_url=None,
+            recipe_node_count=0,
+            recipes=[],
+            page_text=PageText(
+                title=None, text=text, trigger=FallbackTrigger.PASTED_TEXT
+            ),
+        ),
+        deadline=deadline,
+    )
+
+    if page.recipes:
+        # No page title to save, so the record is named after the dish.
+        return dataclasses.replace(page, title=page.recipes[0].name)
+    if page.parse_status is ParseStatus.NOT_RECIPE:
+        return page
+    # Unlike a fetched page, there is nothing else to fall back on.
+    raise HTTPException(status_code=503, detail=PASTED_TEXT_PARSER_UNAVAILABLE_MESSAGE)
 
 
 async def extract_blog_recipes_from_safe_url(

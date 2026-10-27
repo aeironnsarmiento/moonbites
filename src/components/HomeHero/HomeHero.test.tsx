@@ -103,6 +103,16 @@ describe("HomeHero", () => {
     expect(link).toHaveAttribute("href", "/recipes/create");
   });
 
+  it("offers pasting the recipe text when the site blocked the import", () => {
+    renderHero({ submitError: "This site blocks automated imports.", isSiteBlocked: true });
+
+    const input = urlInput();
+    fireEvent.change(input, { target: { value: "https://guarded.example.com/dip" } });
+
+    const link = screen.getByRole("link", { name: "Paste the recipe text instead →" });
+    expect(link).toHaveAttribute("href", "/recipes/create");
+  });
+
   it("disables submit while a job is pending and shows the pending status", () => {
     renderHero({ isPending: true, submitStatus: "Importing Reel…" });
 

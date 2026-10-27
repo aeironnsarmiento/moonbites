@@ -19,6 +19,7 @@ import {
 } from "@chakra-ui/react";
 import { Link as RouterLink, useLocation, useNavigate } from "react-router-dom";
 
+import { PageTextPasteForm } from "../../components/PageTextPasteForm/PageTextPasteForm";
 import { StatusBanner } from "../../components/StatusBanner/StatusBanner";
 import { UrlPasteForm } from "../../components/UrlPasteForm/UrlPasteForm";
 import { useCreateRecipe } from "../../hooks/useCreateRecipe";
@@ -78,6 +79,8 @@ function buildRecipePayload(form: RecipeFormState): NormalizedRecipe {
 
 type RecipeCreateLocationState = {
   importUrl?: string;
+  /** The home import was blocked by the site, so the paste-text form opens at once. */
+  siteBlocked?: boolean;
 };
 
 export function RecipeCreatePage() {
@@ -92,6 +95,7 @@ export function RecipeCreatePage() {
     isInterrupted: isExtractInterrupted,
     isResuming: isExtractResuming,
     resume: resumeExtract,
+    blockedUrl,
     submitRecipe,
   } = useExtractRecipe();
   const [form, setForm] = useState<RecipeFormState>(EMPTY_FORM);
@@ -99,6 +103,15 @@ export function RecipeCreatePage() {
   const [url, setUrl] = useState(
     () => (location.state as RecipeCreateLocationState | null)?.importUrl ?? "",
   );
+  const [seededBlockedUrl] = useState(() => {
+    const state = location.state as RecipeCreateLocationState | null;
+    return state?.siteBlocked ? (state.importUrl ?? null) : null;
+  });
+  const [pageText, setPageText] = useState("");
+  const trimmedUrl = url.trim();
+  const isSiteBlocked =
+    trimmedUrl !== "" &&
+    (blockedUrl === trimmedUrl || seededBlockedUrl === trimmedUrl);
   const [validationError, setValidationError] = useState("");
 
   const fieldError = validationError || error;
@@ -137,7 +150,15 @@ export function RecipeCreatePage() {
 
   const handleUrlSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await submitRecipe(url);
+    await submitRecipe(trimmedUrl);
+  };
+
+  const handlePageTextSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const result = await submitRecipe(trimmedUrl, pageText);
+    if (result?.database_saved && result.recipes.length > 0) {
+      setPageText("");
+    }
   };
 
   return (
@@ -157,6 +178,15 @@ export function RecipeCreatePage() {
           onUrlChange={setUrl}
           onSubmit={handleUrlSubmit}
         />
+        {isSiteBlocked ? (
+          <PageTextPasteForm
+            url={trimmedUrl}
+            pageText={pageText}
+            isLoading={isExtracting}
+            onPageTextChange={setPageText}
+            onSubmit={handlePageTextSubmit}
+          />
+        ) : null}
         <StatusBanner
           error={extractError}
           status={extractStatus}

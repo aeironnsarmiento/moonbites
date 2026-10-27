@@ -30,6 +30,10 @@ def _validate_http_url(value: str, *, field_name: str) -> str:
 
 class ExtractRequest(BaseModel):
     url: str = Field(..., min_length=1, max_length=2048)
+    # The page's text, pasted by the admin when the site blocks our fetch; the
+    # URL is then recorded as the source but never fetched. A whole page copied
+    # from a browser can run long, so the parser trims it rather than refusing.
+    page_text: Optional[str] = Field(None, max_length=200_000)
 
 
 class CreateManualRecipeRequest(BaseModel):
