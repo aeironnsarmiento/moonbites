@@ -1,3 +1,4 @@
+import { ApiError } from "../services/apiClient";
 import { advanceImportJob, extractRecipe } from "../services/extractService";
 import type { ExtractResponse, ImportJobErrorCode } from "../types/api";
 
@@ -138,6 +139,12 @@ export function buildExtractStatus(response: ExtractResponse) {
   return `${importMessage}${databaseMessage}`;
 }
 
-export async function submitRecipeImport(url: string) {
-  return extractRecipe(url);
+/** Pass `pageText` to import from text the admin pasted instead of fetching the URL. */
+export async function submitRecipeImport(url: string, pageText?: string) {
+  return extractRecipe(url, pageText);
+}
+
+/** The site refused the backend's fetch, so the admin can paste its text instead. */
+export function isTargetSiteBlockedError(error: unknown): boolean {
+  return error instanceof ApiError && error.code === "target_site_blocked";
 }

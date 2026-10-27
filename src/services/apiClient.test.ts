@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getCurrentAccessToken } from "./supabaseClient";
-import { apiRequest } from "./apiClient";
+import { ApiError, apiRequest } from "./apiClient";
 
 vi.mock("./supabaseClient", () => ({
   getCurrentAccessToken: vi.fn(),
@@ -51,5 +51,25 @@ describe("apiRequest", () => {
     await expect(apiRequest("/api/test")).rejects.toThrow(
       "source_url: source_url must start with http:// or https://",
     );
+  });
+
+  it("keeps the status and code of a structured error detail", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({
+        detail: { code: "target_site_blocked", message: "This site blocks automated imports." },
+      }),
+    } as Response);
+
+    const error = await apiRequest("/api/test").catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({
+      message: "This site blocks automated imports.",
+      status: 502,
+      code: "target_site_blocked",
+    });
   });
 });

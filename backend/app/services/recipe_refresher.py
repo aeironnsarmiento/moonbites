@@ -46,6 +46,9 @@ def _source_urls(record: RecipeImportRecord) -> list[str]:
 
 
 def _http_exception_message(error: HTTPException) -> str:
+    # A structured detail (e.g. a blocked site) carries its text in "message".
+    if isinstance(error.detail, dict) and error.detail.get("message"):
+        return str(error.detail["message"])
     return str(error.detail or error.status_code)
 
 

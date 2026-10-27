@@ -30,6 +30,7 @@ export function HomePage() {
     isInterrupted,
     isResuming,
     resume,
+    blockedUrl,
   } = useExtractRecipe({ onSaved });
 
   return (
@@ -49,6 +50,7 @@ export function HomePage() {
         isInterrupted={isInterrupted}
         isResuming={isResuming}
         onResume={resume}
+        isSiteBlocked={blockedUrl !== null && blockedUrl === url.trim()}
       />
 
       {!isLoading && <StatusBanner error={error} />}

@@ -21,7 +21,11 @@ from ...schemas.extract import (
     ParseStatus,
 )
 from ...schemas.import_jobs import ResultImportResponse, pending_response
-from ...services.extractor import extract_recipes_from_url
+from ...services.extractor import (
+    extract_recipes_from_pasted_text,
+    extract_recipes_from_url,
+    is_social_video_url,
+)
 from ...services.instagram.urls import (
     InstagramUrlError,
     is_instagram_url,
@@ -107,10 +111,19 @@ async def extract_ld_json(
     payload: ExtractRequest,
     admin: AuthenticatedAdmin = Depends(require_admin_user),
 ):
-    if is_instagram_url(payload.url):
+    if payload.page_text is not None:
+        if is_social_video_url(payload.url):
+            raise HTTPException(
+                status_code=400,
+                detail="Pasted text can only be imported for a recipe page URL.",
+            )
+        result = await extract_recipes_from_pasted_text(
+            payload.url, payload.page_text
+        )
+    elif is_instagram_url(payload.url):
         return await _handle_instagram_extract(payload.url, admin)
-
-    result = await extract_recipes_from_url(payload.url)
+    else:
+        result = await extract_recipes_from_url(payload.url)
 
     if result.parse_status == ParseStatus.NOT_RECIPE:
         return ExtractResponse(

@@ -6,6 +6,28 @@ const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL
 ).replace(/\/$/, "");
 
+/** A failed API call, with the backend's machine-readable `detail.code` when it sent one. */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+
+  constructor(message: string, status: number, code: string | null) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+function extractApiErrorCode(detail: unknown): string | null {
+  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+    const code = (detail as { code?: unknown }).code;
+    return typeof code === "string" ? code : null;
+  }
+
+  return null;
+}
+
 export function buildApiUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) {
     return path;
@@ -91,12 +113,12 @@ export async function apiRequest<T>(
     : null;
 
   if (!response.ok) {
+    const detail =
+      data && typeof data === "object" && "detail" in data ? data.detail : undefined;
     const message =
-      data && typeof data === "object" && "detail" in data
-        ? extractApiErrorMessage(data.detail) ??
-          `API request failed with status ${response.status}.`
-        : `API request failed with status ${response.status}.`;
-    throw new Error(message);
+      extractApiErrorMessage(detail) ??
+      `API request failed with status ${response.status}.`;
+    throw new ApiError(message, response.status, extractApiErrorCode(detail));
   }
 
   if (data == null) {
