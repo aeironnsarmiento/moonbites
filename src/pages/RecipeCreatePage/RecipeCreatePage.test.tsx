@@ -105,4 +105,15 @@ describe("RecipeCreatePage paste-text import", () => {
 
     expect(pageTextBox()).toBeNull();
   });
+
+  it("lets a fresh URL import decide again for a URL the home import found blocked", async () => {
+    const submitRecipe = vi.fn().mockResolvedValue(undefined);
+    mockedUseExtractRecipe.mockReturnValue(extractResult({ submitRecipe }));
+    renderPage({ importUrl: BLOCKED_URL, siteBlocked: true });
+
+    fireEvent.submit(screen.getByLabelText(/^URL/).closest("form")!);
+
+    await waitFor(() => expect(submitRecipe).toHaveBeenCalledWith(BLOCKED_URL));
+    expect(pageTextBox()).toBeNull();
+  });
 });

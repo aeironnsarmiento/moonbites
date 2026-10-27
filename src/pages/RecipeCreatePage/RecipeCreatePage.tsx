@@ -103,7 +103,7 @@ export function RecipeCreatePage() {
   const [url, setUrl] = useState(
     () => (location.state as RecipeCreateLocationState | null)?.importUrl ?? "",
   );
-  const [seededBlockedUrl] = useState(() => {
+  const [seededBlockedUrl, setSeededBlockedUrl] = useState(() => {
     const state = location.state as RecipeCreateLocationState | null;
     return state?.siteBlocked ? (state.importUrl ?? null) : null;
   });
@@ -150,6 +150,8 @@ export function RecipeCreatePage() {
 
   const handleUrlSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    // A fresh URL import decides afresh whether the site is blocked.
+    setSeededBlockedUrl(null);
     await submitRecipe(trimmedUrl);
   };
 
