@@ -13,6 +13,11 @@ export function useNavigationLink(path: string) {
       if (event.key !== "Enter" && event.key !== " ") {
         return;
       }
+      // Keys pressed on a nested control (the favorite button) bubble up
+      // here; let that control handle them instead of navigating away.
+      if (event.target !== event.currentTarget) {
+        return;
+      }
 
       event.preventDefault();
       navigate(path);

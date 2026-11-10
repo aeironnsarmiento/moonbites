@@ -149,6 +149,17 @@ def extract_json_ld_blocks(html: str) -> tuple[Optional[str], list[JsonLdBlock]]
                     parse_error=f"Invalid JSON: {error.msg} (line {error.lineno}, column {error.colno})",
                 )
             )
+        except RecursionError:
+            # Pathologically nested JSON (e.g. thousands of "[") exhausts the
+            # stack in json.loads; treat it as an unparseable block.
+            blocks.append(
+                JsonLdBlock(
+                    index=index,
+                    raw=content,
+                    parsed=None,
+                    parse_error="Invalid JSON: nested too deeply",
+                )
+            )
 
     return title, blocks
 

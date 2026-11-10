@@ -97,3 +97,19 @@ def test_malformed_upgrade_target_still_fails_closed():
                 resolver=_resolver({}),
             )
         )
+
+
+def test_deeply_nested_json_ld_is_reported_as_invalid_not_raised():
+    from app.services.blog.extractor import parse_recipes_from_html
+
+    html = (
+        '<html><head><title>Deep</title><script type="application/ld+json">'
+        + "[" * 100_000
+        + "</script></head><body></body></html>"
+    )
+
+    result = parse_recipes_from_html(
+        html, source_url="https://example.com/x", final_url="https://example.com/x"
+    )
+
+    assert result.recipes == []

@@ -244,11 +244,38 @@ def test_sectioned_caption_populates_ingredient_sections():
         parsed = _parse(caption=caption)
 
     assert parsed.raw_recipe["ingredientSections"] == [
+        {"recipeIngredient": ["8 oz noodles", "2 tbsp butter"]},
         {
             "name": "For the sauce",
             "recipeIngredient": ["1 tbsp soy sauce", "1 tsp sugar"],
-        }
+        },
     ]
+
+
+def test_section_items_missing_from_flat_list_are_dropped():
+    caption = CAPTION + "\nFor the sauce:\n- 1 tbsp soy sauce\n- 1 tsp sugar\n"
+    client = _AsyncClientContext(
+        _Response(
+            _gemini_body(
+                {
+                    "is_recipe": True,
+                    "name": "Garlic Noodles",
+                    "ingredients": ["8 oz noodles", "2 tbsp butter"],
+                    "instructions": ["Boil noodles for 8 minutes."],
+                    "ingredient_sections": [
+                        {"title": "Extras", "items": ["500g wagyu beef", "3 lobster tails"]}
+                    ],
+                }
+            )
+        )
+    )
+
+    settings_patch, client_patch = _patched(client)
+    with settings_patch, client_patch:
+        parsed = _parse(caption=caption)
+
+    assert "ingredientSections" not in parsed.raw_recipe
+    assert parsed.raw_recipe["recipeIngredient"] == ["8 oz noodles", "2 tbsp butter"]
 
 
 def test_not_recipe_verdict_carries_reason():

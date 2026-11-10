@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -10,6 +11,7 @@ from ...repositories.import_jobs import (
     ImportJobStorageError,
     create_or_reuse_job,
     find_existing_recipe_by_canonical_url,
+    terminalize_stale_jobs,
 )
 from ...repositories.recipe_imports import save_recipe_import
 from ...schemas.extract import (
@@ -34,6 +36,7 @@ from ...services.instagram.urls import (
 
 
 router = APIRouter(prefix="/api", tags=["extract"])
+logger = logging.getLogger(__name__)
 
 
 def _sanitize_database_message(database_saved: bool, message: str) -> str:
@@ -79,6 +82,15 @@ async def _handle_instagram_extract(
     if existing is not None:
         envelope = ResultImportResponse(result=_existing_recipe_response(existing))
         return JSONResponse(content=jsonable_encoder(envelope), status_code=200)
+
+    # Jobs only advance while a client polls them, so an abandoned import
+    # (tab closed mid-poll) never reaches a terminal state by itself and keeps
+    # counting against the active-job ceilings. Sweep jobs past their stale
+    # deadline before the ceiling check; best-effort, the create still runs.
+    try:
+        terminalize_stale_jobs(dry_run=False)
+    except ImportJobStorageError:
+        logger.warning("Could not terminalize stale Instagram import jobs.")
 
     try:
         outcome = create_or_reuse_job(admin.email, identity.canonical_url)

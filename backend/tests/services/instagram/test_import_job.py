@@ -1667,3 +1667,76 @@ def test_creator_site_lookup_gets_the_fallback_only_when_unspent(linked_recipe_u
     assert find.call_args.kwargs["allow_page_fallback"] is allowed
     assert callable(find.call_args.kwargs["page_parse"])
     assert result.state == ImportJobState.NOT_RECIPE
+
+
+# --- unexpected failures ------------------------------------------------------
+
+
+def _resolving_job():
+    return _job(
+        state=ImportJobState.RESOLVING_RECIPE,
+        reel_dataset_id="dataset1",
+        candidate_name="Raspberry Chia Pudding",
+    )
+
+
+def _caption_link_script():
+    return _ApifyScript(
+        **{
+            "/datasets/dataset1/items": lambda r: _reel_dataset_response(
+                caption="Full recipe here: https://tasty.co/recipe/raspberry-chia-pudding"
+            ),
+        }
+    )
+
+
+def test_unexpected_handler_error_fails_the_job_instead_of_wedging_it():
+    job = _resolving_job()
+    checkpoints: list[dict] = []
+
+    def _checkpoint(*_args, **kwargs):
+        checkpoints.append(kwargs)
+        return job.model_copy(update={"state": ImportJobState(kwargs["state"])})
+
+    async def _boom(*_args, **_kwargs):
+        raise ValueError("parser exploded")
+
+    deps = OrchestrationDeps(apify_transport=httpx.MockTransport(_caption_link_script()))
+    with (
+        patch("app.services.instagram.import_job.checkpoint_job", side_effect=_checkpoint),
+        patch("app.services.instagram.import_job.get_job_for_owner", return_value=job),
+        patch(
+            "app.services.instagram.import_job.release_provider_admission"
+        ) as release,
+        patch("app.services.instagram.import_job._fetch_html_page", side_effect=_boom),
+    ):
+        result = _run_advance(job, deps=deps)
+
+    assert result.state == ImportJobState.FAILED
+    assert checkpoints[-1]["state"] == "failed"
+    assert checkpoints[-1]["error_code"] == "ambiguous_external_operation"
+    assert checkpoints[-1]["release_lease"] is True
+    release.assert_not_called()
+
+
+def test_unexpected_handler_error_after_lease_loss_does_not_fail_the_job():
+    job = _resolving_job()
+
+    async def _boom(*_args, **_kwargs):
+        raise ValueError("parser exploded")
+
+    deps = OrchestrationDeps(apify_transport=httpx.MockTransport(_caption_link_script()))
+    with (
+        patch("app.services.instagram.import_job.checkpoint_job") as checkpoint,
+        patch(
+            "app.services.instagram.import_job.get_job_for_owner",
+            return_value=job.model_copy(update={"lease_token": "someone-else"}),
+        ),
+        patch("app.services.instagram.import_job._fetch_html_page", side_effect=_boom),
+    ):
+        from app.services.instagram.import_job import OrchestrationHalted
+
+        with pytest.raises(OrchestrationHalted):
+            _run_advance(job, deps=deps)
+
+    checkpoint.assert_not_called()

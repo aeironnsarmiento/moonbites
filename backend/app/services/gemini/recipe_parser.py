@@ -168,6 +168,38 @@ def _clean_lines(values: list[str]) -> list[str]:
     return [cleaned for value in values if (cleaned := value.strip())]
 
 
+def _grounded_sections(
+    raw_sections: Optional[list[GeminiIngredientSection]], ingredients: list[str]
+) -> list[dict[str, Any]]:
+    """Sections restricted to the flat ingredient list, covering all of it.
+
+    The normalizer prefers sections over the flat list, so sections must not
+    carry anything the fabrication check (which only sees the flat list) did
+    not vet, and must not silently drop flat ingredients left ungrouped.
+    """
+    if not raw_sections:
+        return []
+
+    allowed = set(ingredients)
+    grouped: set[str] = set()
+    sections: list[dict[str, Any]] = []
+    for section in raw_sections:
+        title = section.title.strip()
+        items = [item for item in _clean_lines(section.items) if item in allowed]
+        if not title or not items:
+            continue
+        grouped.update(items)
+        sections.append({"name": title, "recipeIngredient": items})
+
+    if not sections:
+        return []
+
+    ungrouped = [item for item in ingredients if item not in grouped]
+    if ungrouped:
+        sections.insert(0, {"recipeIngredient": ungrouped})
+    return sections
+
+
 def _looks_fabricated(source_text: str, lines: list[str]) -> bool:
     source_tokens = set(_OVERLAP_TOKEN_PATTERN.findall(source_text.casefold()))
     if not source_tokens:
@@ -345,14 +377,9 @@ def _build_parsed_caption(
     recipe_cuisine = (payload.recipe_cuisine or "").strip()
     if recipe_cuisine:
         raw_recipe["recipeCuisine"] = recipe_cuisine
-    if payload.ingredient_sections:
-        sections = [
-            {"name": section.title.strip(), "recipeIngredient": _clean_lines(section.items)}
-            for section in payload.ingredient_sections
-            if section.title.strip() and _clean_lines(section.items)
-        ]
-        if sections:
-            raw_recipe["ingredientSections"] = sections
+    sections = _grounded_sections(payload.ingredient_sections, ingredients)
+    if sections:
+        raw_recipe["ingredientSections"] = sections
 
     return ParsedCaption(
         raw_recipe=raw_recipe,

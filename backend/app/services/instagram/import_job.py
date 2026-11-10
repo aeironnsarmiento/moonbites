@@ -12,6 +12,7 @@ from ...repositories.import_jobs import (
     ImportJobStorageError,
     checkpoint_job,
     find_existing_recipe_by_canonical_url,
+    get_job_for_owner,
     reconcile_provider_admission,
     reserve_provider_admission,
     release_provider_admission,
@@ -823,3 +824,29 @@ async def advance_instagram_job(
             error.code.value,
         )
         return await _fail(job, _map_apify_error(error))
+    except (OrchestrationHalted, ImportJobStorageError):
+        raise
+    except Exception:
+        # Anything else (a parser blowing up on a hostile linked page, say)
+        # would otherwise escape to the route, checkpoint nothing, and re-run
+        # the same failing step on every lease expiry while the job counts
+        # against the active-job ceilings. Fail it terminally instead. The
+        # admission slot is held, as with any ambiguous external operation:
+        # the reclaim path frees it once the job is terminal and old enough.
+        logger.exception(
+            "Instagram job %s failed unexpectedly in state %s", job.id, job.state.value
+        )
+        return await _fail_unexpected(job)
+
+
+async def _fail_unexpected(job: ImportJobRecord) -> ImportJobRecord:
+    # The handler may have checkpointed (bumping the version) before it
+    # raised, so the record passed in can be stale. The lease token survives
+    # non-releasing checkpoints, so re-read the job and fail it only while
+    # this advance still holds that lease.
+    current = get_job_for_owner(job.id, job.owner_email)
+    if current is None or current.lease_token != job.lease_token:
+        raise OrchestrationHalted("Lost the job lease mid-advance.")
+    return await _fail(
+        current, ImportJobErrorCode.AMBIGUOUS_EXTERNAL_OPERATION, release_admission=False
+    )

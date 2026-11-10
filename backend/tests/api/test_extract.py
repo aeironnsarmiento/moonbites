@@ -489,3 +489,66 @@ def test_extract_response_serializes_parse_status_as_its_string_value(status):
     )
 
     assert response.model_dump(mode="json")["parse_status"] == status
+
+
+def test_extract_instagram_url_sweeps_stale_jobs_before_ceiling_check():
+    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+        email="admin@example.com", access_token="admin-token"
+    )
+    calls: list[str] = []
+
+    try:
+        with (
+            patch(
+                "backend.app.api.routes.extract.find_existing_recipe_by_canonical_url",
+                return_value=None,
+            ),
+            patch(
+                "backend.app.api.routes.extract.terminalize_stale_jobs",
+                side_effect=lambda **kwargs: calls.append(f"sweep:{kwargs}") or [],
+            ),
+            patch(
+                "backend.app.api.routes.extract.create_or_reuse_job",
+                side_effect=lambda *a: calls.append("create")
+                or JobCreationOutcome(job=_import_job(), outcome="created"),
+            ),
+        ):
+            response = client.post(
+                "/api/extract",
+                json={"url": "https://www.instagram.com/reel/DZuzc9PNedT/"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 202
+    assert calls == ["sweep:{'dry_run': False}", "create"]
+
+
+def test_extract_instagram_url_still_creates_job_when_stale_sweep_fails():
+    app.dependency_overrides[require_admin_user] = lambda: AuthenticatedAdmin(
+        email="admin@example.com", access_token="admin-token"
+    )
+
+    try:
+        with (
+            patch(
+                "backend.app.api.routes.extract.find_existing_recipe_by_canonical_url",
+                return_value=None,
+            ),
+            patch(
+                "backend.app.api.routes.extract.terminalize_stale_jobs",
+                side_effect=ImportJobStorageError("down"),
+            ),
+            patch(
+                "backend.app.api.routes.extract.create_or_reuse_job",
+                return_value=JobCreationOutcome(job=_import_job(), outcome="created"),
+            ),
+        ):
+            response = client.post(
+                "/api/extract",
+                json={"url": "https://www.instagram.com/reel/DZuzc9PNedT/"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 202
