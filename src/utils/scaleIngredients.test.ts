@@ -29,6 +29,12 @@ describe("scaleIngredient", () => {
     expect(scaleIngredient("1 – 2 cups stock", 3)).toBe("3 – 6 cups stock");
   });
 
+  it("scales a count followed by a package size, not the size", () => {
+    expect(scaleIngredient("1 - 400g can tomatoes", 2)).toBe(
+      "2 - 400g can tomatoes",
+    );
+  });
+
   it("leaves unparseable lines unchanged", () => {
     expect(scaleIngredient("a pinch of salt", 2)).toBe("a pinch of salt");
   });

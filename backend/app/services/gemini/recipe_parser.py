@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import time
-from collections import deque
+from collections import Counter, deque
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -180,21 +180,30 @@ def _grounded_sections(
     if not raw_sections:
         return []
 
-    allowed = set(ingredients)
-    grouped: set[str] = set()
+    # Multiset bookkeeping: a line listed twice in the flat list (salt in the
+    # dough and the filling) must be grouped or kept ungrouped twice.
+    remaining = Counter(ingredients)
     sections: list[dict[str, Any]] = []
     for section in raw_sections:
         title = section.title.strip()
-        items = [item for item in _clean_lines(section.items) if item in allowed]
-        if not title or not items:
+        if not title:
             continue
-        grouped.update(items)
-        sections.append({"name": title, "recipeIngredient": items})
+        items: list[str] = []
+        for item in _clean_lines(section.items):
+            if remaining[item] > 0:
+                remaining[item] -= 1
+                items.append(item)
+        if items:
+            sections.append({"name": title, "recipeIngredient": items})
 
     if not sections:
         return []
 
-    ungrouped = [item for item in ingredients if item not in grouped]
+    ungrouped: list[str] = []
+    for item in ingredients:
+        if remaining[item] > 0:
+            remaining[item] -= 1
+            ungrouped.append(item)
     if ungrouped:
         sections.insert(0, {"recipeIngredient": ungrouped})
     return sections

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Optional
@@ -11,6 +10,7 @@ from pydantic import ValidationError
 
 from ...core.config import Settings
 from ..public_web import upgrade_to_https
+from ..json_utils import loads_untrusted_json
 from .models import (
     ApifyProviderError,
     ApifyProfileItem,
@@ -227,8 +227,8 @@ class ApifyClient:
         if content_type.split(";", 1)[0].strip().casefold() != "application/json":
             _fail(ProviderErrorCode.PROVIDER_INVALID_RESPONSE)
         try:
-            return json.loads(bytes(content))
-        except (UnicodeDecodeError, json.JSONDecodeError):
+            return loads_untrusted_json(bytes(content))
+        except ValueError:  # includes UnicodeDecodeError and JSONDecodeError
             _fail(ProviderErrorCode.PROVIDER_INVALID_RESPONSE)
 
     async def preflight_spend(self) -> None:

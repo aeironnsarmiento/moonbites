@@ -6,7 +6,7 @@ export type ParsedQuantity = {
   /** Text between the two ends of a range, e.g. "-" or " to ". */
   rangeSeparator?: string;
   /** Whitespace between the quantity and the rest ("" for "200g"). */
-  separator?: string;
+  separator: string;
 };
 
 const VULGAR_FRACTIONS: Record<string, number> = {
@@ -42,6 +42,8 @@ const NUMBER_SOURCE = [
   `(${VULGAR_CLASS})`,
   `(\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?|\\.\\d+)`,
 ].join("|");
+
+const MAX_RANGE_RATIO = 10;
 
 const LEADING_NUMBER = new RegExp(`^(?:${NUMBER_SOURCE})`, "u");
 const RANGE_TAIL = new RegExp(
@@ -91,7 +93,9 @@ export function parseQuantity(text: string): ParsedQuantity | null {
   const range = remainder.match(RANGE_TAIL);
   if (range) {
     const upper = valueFromMatch(range, 1);
-    if (upper != null) {
+    // A real range climbs modestly ("1-2", "10-12"). Anything else is a count
+    // followed by a size, e.g. "1 - 400g can": scale the count, not the can.
+    if (upper != null && upper > value && upper <= value * MAX_RANGE_RATIO) {
       upperValue = upper;
       rangeSeparator = range[1];
       remainder = remainder.slice(range[0].length);

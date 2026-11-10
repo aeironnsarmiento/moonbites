@@ -1727,10 +1727,14 @@ def test_unexpected_handler_error_after_lease_loss_does_not_fail_the_job():
 
     deps = OrchestrationDeps(apify_transport=httpx.MockTransport(_caption_link_script()))
     with (
-        patch("app.services.instagram.import_job.checkpoint_job") as checkpoint,
+        patch(
+            "app.services.instagram.import_job.checkpoint_job", return_value=None
+        ) as checkpoint,
         patch(
             "app.services.instagram.import_job.get_job_for_owner",
-            return_value=job.model_copy(update={"lease_token": "someone-else"}),
+            return_value=job.model_copy(
+                update={"lease_token": "someone-else", "version": job.version + 1}
+            ),
         ),
         patch("app.services.instagram.import_job._fetch_html_page", side_effect=_boom),
     ):
@@ -1739,4 +1743,44 @@ def test_unexpected_handler_error_after_lease_loss_does_not_fail_the_job():
         with pytest.raises(OrchestrationHalted):
             _run_advance(job, deps=deps)
 
-    checkpoint.assert_not_called()
+    assert checkpoint.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "error, expected_code",
+    [
+        (ValueError("parser exploded"), "ambiguous_external_operation"),
+        (None, "resolution_timeout"),
+    ],
+)
+def test_outer_failure_after_a_mid_handler_checkpoint_fails_the_current_version(
+    error, expected_code
+):
+    from app.services.import_deadline import DeadlineExceededError
+    from app.services.instagram import import_job as module
+
+    job = _resolving_job()
+    bumped = job.model_copy(update={"version": job.version + 1})
+    checkpoints: list[tuple[int, dict]] = []
+
+    def _checkpoint(_job_id, _lease_token, expected_version, **kwargs):
+        checkpoints.append((expected_version, kwargs))
+        if expected_version != bumped.version:
+            return None
+        return bumped.model_copy(update={"state": ImportJobState(kwargs["state"])})
+
+    async def _handler(current, **_kwargs):
+        # The handler checkpointed (version 3 -> 4) before it raised.
+        raise error if error is not None else DeadlineExceededError()
+
+    with (
+        patch.dict(module._STATE_HANDLERS, {ImportJobState.RESOLVING_RECIPE: _handler}),
+        patch("app.services.instagram.import_job.checkpoint_job", side_effect=_checkpoint),
+        patch("app.services.instagram.import_job.get_job_for_owner", return_value=bumped),
+        patch("app.services.instagram.import_job.release_provider_admission"),
+    ):
+        result = _run_advance(job)
+
+    assert result.state == ImportJobState.FAILED
+    assert [version for version, _ in checkpoints] == [job.version, bumped.version]
+    assert checkpoints[-1][1]["error_code"] == expected_code

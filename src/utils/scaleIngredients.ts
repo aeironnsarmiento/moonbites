@@ -17,10 +17,8 @@ export function scaleIngredient(text: string, factor: number): string {
     return quantity;
   }
 
-  // Keep the original spacing ("200g" stays attached), but never glue a
-  // spelled-out quantity to a word it was separated from.
-  const separator = parsed.separator ?? " ";
-  return `${quantity}${separator}${parsed.rest}`;
+  // Keep the original spacing, so "200g" stays attached.
+  return `${quantity}${parsed.separator}${parsed.rest}`;
 }
 
 export function scaleIngredients(items: string[], factor: number): string[] {

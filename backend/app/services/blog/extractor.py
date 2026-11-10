@@ -19,6 +19,7 @@ from ..extraction_types import ExtractionResult, FallbackTrigger, PageText
 from ..http_utils import UpstreamErrorDetails, get_page, translate_httpx_errors
 from ..image_extraction import extract_image_url
 from ..import_deadline import SYNC_IMPORT_DEADLINE_SECONDS, Deadline
+from ..json_utils import loads_untrusted_json
 from ..normalizer import collect_recipe_nodes, normalize_recipe
 from ..public_web import Resolver, fetch_public_html, upgrade_to_https
 from ..recipe_identity import dedupe_by_content
@@ -136,7 +137,7 @@ def extract_json_ld_blocks(html: str) -> tuple[Optional[str], list[JsonLdBlock]]
             continue
 
         try:
-            parsed = json.loads(content)
+            parsed = loads_untrusted_json(content)
             blocks.append(
                 JsonLdBlock(index=index, raw=content, parsed=parsed, parse_error=None)
             )
@@ -149,15 +150,13 @@ def extract_json_ld_blocks(html: str) -> tuple[Optional[str], list[JsonLdBlock]]
                     parse_error=f"Invalid JSON: {error.msg} (line {error.lineno}, column {error.colno})",
                 )
             )
-        except RecursionError:
-            # Pathologically nested JSON (e.g. thousands of "[") exhausts the
-            # stack in json.loads; treat it as an unparseable block.
+        except ValueError as error:
             blocks.append(
                 JsonLdBlock(
                     index=index,
                     raw=content,
                     parsed=None,
-                    parse_error="Invalid JSON: nested too deeply",
+                    parse_error=f"Invalid JSON: {error}",
                 )
             )
 
