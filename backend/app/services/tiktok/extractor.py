@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any, Optional
 from urllib.parse import urlparse
@@ -14,6 +13,7 @@ from ..blog.extractor import normalize_url
 from ..extraction_types import ExtractionResult
 from ..http_utils import UpstreamErrorDetails, get_page, translate_httpx_errors
 from ..import_deadline import SYNC_IMPORT_DEADLINE_SECONDS, Deadline
+from ..json_utils import loads_untrusted_json
 from ..social.caption_recipe import CaptionPost, extract_recipe_from_caption
 
 
@@ -76,7 +76,7 @@ def parse_tiktok_page(html: str) -> Optional[TikTokPost]:
         return None
 
     try:
-        data = json.loads(script.string)
+        data = loads_untrusted_json(script.string)
     except ValueError:
         return None
 

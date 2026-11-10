@@ -672,11 +672,20 @@ create table if not exists public.instagram_import_jobs (
   candidate_name text,
   normalized_result_json jsonb,
   linked_recipe_url text,
-  recipe_id uuid references public.recipe_imports (id),
+  recipe_id uuid references public.recipe_imports (id) on delete set null,
   error_code text,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
+
+-- A job only points at the recipe it saved; deleting that recipe must not be
+-- blocked by the job row. Recreate the FK on existing databases, where the
+-- create-table above is a no-op.
+alter table public.instagram_import_jobs
+  drop constraint if exists instagram_import_jobs_recipe_id_fkey;
+alter table public.instagram_import_jobs
+  add constraint instagram_import_jobs_recipe_id_fkey
+  foreign key (recipe_id) references public.recipe_imports (id) on delete set null;
 
 create unique index if not exists instagram_import_jobs_active_owner_reel_idx
   on public.instagram_import_jobs (owner_email, canonical_reel_url)

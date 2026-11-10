@@ -10,9 +10,12 @@ vi.mock("react-router-dom", () => ({
   useNavigate: () => navigate,
 }));
 
-function keyEvent(key: string) {
+function keyEvent(key: string, { fromChild = false } = {}) {
+  const card = {};
   return {
     key,
+    currentTarget: card,
+    target: fromChild ? {} : card,
     preventDefault: vi.fn(),
   } as unknown as KeyboardEvent<HTMLElement>;
 }
@@ -57,6 +60,21 @@ describe("useNavigationLink", () => {
     });
 
     expect(tabEvent.preventDefault).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("ignores Enter and Space bubbling from a nested control", () => {
+    const { result } = renderHook(() => useNavigationLink("/recipes/recipe-1"));
+    const enterEvent = keyEvent("Enter", { fromChild: true });
+    const spaceEvent = keyEvent(" ", { fromChild: true });
+
+    act(() => {
+      result.current.onKeyDown(enterEvent);
+      result.current.onKeyDown(spaceEvent);
+    });
+
+    expect(enterEvent.preventDefault).not.toHaveBeenCalled();
+    expect(spaceEvent.preventDefault).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
   });
 });

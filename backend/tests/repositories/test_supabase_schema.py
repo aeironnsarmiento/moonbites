@@ -281,7 +281,7 @@ def test_instagram_import_jobs_table_has_bounded_ktd15_columns():
         "candidate_name text",
         "normalized_result_json jsonb",
         "linked_recipe_url text",
-        "recipe_id uuid references public.recipe_imports (id)",
+        "recipe_id uuid references public.recipe_imports (id) on delete set null",
         "error_code text",
     ):
         assert column in normalized_sql, column
@@ -452,3 +452,15 @@ def test_instagram_job_rpcs_revoke_execute_from_browser_roles():
     ):
         assert fragment in normalized_sql
         assert "from anon, authenticated, public" in normalized_sql[normalized_sql.index(fragment):normalized_sql.index(fragment) + 400]
+
+
+def test_instagram_import_jobs_recipe_fk_does_not_block_recipe_delete():
+    normalized_sql = " ".join(SCHEMA_SQL.split()).casefold()
+
+    assert (
+        "drop constraint if exists instagram_import_jobs_recipe_id_fkey"
+    ) in normalized_sql
+    assert (
+        "add constraint instagram_import_jobs_recipe_id_fkey "
+        "foreign key (recipe_id) references public.recipe_imports (id) on delete set null"
+    ) in normalized_sql

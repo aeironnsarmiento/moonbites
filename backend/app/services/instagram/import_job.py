@@ -12,6 +12,7 @@ from ...repositories.import_jobs import (
     ImportJobStorageError,
     checkpoint_job,
     find_existing_recipe_by_canonical_url,
+    get_job_for_owner,
     reconcile_provider_admission,
     reserve_provider_admission,
     release_provider_admission,
@@ -810,7 +811,7 @@ async def advance_instagram_job(
     try:
         return await handler(job, deadline=deadline, deps=resolved_deps)
     except DeadlineExceededError:
-        return await _fail(job, ImportJobErrorCode.RESOLUTION_TIMEOUT)
+        return await _fail_latest(job, ImportJobErrorCode.RESOLUTION_TIMEOUT)
     except ApifyProviderError as error:
         # Reaching here means a handler built its ApifyClient outside a try --
         # configuration validation only, with no request issued. Without this
@@ -822,4 +823,46 @@ async def advance_instagram_job(
             job.state.value,
             error.code.value,
         )
-        return await _fail(job, _map_apify_error(error))
+        return await _fail_latest(job, _map_apify_error(error))
+    except (OrchestrationHalted, ImportJobStorageError):
+        raise
+    except Exception:
+        # Anything else (a parser blowing up on a hostile linked page, say)
+        # would otherwise escape to the route, checkpoint nothing, and re-run
+        # the same failing step on every lease expiry while the job counts
+        # against the active-job ceilings. Fail it terminally instead. The
+        # admission slot is held, as with any ambiguous external operation:
+        # the reclaim path frees it once the job is terminal and old enough.
+        logger.exception(
+            "Instagram job %s failed unexpectedly in state %s", job.id, job.state.value
+        )
+        return await _fail_latest(
+            job, ImportJobErrorCode.AMBIGUOUS_EXTERNAL_OPERATION, release_admission=False
+        )
+
+
+async def _fail_latest(
+    job: ImportJobRecord,
+    error_code: ImportJobErrorCode,
+    *,
+    release_admission: bool = True,
+) -> ImportJobRecord:
+    """Fail a job from the outer advance handler, tolerating a stale record.
+
+    A handler may checkpoint (bumping the version) before it raises, so the
+    record the outer handler holds can be one version behind and its
+    checkpoint would match no row. The lease token survives non-releasing
+    checkpoints, so on that miss re-read the job and fail the current version
+    -- but only while this advance still holds the lease.
+    """
+    try:
+        return await _fail(job, error_code, release_admission=release_admission)
+    except OrchestrationHalted:
+        current = get_job_for_owner(job.id, job.owner_email)
+        if (
+            current is None
+            or current.lease_token != job.lease_token
+            or current.version == job.version
+        ):
+            raise
+        return await _fail(current, error_code, release_admission=release_admission)

@@ -244,11 +244,38 @@ def test_sectioned_caption_populates_ingredient_sections():
         parsed = _parse(caption=caption)
 
     assert parsed.raw_recipe["ingredientSections"] == [
+        {"recipeIngredient": ["8 oz noodles", "2 tbsp butter"]},
         {
             "name": "For the sauce",
             "recipeIngredient": ["1 tbsp soy sauce", "1 tsp sugar"],
-        }
+        },
     ]
+
+
+def test_section_items_missing_from_flat_list_are_dropped():
+    caption = CAPTION + "\nFor the sauce:\n- 1 tbsp soy sauce\n- 1 tsp sugar\n"
+    client = _AsyncClientContext(
+        _Response(
+            _gemini_body(
+                {
+                    "is_recipe": True,
+                    "name": "Garlic Noodles",
+                    "ingredients": ["8 oz noodles", "2 tbsp butter"],
+                    "instructions": ["Boil noodles for 8 minutes."],
+                    "ingredient_sections": [
+                        {"title": "Extras", "items": ["500g wagyu beef", "3 lobster tails"]}
+                    ],
+                }
+            )
+        )
+    )
+
+    settings_patch, client_patch = _patched(client)
+    with settings_patch, client_patch:
+        parsed = _parse(caption=caption)
+
+    assert "ingredientSections" not in parsed.raw_recipe
+    assert parsed.raw_recipe["recipeIngredient"] == ["8 oz noodles", "2 tbsp butter"]
 
 
 def test_not_recipe_verdict_carries_reason():
@@ -745,3 +772,34 @@ def test_empty_page_text_is_not_recipe_without_spending_the_limit():
 
     assert parsed.is_complete is False
     assert client.calls == 0
+
+
+def test_duplicate_flat_ingredient_is_kept_when_grouped_once():
+    caption = (
+        "Bread\nIngredients:\n- 1 tsp salt\n- 2 cups flour\n- 1 tsp salt\n"
+        "For the dough:\n- 2 cups flour\n- 1 tsp salt\nSteps: Knead the dough."
+    )
+    client = _AsyncClientContext(
+        _Response(
+            _gemini_body(
+                {
+                    "is_recipe": True,
+                    "name": "Bread",
+                    "ingredients": ["1 tsp salt", "2 cups flour", "1 tsp salt"],
+                    "instructions": ["Knead the dough."],
+                    "ingredient_sections": [
+                        {"title": "For the dough", "items": ["2 cups flour", "1 tsp salt"]}
+                    ],
+                }
+            )
+        )
+    )
+
+    settings_patch, client_patch = _patched(client)
+    with settings_patch, client_patch:
+        parsed = _parse(caption=caption)
+
+    assert parsed.raw_recipe["ingredientSections"] == [
+        {"recipeIngredient": ["1 tsp salt"]},
+        {"name": "For the dough", "recipeIngredient": ["2 cups flour", "1 tsp salt"]},
+    ]

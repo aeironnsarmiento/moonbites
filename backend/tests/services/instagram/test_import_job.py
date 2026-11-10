@@ -1667,3 +1667,120 @@ def test_creator_site_lookup_gets_the_fallback_only_when_unspent(linked_recipe_u
     assert find.call_args.kwargs["allow_page_fallback"] is allowed
     assert callable(find.call_args.kwargs["page_parse"])
     assert result.state == ImportJobState.NOT_RECIPE
+
+
+# --- unexpected failures ------------------------------------------------------
+
+
+def _resolving_job():
+    return _job(
+        state=ImportJobState.RESOLVING_RECIPE,
+        reel_dataset_id="dataset1",
+        candidate_name="Raspberry Chia Pudding",
+    )
+
+
+def _caption_link_script():
+    return _ApifyScript(
+        **{
+            "/datasets/dataset1/items": lambda r: _reel_dataset_response(
+                caption="Full recipe here: https://tasty.co/recipe/raspberry-chia-pudding"
+            ),
+        }
+    )
+
+
+def test_unexpected_handler_error_fails_the_job_instead_of_wedging_it():
+    job = _resolving_job()
+    checkpoints: list[dict] = []
+
+    def _checkpoint(*_args, **kwargs):
+        checkpoints.append(kwargs)
+        return job.model_copy(update={"state": ImportJobState(kwargs["state"])})
+
+    async def _boom(*_args, **_kwargs):
+        raise ValueError("parser exploded")
+
+    deps = OrchestrationDeps(apify_transport=httpx.MockTransport(_caption_link_script()))
+    with (
+        patch("app.services.instagram.import_job.checkpoint_job", side_effect=_checkpoint),
+        patch("app.services.instagram.import_job.get_job_for_owner", return_value=job),
+        patch(
+            "app.services.instagram.import_job.release_provider_admission"
+        ) as release,
+        patch("app.services.instagram.import_job._fetch_html_page", side_effect=_boom),
+    ):
+        result = _run_advance(job, deps=deps)
+
+    assert result.state == ImportJobState.FAILED
+    assert checkpoints[-1]["state"] == "failed"
+    assert checkpoints[-1]["error_code"] == "ambiguous_external_operation"
+    assert checkpoints[-1]["release_lease"] is True
+    release.assert_not_called()
+
+
+def test_unexpected_handler_error_after_lease_loss_does_not_fail_the_job():
+    job = _resolving_job()
+
+    async def _boom(*_args, **_kwargs):
+        raise ValueError("parser exploded")
+
+    deps = OrchestrationDeps(apify_transport=httpx.MockTransport(_caption_link_script()))
+    with (
+        patch(
+            "app.services.instagram.import_job.checkpoint_job", return_value=None
+        ) as checkpoint,
+        patch(
+            "app.services.instagram.import_job.get_job_for_owner",
+            return_value=job.model_copy(
+                update={"lease_token": "someone-else", "version": job.version + 1}
+            ),
+        ),
+        patch("app.services.instagram.import_job._fetch_html_page", side_effect=_boom),
+    ):
+        from app.services.instagram.import_job import OrchestrationHalted
+
+        with pytest.raises(OrchestrationHalted):
+            _run_advance(job, deps=deps)
+
+    assert checkpoint.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "error, expected_code",
+    [
+        (ValueError("parser exploded"), "ambiguous_external_operation"),
+        (None, "resolution_timeout"),
+    ],
+)
+def test_outer_failure_after_a_mid_handler_checkpoint_fails_the_current_version(
+    error, expected_code
+):
+    from app.services.import_deadline import DeadlineExceededError
+    from app.services.instagram import import_job as module
+
+    job = _resolving_job()
+    bumped = job.model_copy(update={"version": job.version + 1})
+    checkpoints: list[tuple[int, dict]] = []
+
+    def _checkpoint(_job_id, _lease_token, expected_version, **kwargs):
+        checkpoints.append((expected_version, kwargs))
+        if expected_version != bumped.version:
+            return None
+        return bumped.model_copy(update={"state": ImportJobState(kwargs["state"])})
+
+    async def _handler(current, **_kwargs):
+        # The handler checkpointed (version 3 -> 4) before it raised.
+        raise error if error is not None else DeadlineExceededError()
+
+    with (
+        patch.dict(module._STATE_HANDLERS, {ImportJobState.RESOLVING_RECIPE: _handler}),
+        patch("app.services.instagram.import_job.checkpoint_job", side_effect=_checkpoint),
+        patch("app.services.instagram.import_job.get_job_for_owner", return_value=bumped),
+        patch("app.services.instagram.import_job.release_provider_admission"),
+    ):
+        result = _run_advance(job)
+
+    assert result.state == ImportJobState.FAILED
+    assert [version for version, _ in checkpoints] == [job.version, bumped.version]
+    assert checkpoints[-1][1]["error_code"] == expected_code

@@ -12,11 +12,18 @@ import { buildApiUrl } from "../../services/apiClient";
 import { getSupabaseClient } from "../../services/supabaseClient";
 
 async function fetchAdminEmail(accessToken: string): Promise<string | null> {
-  const response = await fetch(buildApiUrl("/api/auth/me"), {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(buildApiUrl("/api/auth/me"), {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+  } catch {
+    // Backend unreachable: treat as not-admin rather than leaving the
+    // provider stuck loading forever.
+    return null;
+  }
 
   if (!response.ok) {
     return null;
@@ -52,16 +59,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
     }
 
-    supabase.auth.getSession().then(async ({ data }) => {
-      if (!active) {
-        return;
-      }
-
-      await applySession(data.session);
-      if (active) {
-        setIsLoading(false);
-      }
-    });
+    supabase.auth
+      .getSession()
+      .then(async ({ data }) => {
+        if (active) {
+          await applySession(data.session);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setUserEmail(null);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setIsLoading(false);
+        }
+      });
 
     const {
       data: { subscription },

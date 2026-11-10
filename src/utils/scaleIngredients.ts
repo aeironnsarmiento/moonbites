@@ -6,7 +6,19 @@ export function scaleIngredient(text: string, factor: number): string {
     return text;
   }
 
-  return `${formatQuantity(parsed.value * factor)} ${parsed.rest}`.trim();
+  let quantity = formatQuantity(parsed.value * factor);
+  if (parsed.upperValue !== undefined) {
+    quantity += `${parsed.rangeSeparator ?? "-"}${formatQuantity(
+      parsed.upperValue * factor,
+    )}`;
+  }
+
+  if (!parsed.rest) {
+    return quantity;
+  }
+
+  // Keep the original spacing, so "200g" stays attached.
+  return `${quantity}${parsed.separator}${parsed.rest}`;
 }
 
 export function scaleIngredients(items: string[], factor: number): string[] {
